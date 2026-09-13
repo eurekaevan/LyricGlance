@@ -32,12 +32,16 @@ export const TranslationStatus = Object.freeze({
 
 export class TranslationService {
     constructor({
-        providers = [new OpenAITranslationProvider()],
+        providers = null,
+        providerOptions = {},
         credentialStore = new TranslationCredentialStore(),
         cache = new TranslationDiskCache(),
         batchingOptions = {},
     } = {}) {
-        this._providers = new Map(providers.map(provider =>
+        const configuredProviders = providers ?? [
+            new OpenAITranslationProvider(providerOptions),
+        ];
+        this._providers = new Map(configuredProviders.map(provider =>
             [provider.id, provider]));
         this._credentialStore = credentialStore;
         this._cache = cache;
@@ -61,6 +65,7 @@ export class TranslationService {
             lyricsHash,
             targetLanguage,
             providerId,
+            provider?.configurationId ?? providerId,
             provider?.model ?? '',
             allowNetwork ? 'network' : 'cache-only',
         ].join('\u0000');
@@ -103,6 +108,9 @@ export class TranslationService {
             return notify({status: TranslationStatus.PROVIDER_ERROR});
         if (!options.provider)
             return notify({status: TranslationStatus.PROVIDER_UNAVAILABLE});
+        if (typeof options.provider.model !== 'string' ||
+            !options.provider.model.trim())
+            return notify({status: TranslationStatus.PROVIDER_ERROR});
 
         const sourceLanguage = document.metadata?.language ?? 'unknown';
         if (languagesEquivalent(sourceLanguage, options.targetLanguage))
@@ -112,6 +120,8 @@ export class TranslationService {
             sourceLyricsHash: options.lyricsHash,
             targetLanguage: options.targetLanguage,
             provider: options.provider.id,
+            providerConfiguration: options.provider.configurationId ??
+                options.provider.id,
             model: options.provider.model,
         };
         if (!options.forceRefresh) {
@@ -178,6 +188,8 @@ export class TranslationService {
                 sourceLanguage,
                 targetLanguage: options.targetLanguage,
                 provider: options.provider.id,
+                providerConfiguration:
+                    options.provider.configurationId ?? options.provider.id,
                 model: options.provider.model,
                 lines: translatedLines,
             });

@@ -22,6 +22,36 @@ Gio._promisify(Soup.Session.prototype,
 
 class ResponseTooLargeError extends Error {}
 
+export function normalizeTranslationEndpoint(endpoint) {
+    if (typeof endpoint !== 'string')
+        return null;
+
+    const value = endpoint.trim();
+    if (!value)
+        return null;
+
+    try {
+        const uri = GLib.Uri.parse(value, GLib.UriFlags.NONE);
+        const scheme = uri.get_scheme()?.toLowerCase();
+        const host = uri.get_host()?.toLowerCase();
+        if (!['http', 'https'].includes(scheme) || !uri.get_host() ||
+            uri.get_userinfo() || uri.get_query() || uri.get_fragment())
+            return null;
+        if (scheme === 'http' && !['localhost', '127.0.0.1', '::1']
+            .includes(host))
+            return null;
+    } catch {
+        return null;
+    }
+
+    return value;
+}
+
+function endpointConfigurationId(endpoint) {
+    return GLib.compute_checksum_for_string(
+        GLib.ChecksumType.SHA256, endpoint ?? 'invalid', -1);
+}
+
 async function readResponse(session, message, limit, cancellable) {
     const stream = await session.send_async(
         message, GLib.PRIORITY_DEFAULT, cancellable);
@@ -183,7 +213,6 @@ function requestBody(document, options, model) {
     return {
         model,
         store: false,
-        reasoning: {effort: 'none'},
         instructions: [
             'Translate song lyrics into the requested target language.',
             'Use the full supplied context to preserve meaning and repeated lines.',
@@ -212,10 +241,11 @@ export class OpenAITranslationProvider {
         maxResponseBytes = MAX_RESPONSE_BYTES,
     } = {}) {
         this.id = OPENAI_PROVIDER_ID;
-        this.displayName = 'OpenAI';
-        this.model = model;
+        this.displayName = 'OpenAI-compatible Responses API';
+        this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
-        this._endpoint = endpoint;
+        this._endpoint = normalizeTranslationEndpoint(endpoint);
+        this.configurationId = endpointConfigurationId(this._endpoint);
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
@@ -232,10 +262,17 @@ export class OpenAITranslationProvider {
         if (cancellable?.is_cancelled())
             throw canceledError();
 
-        const message = Soup.Message.new('POST', this._endpoint);
+        if (!this.model)
+            throw new TranslationProviderError(
+                'provider_error', 'Translation model is not configured');
+
+        const message = this._endpoint
+            ? Soup.Message.new('POST', this._endpoint)
+            : null;
         if (!message)
             throw new TranslationProviderError(
                 'provider_error', 'Translation endpoint is invalid');
+        message.set_flags(Soup.MessageFlags.NO_REDIRECT);
         message.get_request_headers().append(
             'Authorization', `Bearer ${options.credential}`);
         const encoded = new TextEncoder().encode(JSON.stringify(
@@ -312,10 +349,16 @@ export class OpenAITranslationProvider {
 }
 
 export class MockTranslationProvider {
-    constructor({id = 'mock', model = 'mock-v1', delayMs = 0} = {}) {
+    constructor({
+        id = 'mock',
+        model = 'mock-v1',
+        configurationId = id,
+        delayMs = 0,
+    } = {}) {
         this.id = id;
         this.displayName = 'Mock';
         this.model = model;
+        this.configurationId = configurationId;
         this.requiresCredential = false;
         this.delayMs = delayMs;
         this.requestCount = 0;

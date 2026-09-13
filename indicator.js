@@ -98,9 +98,10 @@ class PanelLabelLayout extends Clutter.LayoutManager {
     setPanWidth(width) {
         const nextWidth = Math.max(0, Number(width) || 0);
         if (Math.abs(this._panWidth - nextWidth) < 0.5)
-            return;
+            return false;
         this._panWidth = nextWidth;
         this.layout_changed();
+        return true;
     }
 
     vfunc_get_preferred_width(container, forHeight) {
@@ -964,6 +965,10 @@ export class LyricsIndicator {
     _applyPanelWidth() {
         if (!this._labelViewport || !this._panelBox)
             return;
+        // Stop an active translation before width/style invalidation. A
+        // running transition can otherwise request a stage-view update while
+        // the panel hierarchy is waiting for its new allocation.
+        this._cancelPanelPan();
         const reservedForIcon = this._showIcon ? 22 : 0;
         const preferredWidth = Math.min(
             PANEL_PREFERRED_WIDTH, this._maxPanelWidth);
@@ -972,7 +977,8 @@ export class LyricsIndicator {
         this._panelBox.natural_width = preferredWidth;
         this._panelBox.set_style(`max-width: ${this._maxPanelWidth}px;`);
         this._labelViewport.set_style(`max-width: ${labelWidth}px;`);
-        this._schedulePanelPan();
+        // The viewport allocation signal will restart panning after Clutter
+        // has applied the new style width.
     }
 
     _setPanelPlaying(playing) {
@@ -992,6 +998,10 @@ export class LyricsIndicator {
 
     _schedulePanelPan() {
         this._cancelPanelPan();
+        this._queuePanelPan();
+    }
+
+    _queuePanelPan() {
         if (!this._panelPanScrollable || !this._panelPanTimeline ||
             !this._animationsEnabled() || !this._labelViewport?.mapped)
             return;
@@ -1022,7 +1032,20 @@ export class LyricsIndicator {
         if (!panState)
             return;
 
-        this._panelLabelLayout.setPanWidth(naturalWidth);
+        // Changing the custom layout invalidates the actor hierarchy. Let
+        // Clutter allocate the full-width pan label before changing visibility
+        // or starting a transition; doing both in one frame floods the Shell
+        // journal with "needs an allocation" warnings.
+        if (this._panelLabelLayout.setPanWidth(naturalWidth)) {
+            this._panelPanLaterId = this._laters.add(
+                Meta.LaterType.IDLE,
+                () => {
+                    this._panelPanLaterId = 0;
+                    this._startPanelPan();
+                    return GLib.SOURCE_REMOVE;
+                });
+            return;
+        }
         this._panelPanLabel.translation_x = panState.initialX;
         this._panelPanLabel.show();
         this._label.hide();
@@ -1062,10 +1085,9 @@ export class LyricsIndicator {
             this._panelPanLabel.translation_x = 0;
             this._panelPanLabel.hide();
         }
-        this._panelLabelLayout?.setPanWidth(0);
+        this._label?.show();
         this._panelPanTargetX = 0;
         this._panelPanPaused = false;
-        this._label?.show();
     }
 
     _pausePanelPan() {

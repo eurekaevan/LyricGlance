@@ -3,6 +3,7 @@ import Soup from 'gi://Soup?version=3.0';
 
 import {createLyricsDocument} from '../lyrics-document.js';
 import {
+    normalizeTranslationEndpoint,
     OpenAITranslationProvider,
     TranslationProviderError,
 } from '../translation-provider.js';
@@ -61,6 +62,12 @@ server.add_handler(null, (_server, message) => {
         message.set_status(Soup.Status.UNAUTHORIZED, null);
         return;
     }
+    if (mode === 'redirect') {
+        message.set_status(Soup.Status.TEMPORARY_REDIRECT, null);
+        message.get_response_headers().append(
+            'Location', `${endpoint}/redirected`);
+        return;
+    }
     message.set_status(Soup.Status.OK, null);
     let output;
     if (mode === 'malformed')
@@ -101,16 +108,43 @@ async function expectCode(callback, code, message) {
 }
 
 async function run() {
-    let provider = new OpenAITranslationProvider({endpoint});
+    assert(normalizeTranslationEndpoint(' https://proxy.example/v1/responses ') ===
+        'https://proxy.example/v1/responses' &&
+        normalizeTranslationEndpoint(endpoint) === endpoint &&
+        normalizeTranslationEndpoint('http://proxy.example/v1/responses') ===
+            null &&
+        normalizeTranslationEndpoint('https://user@proxy.example/v1/responses') ===
+            null &&
+        normalizeTranslationEndpoint('not a URL') === null,
+    'translation endpoints should be credential-safe HTTP(S) URLs');
+
+    let provider = new OpenAITranslationProvider({
+        endpoint,
+        model: 'custom-translation-model',
+    });
     let result = await translate(provider);
     assert(result.length === 2 && result[0].text === '[zh-CN] Hello' &&
         observed.authorization === 'Bearer unit-test-token' &&
         observed.userAgent.startsWith('MPRIS Lyrics/0.9.0') &&
+        observed.body.model === 'custom-translation-model' &&
         observed.body.store === false &&
+        !Object.hasOwn(observed.body, 'reasoning') &&
         observed.body.text.format.type === 'json_schema' &&
         observed.body.text.format.strict === true &&
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
+    provider.destroy();
+
+    provider = new OpenAITranslationProvider({
+        endpoint: 'not a URL',
+    });
+    await expectCode(() => translate(provider), 'provider_error',
+        'an invalid configured endpoint should fail without a network request');
+    provider.destroy();
+
+    provider = new OpenAITranslationProvider({endpoint, model: '   '});
+    await expectCode(() => translate(provider), 'provider_error',
+        'an empty configured model should fail without a network request');
     provider.destroy();
 
     provider = new OpenAITranslationProvider({
@@ -119,6 +153,15 @@ async function run() {
     });
     await expectCode(() => translate(provider), 'invalid_response',
         'an oversized translation response should be rejected');
+    provider.destroy();
+
+    mode = 'redirect';
+    requestCount = 0;
+    provider = new OpenAITranslationProvider({endpoint});
+    await expectCode(() => translate(provider), 'provider_error',
+        'redirects should be rejected instead of forwarding translation data');
+    assert(requestCount === 1,
+        'the translation provider should not follow redirects');
     provider.destroy();
 
     mode = 'malformed';

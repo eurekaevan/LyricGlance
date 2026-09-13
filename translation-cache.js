@@ -131,6 +131,8 @@ export class TranslationDiskCache {
                 record.sourceLyricsHash !== options.sourceLyricsHash ||
                 record.targetLanguage !== options.targetLanguage ||
                 record.provider !== options.provider ||
+                record.providerConfiguration !==
+                    options.providerConfiguration ||
                 record.model !== options.model)
                 return {hit: false};
             const document = createTranslationDocument({

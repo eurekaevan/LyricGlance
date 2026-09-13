@@ -32,13 +32,21 @@ Last updated: 2026-08-23
 - [ ] log out/in so GNOME Shell 50 fresh-imports the candidate ESM
 - [x] open Preferences from the installed candidate in English and Simplified Chinese
 - [x] verify upgrade preserves existing GSettings and leaves cache/config namespaces untouched
-- [ ] verify upgrade preserves an existing Secret Service credential (none was configured for this install)
-- [ ] verify a fresh profile with no cache/offset/credential starts cleanly
+- [x] verify upgrade preserves an existing Secret Service credential
+- [x] verify a fresh profile with no cache/offset/credential starts cleanly
 - [ ] verify Panel, Popup, Artwork, Progress, Lyrics, Word sync, Translation, Offset and Player select with a live MPRIS player
 - [ ] complete a 30–60 minute live soak including seek, track changes, popup, player switch, Firefox close/reopen and settings changes
-- [ ] inspect the post-soak user journal and record any warning/error
+- [x] inspect the post-soak user journal and record any warning/error
 - [x] review final screenshots and repository diff for personal or secret data
 
-The installed files are the final zip contents plus the expected locally compiled `schemas/gschemas.compiled`. The running Shell still reports the pre-hardening metadata because GNOME Shell 50 has cached the old module and metadata; logout/login is therefore a real remaining gate, not an optional refresh.
+## Live evidence recorded on 2026-08-23
+
+- A unique temporary Secret Service sentinel survived `make install`, was verified through the production credential store, and was then removed. No real credential was read or changed.
+- With the existing cache moved aside and the schema reset, the extension started from default settings, no credential, and no cache/config namespace, then discovered Firefox and populated one cache entry. The original cache and exact non-default settings were restored afterward.
+- The live Shell verified all five panel positions, paused visibility, width changes, Popup, Artwork, advancing Progress, timed Lyrics, Offset controls and Firefox/controlled-player selection and fallback. The no-key Translation state failed gracefully. A live word-synced MPRIS track and a successful credential-backed translation are still missing from the compound UI gate.
+- The pre-fix candidate completed 1,800 seconds of live monitoring: 60 heartbeats, 19 track changes, 4 player buses, 286 state events, 33 player-list events, 18 lyric loads, 57 synchronized samples and no player-unavailable event. Seek, pause/resume, A→B→A cache reuse, popup, settings and player fallback were exercised. The primary Firefox process was not force-closed; an independent temporary Firefox profile did not acquire a separate MPRIS owner, so the close/reopen part remains open.
+- The journal exposed 191 extension-related allocation-warning bursts while a long panel lyric was panning and its width changed. The candidate now stops the transition before style invalidation and waits for the new allocation before restarting it; the packaged headless regression passes without that warning. Unrelated Dash-to-Dock allocation warnings were also present. The fixed ESM still needs a fresh real-session import and journal recheck.
+
+The installed files are the final zip contents plus the expected locally compiled `schemas/gschemas.compiled`. The newest JavaScript contains the allocation-warning fix installed after the current Shell session imported the extension, so logout/login is a real remaining gate, not an optional refresh.
 
 The candidate must not be described as fully EGO-ready until every remaining final live desktop gate is checked. A headless Shell run validates the package and lifecycle but is not a substitute for a fresh logged-in GNOME session or a real provider/network soak.

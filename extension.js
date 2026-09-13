@@ -140,7 +140,7 @@ export default class MprisLyricsExtension extends Extension {
             placement.boxName);
 
         this._lyricsProvider = new LyricsProvider();
-        this._translationService = new TranslationService();
+        this._translationService = this._createTranslationService();
         this._mprisManager = new MprisManager(
             state => this._onPlayerStateChanged(state), {
                 onPlayersChanged: players => this._onPlayersChanged(players),
@@ -242,6 +242,12 @@ export default class MprisLyricsExtension extends Extension {
         });
         connect('translation-provider', () => {
             this._restartTranslation();
+        });
+        connect('translation-api-endpoint', () => {
+            this._replaceTranslationService();
+        });
+        connect('translation-model', () => {
+            this._replaceTranslationService();
         });
         connect('translation-display-mode', () => {
             this._translationDisplayMode = this._settings.get_string(
@@ -435,6 +441,29 @@ export default class MprisLyricsExtension extends Extension {
         if (!this._settings)
             return;
         this._cancelTranslation();
+        this._clearTranslation();
+        if (this._translationEnabled)
+            this._requestTranslation();
+        this._updateIndicatorAndSchedule(true);
+    }
+
+    _createTranslationService() {
+        return new TranslationService({
+            providerOptions: {
+                endpoint: this._settings.get_string(
+                    'translation-api-endpoint'),
+                model: this._settings.get_string('translation-model'),
+            },
+        });
+    }
+
+    _replaceTranslationService() {
+        if (!this._settings)
+            return;
+
+        this._cancelTranslation();
+        this._translationService?.destroy();
+        this._translationService = this._createTranslationService();
         this._clearTranslation();
         if (this._translationEnabled)
             this._requestTranslation();

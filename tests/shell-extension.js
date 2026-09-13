@@ -98,6 +98,10 @@ export async function run() {
         settings.get_boolean('auto-translate') &&
         settings.get_string('translation-target-language') === 'zh-CN' &&
         settings.get_string('translation-provider') === 'openai' &&
+        settings.get_string('translation-api-endpoint') ===
+            'https://api.openai.com/v1/responses' &&
+        settings.get_string('translation-model') ===
+            'gpt-5.4-mini-2026-03-17' &&
         settings.get_string('translation-display-mode') === 'bilingual' &&
         settings.get_string('panel-lyrics-language') === 'original' &&
         settings.get_int('global-offset-ms') === 0 &&
@@ -257,6 +261,17 @@ export async function run() {
     await Scripting.sleep(180);
     assert(view._panelPanLabel.translation_x < pausedPanX,
         'leaving hover should resume the panel lyric pan');
+    settings.set_int('max-panel-width', 150);
+    await Scripting.sleep(300);
+    assert(view._panelPanLabel.visible &&
+        view._panelPanLabel.width > view._labelViewport.width &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'resizing an active overflow should reallocate before resuming its pan');
+    settings.set_int('max-panel-width', 500);
+    await Scripting.sleep(300);
+    assert(view._panelPanLabel.visible &&
+        view._panelPanLabel.width > view._labelViewport.width,
+    'restoring the panel width should keep the active pan allocated');
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
@@ -693,6 +708,19 @@ export async function run() {
     const realMprisManager = instance._mprisManager;
     const realOffsetStore = instance._offsetStore;
     const realLyricsProvider = instance._lyricsProvider;
+    const initialTranslationService = instance._translationService;
+    settings.set_string('translation-model', 'custom-runtime-model');
+    await Scripting.sleep(50);
+    assert(instance._translationService !== initialTranslationService,
+        'changing the translation model should replace the provider service');
+    assert(initialTranslationService._providers.size === 0,
+        'replacing the translation service should destroy the old provider');
+    assert(instance._translationService._providers.get('openai').model ===
+        'custom-runtime-model',
+    'the replacement provider should use the newly configured model');
+    settings.set_string(
+        'translation-model', 'gpt-5.4-mini-2026-03-17');
+    await Scripting.sleep(50);
     const realTranslationService = instance._translationService;
     let runtimeCacheClears = 0;
     let lyricFetches = 0;

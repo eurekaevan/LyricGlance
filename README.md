@@ -63,16 +63,23 @@ gnome-extensions prefs mpris-lyrics@eureka
 ```
 
 可设置顶栏位置和宽度、暂停时可见性、逐字高亮、全局歌词时间偏移、翻译显示方式、
-目标语言、播放器偏好，以及清理扩展自己的缓存。每首歌曲的单独偏移在 popup 中调整。
+目标语言、翻译 API 端点和模型、播放器偏好，以及清理扩展自己的缓存。每首歌曲的单独
+偏移在 popup 中调整。
 
 设置通过 GSettings 即时生效。`preferred-player` 保存稳定的 DesktopEntry/Identity，
 不保存临时 MPRIS bus name。
 
 ## 翻译设置
 
-翻译默认关闭。启用前，在 Preferences 中选择 OpenAI provider 并通过“翻译 API 密钥”
-配置凭据。密钥只写入 GNOME Secret Service/libsecret，不进入 GSettings、JSON cache、
-请求日志或 Git。
+翻译默认关闭。Preferences 可配置完整的 OpenAI-compatible Responses API 端点、模型和
+API 密钥；默认端点是 `https://api.openai.com/v1/responses`。API 密钥只写入 GNOME
+Secret Service/libsecret，不进入 GSettings、JSON cache、请求日志或 Git；端点和模型
+作为普通设置保存并即时生效。为避免明文泄露密钥，远程端点必须使用 HTTPS，本机
+`localhost`/loopback 调试端点可使用 HTTP。
+
+自定义端点会接收 Bearer API 密钥、歌曲标题/艺术家和待翻译歌词，请只配置可信服务。
+端点必须兼容 Responses API 的 structured output 请求和响应格式；仅兼容 Chat
+Completions 的服务不能直接使用。模型名称不再固定，但该模型仍须由所配置的端点支持。
 
 翻译使用缓存优先的行级文档：每行以稳定 `lineId` 对齐，并校验原歌词 hash。请求失败时
 原歌词仍可用。自动翻译也必须先显式启用翻译功能。

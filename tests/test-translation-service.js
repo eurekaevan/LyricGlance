@@ -119,7 +119,19 @@ async function run() {
         providerId: 'other',
     }));
     assert(!result.fromCache && alternate.requestCount === 1,
-        'provider changes should miss the translation cache');
+    'provider changes should miss the translation cache');
+
+    const alternateEndpoint = new MockTranslationProvider({
+        configurationId: 'mock-endpoint-b',
+    });
+    const alternateEndpointService = new TranslationService({
+        providers: [alternateEndpoint],
+        credentialStore: noCredential,
+        cache: new TranslationDiskCache({cacheRoot: tempRoot}),
+    });
+    result = await alternateEndpointService.translate(lyrics, options());
+    assert(!result.fromCache && alternateEndpoint.requestCount === 1,
+        'different provider endpoints should not share cached translations');
 
     const delayed = new MockTranslationProvider({delayMs: 100});
     const dedupService = new TranslationService({
@@ -161,6 +173,17 @@ async function run() {
         options({forceRefresh: true}));
     assert(result.status === TranslationStatus.SAME_LANGUAGE,
         'explicit equivalent source and target languages should skip translation');
+
+    const missingModelService = new TranslationService({
+        providers: [new MockTranslationProvider({model: ''})],
+        credentialStore: noCredential,
+        cache: new TranslationDiskCache({
+            cacheRoot: GLib.build_filenamev([tempRoot, 'missing-model']),
+        }),
+    });
+    result = await missingModelService.translate(lyrics, options());
+    assert(result.status === TranslationStatus.PROVIDER_ERROR,
+        'an empty model setting should remain a typed provider failure');
 
     const partialProvider = {
         id: 'partial',
@@ -276,8 +299,10 @@ async function run() {
     service.destroy();
     secondService.destroy();
     providerService.destroy();
+    alternateEndpointService.destroy();
     dedupService.destroy();
     cancelService.destroy();
+    missingModelService.destroy();
     partialService.destroy();
     invalidService.destroy();
     longService.destroy();

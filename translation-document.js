@@ -1,6 +1,6 @@
 import GLib from 'gi://GLib';
 
-export const TRANSLATION_DOCUMENT_VERSION = 1;
+export const TRANSLATION_DOCUMENT_VERSION = 2;
 
 function checksum(value) {
     return GLib.compute_checksum_for_string(
@@ -25,6 +25,7 @@ export function translationCacheKey({
     sourceLyricsHash: lyricsHash,
     targetLanguage,
     provider,
+    providerConfiguration = provider,
     model,
     version = TRANSLATION_DOCUMENT_VERSION,
 }) {
@@ -33,6 +34,7 @@ export function translationCacheKey({
         requiredString(lyricsHash, 'source lyrics hash'),
         requiredString(targetLanguage, 'target language'),
         requiredString(provider, 'provider'),
+        requiredString(providerConfiguration, 'provider configuration'),
         requiredString(model, 'model'),
     ]));
 }
@@ -78,6 +80,7 @@ export function createTranslationDocument({
     sourceLanguage = 'unknown',
     targetLanguage,
     provider,
+    providerConfiguration = provider,
     model,
     createdAt = new Date().toISOString(),
     lines = [],
@@ -106,6 +109,8 @@ export function createTranslationDocument({
             : 'unknown',
         targetLanguage: requiredString(targetLanguage, 'target language'),
         provider: requiredString(provider, 'provider'),
+        providerConfiguration: requiredString(
+            providerConfiguration, 'provider configuration'),
         model: requiredString(model, 'model'),
         createdAt: created.toISOString(),
         lines: Object.freeze(normalizedLines),

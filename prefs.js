@@ -10,6 +10,7 @@ import {
     clearTranslationCache,
     countTranslationCache,
 } from './translation-cache.js';
+import {normalizeTranslationEndpoint} from './translation-provider.js';
 
 function bindSwitch(settings, key, title, subtitle = '') {
     const row = new Adw.SwitchRow({title, subtitle});
@@ -139,7 +140,7 @@ export default class MprisLyricsPreferences extends ExtensionPreferences {
 
         const translationGroup = new Adw.PreferencesGroup({
             title: _('Translation'),
-            description: _('Translations are aligned by lyric line and never change original timing.'),
+            description: _('Uses an OpenAI-compatible Responses API. Translations never change original timing.'),
         });
         page.add(translationGroup);
         translationGroup.add(bindSwitch(
@@ -185,12 +186,47 @@ export default class MprisLyricsPreferences extends ExtensionPreferences {
                 {value: 'original', label: _('Original')},
                 {value: 'translated', label: _('Translation')},
             ]));
-        const providerRow = comboRow(
-            settings,
-            'translation-provider',
-            _('Provider'),
-            [{value: 'openai', label: 'OpenAI'}]);
-        translationGroup.add(providerRow);
+        const endpointRow = new Adw.EntryRow({
+            title: _('Responses API endpoint'),
+            text: settings.get_string('translation-api-endpoint'),
+        });
+        translationGroup.add(endpointRow);
+
+        const modelRow = new Adw.EntryRow({
+            title: _('Model'),
+            text: settings.get_string('translation-model'),
+        });
+        translationGroup.add(modelRow);
+
+        const backendRow = new Adw.ActionRow({
+            title: _('Translation backend'),
+            subtitle: _('Endpoint and model changes are applied together'),
+        });
+        const applyBackendButton = new Gtk.Button({
+            label: _('Apply'),
+            valign: Gtk.Align.CENTER,
+        });
+        backendRow.add_suffix(applyBackendButton);
+        translationGroup.add(backendRow);
+        applyBackendButton.connect('clicked', () => {
+            const endpoint = normalizeTranslationEndpoint(endpointRow.text);
+            const model = modelRow.text.trim();
+            if (!endpoint) {
+                backendRow.subtitle = _(
+                    'Use HTTPS, or HTTP only for a local loopback endpoint');
+                return;
+            }
+            if (!model) {
+                backendRow.subtitle = _('Model cannot be empty');
+                return;
+            }
+
+            settings.set_string('translation-api-endpoint', endpoint);
+            settings.set_string('translation-model', model);
+            endpointRow.text = endpoint;
+            modelRow.text = model;
+            backendRow.subtitle = _('Translation backend updated');
+        });
 
         const credentialStore = new TranslationCredentialStore();
         const credentialRow = new Adw.ActionRow({
@@ -233,7 +269,7 @@ export default class MprisLyricsPreferences extends ExtensionPreferences {
                     heading: _('Translation credential'),
                     body: configured
                         ? _('Enter a new key to replace the saved credential.')
-                        : _('The key will be stored in GNOME Secret Service.'),
+                        : _('The key will be stored in GNOME Secret Service and sent only to the configured endpoint.'),
                     extra_child: entry,
                     close_response: 'cancel',
                     default_response: 'save',

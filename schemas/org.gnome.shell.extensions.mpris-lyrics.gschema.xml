@@ -46,6 +46,14 @@
       <default>'openai'</default>
       <summary>Translation provider identifier</summary>
     </key>
+    <key name="translation-api-endpoint" type="s">
+      <default>'https://api.openai.com/v1/responses'</default>
+      <summary>OpenAI-compatible Responses API endpoint</summary>
+    </key>
+    <key name="translation-model" type="s">
+      <default>'gpt-5.4-mini-2026-03-17'</default>
+      <summary>Model used for lyrics translation</summary>
+    </key>
     <key name="translation-display-mode" type="s">
       <default>'bilingual'</default>
       <summary>Popup translation display mode</summary>

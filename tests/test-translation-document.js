@@ -71,6 +71,7 @@ const translation = createTranslationDocument({
     sourceLanguage: 'en',
     targetLanguage: 'zh-CN',
     provider: 'mock',
+    providerConfiguration: 'mock-endpoint-a',
     model: 'mock-v1',
     lines: returned,
 });
@@ -98,8 +99,12 @@ const cacheOptions = {
 const key = translationCacheKey(cacheOptions);
 assert(key !== translationCacheKey({...cacheOptions, targetLanguage: 'ja'}) &&
     key !== translationCacheKey({...cacheOptions, provider: 'other'}) &&
+    key !== translationCacheKey({
+        ...cacheOptions,
+        providerConfiguration: 'mock-endpoint-b',
+    }) &&
     key !== translationCacheKey({...cacheOptions, model: 'mock-v2'}),
-'target language, provider, and model must invalidate the cache key');
+'target language, provider configuration, and model must invalidate the cache key');
 assert(languagesEquivalent('zh', 'zh-CN') &&
     languagesEquivalent('en-US', 'en') &&
     !languagesEquivalent('unknown', 'zh-CN') &&
