@@ -54,8 +54,8 @@ gnome-extensions enable lyric-glance@eureka
 ### 开发者
 
 ```sh
-git clone https://github.com/eurekaevan/lyric-glance.git
-cd lyric-glance
+git clone https://github.com/eurekaevan/LyricGlance.git
+cd LyricGlance
 make check
 make install
 gnome-extensions enable lyric-glance@eureka
