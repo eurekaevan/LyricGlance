@@ -13,8 +13,8 @@ readonly REQUIRED_FILES=(
     extension.js
     prefs.js
     stylesheet.css
-    schemas/org.gnome.shell.extensions.mpris-lyrics.gschema.xml
-    locale/zh_CN/LC_MESSAGES/mpris-lyrics@eureka.mo
+    schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
+    locale/zh_CN/LC_MESSAGES/lyric-glance@eureka.mo
     js-yaml.mjs
     LICENSE.js-yaml
     README.js-yaml.md

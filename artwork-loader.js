@@ -70,7 +70,7 @@ async function closeStream(stream) {
 export function defaultArtworkCacheDirectory() {
     return GLib.build_filenamev([
         GLib.get_user_cache_dir(),
-        'mpris-lyrics',
+        'lyric-glance',
         'artwork',
     ]);
 }
@@ -90,7 +90,7 @@ export class ArtworkLoader {
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
             'idle-timeout': timeoutSeconds,
-            'user-agent': 'LyricGlance/0.9.0 (mpris-lyrics@eureka)',
+            'user-agent': 'LyricGlance/0.9.0 (lyric-glance@eureka)',
         });
         this._maintenanceCancellable = new Gio.Cancellable();
     }

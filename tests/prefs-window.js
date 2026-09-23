@@ -53,14 +53,14 @@ const extensionPath = programArgs[0] ?? GLib.build_filenamev([
     GLib.get_user_data_dir(),
     'gnome-shell',
     'extensions',
-    'mpris-lyrics@eureka',
+    'lyric-glance@eureka',
 ]);
 const metadataPath = GLib.build_filenamev([extensionPath, 'metadata.json']);
 const [ok, metadataContents] = GLib.file_get_contents(metadataPath);
 assert(ok, 'the installed extension metadata could not be read');
 const metadata = JSON.parse(new TextDecoder().decode(metadataContents));
-assert(metadata.url === 'https://github.com/eurekaevan/mpris-lyrics' &&
-    metadata['gettext-domain'] === 'mpris-lyrics@eureka' &&
+assert(metadata.url === 'https://github.com/eurekaevan/lyric-glance' &&
+    metadata['gettext-domain'] === 'lyric-glance@eureka' &&
     !Object.hasOwn(metadata, 'version'),
 'preferences should load release metadata without deprecated version');
 const directory = Gio.File.new_for_path(extensionPath);

@@ -14,7 +14,7 @@ function assert(condition, message) {
 const session = new Soup.Session({
     timeout: 15,
     'idle-timeout': 15,
-    'user-agent': 'LyricGlance/0.9.0 (mpris-lyrics@eureka)',
+    'user-agent': 'LyricGlance/0.9.0 (lyric-glance@eureka)',
 });
 function fetchRecord(id) {
     const message = Soup.Message.new(

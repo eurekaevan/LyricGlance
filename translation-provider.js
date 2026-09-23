@@ -8,7 +8,7 @@ export const OPENAI_PROVIDER_ID = 'openai';
 export const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
 export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-const USER_AGENT = 'LyricGlance/0.9.0 (mpris-lyrics@eureka)';
+const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;

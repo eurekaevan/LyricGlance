@@ -27,14 +27,14 @@ jobs:
           [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           make check
           make integration
-          sha256sum mpris-lyrics@eureka.shell-extension.zip \
-            > mpris-lyrics@eureka.shell-extension.zip.sha256
+          sha256sum lyric-glance@eureka.shell-extension.zip \
+            > lyric-glance@eureka.shell-extension.zip.sha256
 
       - name: Attach verified release files
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            mpris-lyrics@eureka.shell-extension.zip
-            mpris-lyrics@eureka.shell-extension.zip.sha256
+            lyric-glance@eureka.shell-extension.zip
+            lyric-glance@eureka.shell-extension.zip.sha256
           fail_on_unmatched_files: true
           generate_release_notes: false

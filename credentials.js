@@ -1,7 +1,7 @@
 import Secret from 'gi://Secret?version=1';
 
 const SCHEMA = new Secret.Schema(
-    'org.gnome.shell.extensions.mpris-lyrics.translation',
+    'org.gnome.shell.extensions.lyric-glance.translation',
     Secret.SchemaFlags.NONE,
     {provider: Secret.SchemaAttributeType.STRING});
 

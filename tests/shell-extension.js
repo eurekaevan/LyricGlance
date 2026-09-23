@@ -9,7 +9,7 @@ import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
 import {ArtworkView} from '../artwork-view.js';
 import {sourceLyricsHash} from '../translation-document.js';
 
-const UUID = 'mpris-lyrics@eureka';
+const UUID = 'lyric-glance@eureka';
 const EFFECTIVE_LOCALE = GLib.getenv('LC_ALL') ??
     GLib.getenv('LANGUAGE') ?? GLib.getenv('LANG') ?? '';
 const SIMPLIFIED_CHINESE = EFFECTIVE_LOCALE.startsWith('zh_CN');
@@ -71,7 +71,7 @@ export async function run() {
     const extension = Main.extensionManager.lookup(UUID);
     assert(extension, 'the extension was not discovered');
     assert(extension.metadata.url ===
-        'https://github.com/eurekaevan/mpris-lyrics' &&
+        'https://github.com/eurekaevan/lyric-glance' &&
         extension.metadata['gettext-domain'] === UUID &&
         !Object.hasOwn(extension.metadata, 'version'),
     'the packaged metadata should expose URL/gettext and omit deprecated version');

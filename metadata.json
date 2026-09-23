@@ -1,10 +1,10 @@
 {
-  "uuid": "mpris-lyrics@eureka",
+  "uuid": "lyric-glance@eureka",
   "name": "LyricGlance",
   "description": "Show synchronized and optionally translated lyrics for MPRIS-compatible media players in the GNOME top bar.",
-  "url": "https://github.com/eurekaevan/mpris-lyrics",
-  "gettext-domain": "mpris-lyrics@eureka",
-  "settings-schema": "org.gnome.shell.extensions.mpris-lyrics",
+  "url": "https://github.com/eurekaevan/lyric-glance",
+  "gettext-domain": "lyric-glance@eureka",
+  "settings-schema": "org.gnome.shell.extensions.lyric-glance",
   "shell-version": [
     "50"
   ]

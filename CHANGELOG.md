@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Renamed the project branding to LyricGlance while retaining the existing GNOME extension UUID, settings schema, gettext domain, and data directories for upgrade compatibility.
+- Renamed the project and GNOME extension identity to LyricGlance (`lyric-glance@eureka`), including its settings schema, credential namespace, gettext domain, cache/config paths, package, and release artifacts. No migration from the previous identity is provided.
 
 ## [0.9.0] - 2026-08-23
 
@@ -29,4 +29,4 @@
 - Preferences cancels outstanding Secret Service and cache operations and disconnects its settings signals when closed.
 - Translation rate-limit waits now remove their timeout and cancellation signal on every completion path.
 
-[0.9.0]: https://github.com/eurekaevan/mpris-lyrics/releases/tag/v0.9.0
+[0.9.0]: https://github.com/eurekaevan/lyric-glance/releases/tag/v0.9.0

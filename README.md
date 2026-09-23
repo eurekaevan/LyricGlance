@@ -32,18 +32,18 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 
 ## 安装
 
-LyricGlance 是扩展的展示名称。为确保现有安装、设置、翻译密钥和缓存可无缝沿用，
-GNOME 扩展 UUID、GSettings schema、gettext domain 及 XDG 数据目录仍保留原有
-`mpris-lyrics` 标识；这不是另一份独立扩展。GitHub 仓库目前也仍沿用原有 slug，
-待远端仓库本身改名后再更新克隆和发布链接。
+LyricGlance 使用新的 `lyric-glance@eureka` UUID、GSettings schema、gettext domain
+和 XDG 数据目录。旧版设置、翻译密钥和缓存不会自动迁移；安装新版时，GNOME 可能同时
+保留旧 UUID 的扩展，因此请按需从 Extensions 中禁用或移除旧版。仓库链接已改为
+`eurekaevan/lyric-glance`；GitHub 远端仓库也需改用该 slug，链接才能生效。
 
 ### Release 用户
 
-从 GitHub Release 下载 `mpris-lyrics@eureka.shell-extension.zip`，然后运行：
+从 GitHub Release 下载 `lyric-glance@eureka.shell-extension.zip`，然后运行：
 
 ```sh
-gnome-extensions install --force mpris-lyrics@eureka.shell-extension.zip
-gnome-extensions enable mpris-lyrics@eureka
+gnome-extensions install --force lyric-glance@eureka.shell-extension.zip
+gnome-extensions enable lyric-glance@eureka
 ```
 
 首次安装或更新 JavaScript 后请注销并重新登录。GNOME Shell 50 会在当前 Shell 进程中
@@ -54,17 +54,17 @@ gnome-extensions enable mpris-lyrics@eureka
 ### 开发者
 
 ```sh
-git clone https://github.com/eurekaevan/mpris-lyrics.git
-cd mpris-lyrics
+git clone https://github.com/eurekaevan/lyric-glance.git
+cd lyric-glance
 make check
 make install
-gnome-extensions enable mpris-lyrics@eureka
+gnome-extensions enable lyric-glance@eureka
 ```
 
 ## Preferences
 
 ```sh
-gnome-extensions prefs mpris-lyrics@eureka
+gnome-extensions prefs lyric-glance@eureka
 ```
 
 可设置顶栏位置和宽度、暂停时可见性、逐字高亮、全局歌词时间偏移、翻译显示方式、
@@ -135,7 +135,7 @@ make integration
 
 ```sh
 make pack
-unzip -l mpris-lyrics@eureka.shell-extension.zip
+unzip -l lyric-glance@eureka.shell-extension.zip
 ```
 
 可选的 Secret Service 测试会写入一个独立测试 secret，并在结束前删除：
@@ -179,8 +179,8 @@ make integration-secret
 
 持久数据只写入扩展自己的 namespace：
 
-- `$XDG_CACHE_HOME/mpris-lyrics/`：歌词、封面和翻译 cache；
-- `$XDG_CONFIG_HOME/mpris-lyrics/offsets.json`：每首歌曲的歌词偏移；
+- `$XDG_CACHE_HOME/lyric-glance/`：歌词、封面和翻译 cache；
+- `$XDG_CONFIG_HOME/lyric-glance/offsets.json`：每首歌曲的歌词偏移；
 - GNOME Secret Service：翻译 credential。
 
 清理按钮只删除对应的扩展 cache，不删除父目录或其他应用数据；disable 不删除持久状态。

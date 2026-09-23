@@ -27,6 +27,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lyric-glance-gnome-50
-          path: mpris-lyrics@eureka.shell-extension.zip
+          path: lyric-glance@eureka.shell-extension.zip
           if-no-files-found: error
 

@@ -1,9 +1,9 @@
-UUID := mpris-lyrics@eureka
+UUID := lyric-glance@eureka
 GETTEXT_DOMAIN := $(UUID)
 PACKAGE := $(UUID).shell-extension.zip
 USER_DATA_DIR ?= $(HOME)/.local/share
 EXTENSION_DIR := $(USER_DATA_DIR)/gnome-shell/extensions/$(UUID)
-SCHEMA := schemas/org.gnome.shell.extensions.mpris-lyrics.gschema.xml
+SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
 POT_SOURCES := extension.js indicator.js prefs.js
 RUNTIME_SOURCES := indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics.js lyrics-document.js lyrics-matcher.js lyrics-normalizer.js \
@@ -73,7 +73,7 @@ pot:
 	xgettext --from-code=UTF-8 --language=JavaScript \
 		--keyword=_ --keyword=ngettext:1,2 \
 		--package-name="LyricGlance" --package-version=0.9.0 \
-		--msgid-bugs-address="https://github.com/eurekaevan/mpris-lyrics/issues" \
+		--msgid-bugs-address="https://github.com/eurekaevan/lyric-glance/issues" \
 		--output=po/$(GETTEXT_DOMAIN).pot $(POT_SOURCES)
 
 clean:
