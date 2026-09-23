@@ -3,8 +3,8 @@ import GLib from 'gi://GLib';
 
 import {MprisManager} from '../mpris.js';
 
-const FIRST_BUS_NAME = 'org.mpris.MediaPlayer2.MprisLyricsPolicyTest.instance_1';
-const SECOND_BUS_NAME = 'org.mpris.MediaPlayer2.MprisLyricsPolicyTest.instance_2_777';
+const FIRST_BUS_NAME = 'org.mpris.MediaPlayer2.LyricGlancePolicyTest.instance_1';
+const SECOND_BUS_NAME = 'org.mpris.MediaPlayer2.LyricGlancePolicyTest.instance_2_777';
 const DBUS_NAME = 'org.freedesktop.DBus';
 const DBUS_PATH = '/org/freedesktop/DBus';
 const DBUS_INTERFACE = 'org.freedesktop.DBus';
@@ -54,16 +54,16 @@ async function waitUntil(predicate, message) {
 const metadata = {
     'mpris:trackid': new GLib.Variant('o', '/mpris/lyrics/policy/test'),
     'xesam:title': new GLib.Variant('s', 'Policy Test Track'),
-    'xesam:artist': new GLib.Variant('as', ['MPRIS Lyrics']),
+    'xesam:artist': new GLib.Variant('as', ['LyricGlance']),
     'xesam:album': new GLib.Variant('s', 'Phase 3'),
     'mpris:length': new GLib.Variant('x', 180_000_000),
 };
 const implementation = {
     get Identity() {
-        return 'MPRIS Lyrics Policy Test';
+        return 'LyricGlance Policy Test';
     },
     get DesktopEntry() {
-        return 'mpris-lyrics-policy-test';
+        return 'lyric-glance-policy-test';
     },
     get PlaybackStatus() {
         return 'Playing';
@@ -127,7 +127,7 @@ async function run() {
 
     requestName(FIRST_BUS_NAME);
     await waitUntil(
-        () => state?.player.stableId === 'desktop:mpris-lyrics-policy-test',
+        () => state?.player.stableId === 'desktop:lyric-glance-policy-test',
         'Auto did not select the newly active second MPRIS player');
 
     manager.setPreferredPlayer('desktop:firefox');
@@ -135,7 +135,7 @@ async function run() {
         () => state?.player.stableId === 'desktop:firefox',
         'the Firefox preference did not override Auto');
 
-    manager.setPreferredPlayer('desktop:mpris-lyrics-policy-test');
+    manager.setPreferredPlayer('desktop:lyric-glance-policy-test');
     await waitUntil(
         () => state?.busName === FIRST_BUS_NAME,
         'the second stable player preference was not applied');
@@ -144,7 +144,7 @@ async function run() {
     await waitUntil(
         () => state?.player.stableId === 'desktop:firefox',
         'a vanished preferred player did not fall back to Firefox');
-    assert(manager._preferredPlayer === 'desktop:mpris-lyrics-policy-test',
+    assert(manager._preferredPlayer === 'desktop:lyric-glance-policy-test',
         'fallback must not erase the user preference');
 
     requestName(SECOND_BUS_NAME);

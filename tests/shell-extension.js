@@ -59,7 +59,7 @@ async function takeScreenshot(path) {
 export async function run() {
     await Scripting.sleep(1000);
 
-    const screenshotStyle = GLib.getenv('MPRIS_LYRICS_SCREENSHOT_STYLE');
+    const screenshotStyle = GLib.getenv('LYRIC_GLANCE_SCREENSHOT_STYLE');
     if (['prefer-light', 'prefer-dark'].includes(screenshotStyle)) {
         const appearanceSettings = new Gio.Settings({
             schema_id: 'org.gnome.desktop.interface',
@@ -416,10 +416,10 @@ export async function run() {
     assert(view._lyricRows.length === lines.length,
         'the popup should create one row per parsed lyric entry');
     assert(view._lyricRows[20].has_style_class_name(
-        'mpris-lyrics-line-current') && view._lyricRows[20].opacity === 255 &&
-        view._lyricRows[19].has_style_class_name('mpris-lyrics-line-near') &&
-        view._lyricRows[18].has_style_class_name('mpris-lyrics-line-mid') &&
-        view._lyricRows[17].has_style_class_name('mpris-lyrics-line-far'),
+        'lyric-glance-line-current') && view._lyricRows[20].opacity === 255 &&
+        view._lyricRows[19].has_style_class_name('lyric-glance-line-near') &&
+        view._lyricRows[18].has_style_class_name('lyric-glance-line-mid') &&
+        view._lyricRows[17].has_style_class_name('lyric-glance-line-far'),
     'the current lyric should drive centralized distance-based visual levels');
     assert(!view._lyricRows[20].has_style_pseudo_class('selected'),
         'lyric focus must not depend on a card-like selected background');
@@ -532,13 +532,13 @@ export async function run() {
         uiText('Player   Mozilla Firefox', '播放器   Mozilla Firefox'),
     'the native player submenu row should separate its secondary label and value');
 
-    const screenshotPath = GLib.getenv('MPRIS_LYRICS_SCREENSHOT_PATH');
-    const screenshotKind = GLib.getenv('MPRIS_LYRICS_SCREENSHOT_KIND') ??
+    const screenshotPath = GLib.getenv('LYRIC_GLANCE_SCREENSHOT_PATH');
+    const screenshotKind = GLib.getenv('LYRIC_GLANCE_SCREENSHOT_KIND') ??
         'bilingual';
     const screenshotPanelText = GLib.getenv(
-        'MPRIS_LYRICS_SCREENSHOT_PANEL_TEXT');
+        'LYRIC_GLANCE_SCREENSHOT_PANEL_TEXT');
     const screenshotPanelPosition = GLib.getenv(
-        'MPRIS_LYRICS_SCREENSHOT_PANEL_POSITION');
+        'LYRIC_GLANCE_SCREENSHOT_PANEL_POSITION');
     if (screenshotPanelPosition)
         settings.set_string('panel-position', screenshotPanelPosition);
     if (screenshotPanelText) {
@@ -633,10 +633,10 @@ export async function run() {
     assert(view._lyricRows.every((row, index) => row === originalRows[index]),
         'a lyric change must reuse the existing row objects');
     assert(!view._lyricRows[20].has_style_class_name(
-        'mpris-lyrics-line-current'),
+        'lyric-glance-line-current'),
         'the previous row should lose the current class');
     assert(view._lyricRows[21].has_style_class_name(
-        'mpris-lyrics-line-current'),
+        'lyric-glance-line-current'),
         'the new row should gain the current class');
     assert(Math.abs(view._scrollView.vadjustment.value - comfortableValue) < 1,
         'an adjacent line inside the comfortable zone should not scroll');

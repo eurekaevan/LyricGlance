@@ -118,7 +118,7 @@ export class MprisManager {
                 } catch (error) {
                     if (this._cancellable === cancellable &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.warn(`MPRIS Lyrics: could not open session bus: ${error.message}`);
+                        console.warn(`LyricGlance: could not open session bus: ${error.message}`);
                     return;
                 }
 
@@ -208,7 +208,7 @@ export class MprisManager {
                 } catch (error) {
                     if (this._cancellable === cancellable &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.warn(`MPRIS Lyrics: player discovery failed: ${error.message}`);
+                        console.warn(`LyricGlance: player discovery failed: ${error.message}`);
                     return;
                 }
 
@@ -318,7 +318,7 @@ export class MprisManager {
                         this._players.get(player.name) === player &&
                         player.stateVersion === stateVersion &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.debug(`MPRIS Lyrics: ignoring ${player.name}: ${error.message}`);
+                        console.debug(`LyricGlance: ignoring ${player.name}: ${error.message}`);
                     return;
                 }
 
@@ -350,7 +350,7 @@ export class MprisManager {
                     if (this._cancellable &&
                         this._players.get(player.name) === player &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.debug(`MPRIS Lyrics: player identity unavailable for ${player.name}: ${error.message}`);
+                        console.debug(`LyricGlance: player identity unavailable for ${player.name}: ${error.message}`);
                     if (this._cancellable &&
                         this._players.get(player.name) === player) {
                         player.identityReady = true;
@@ -490,7 +490,7 @@ export class MprisManager {
                         this._players.get(player.name) === player &&
                         player.positionRequestSerial === requestSerial &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.debug(`MPRIS Lyrics: position query failed for ${player.name}: ${error.message}`);
+                        console.debug(`LyricGlance: position query failed for ${player.name}: ${error.message}`);
                     return;
                 }
 

@@ -41,7 +41,7 @@ export class ArtworkView {
         this._decodeTimeoutId = 0;
 
         this.actor = new St.Widget({
-            style_class: 'mpris-lyrics-artwork',
+            style_class: 'lyric-glance-artwork',
             layout_manager: new Clutter.BinLayout(),
             width: ARTWORK_SIZE,
             height: ARTWORK_SIZE,
@@ -50,11 +50,11 @@ export class ArtworkView {
             can_focus: false,
         });
         this._fallback = new St.Bin({
-            style_class: 'mpris-lyrics-artwork-placeholder',
+            style_class: 'lyric-glance-artwork-placeholder',
             x_expand: true,
             y_expand: true,
             child: new St.Icon({
-                style_class: 'mpris-lyrics-artwork-fallback-icon',
+                style_class: 'lyric-glance-artwork-fallback-icon',
                 gicon: fallbackIcon(),
                 x_align: Clutter.ActorAlign.CENTER,
                 y_align: Clutter.ActorAlign.CENTER,
@@ -99,7 +99,7 @@ export class ArtworkView {
                 this._cancellable = null;
             if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED) &&
                 current) {
-                console.debug(`MPRIS Lyrics: artwork unavailable: ${error.message}`);
+                console.debug(`LyricGlance: artwork unavailable: ${error.message}`);
                 this._showArtworkFailure();
             }
         });
@@ -165,7 +165,7 @@ export class ArtworkView {
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
-            this._decodeTimeoutId, '[mpris-lyrics] artwork decode timeout');
+            this._decodeTimeoutId, '[LyricGlance] artwork decode timeout');
     }
 
     _isCurrent(generation, trackKey, cancellable) {

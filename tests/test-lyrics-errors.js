@@ -9,7 +9,7 @@ function assert(condition, message) {
 
 const track = {
     title: 'Error Test',
-    artist: 'MPRIS Lyrics',
+    artist: 'LyricGlance',
     album: 'Network Failure',
     durationUs: 123_000_000,
 };

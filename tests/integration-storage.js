@@ -34,7 +34,7 @@ async function waitForFile(path) {
     throw new Error(`timed out waiting for cache file ${path}`);
 }
 
-const tempRoot = GLib.dir_make_tmp('mpris-lyrics-storage-XXXXXX');
+const tempRoot = GLib.dir_make_tmp('lyric-glance-storage-XXXXXX');
 const trackA = {
     title: 'Persistent A',
     artist: 'Storage Artist',

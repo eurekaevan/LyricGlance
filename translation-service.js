@@ -196,7 +196,7 @@ export class TranslationService {
             try {
                 await this._cache.put(translation, options.cancellable);
             } catch {
-                console.warn('MPRIS Lyrics: could not save translation cache');
+                console.warn('LyricGlance: could not save translation cache');
             }
             return notify({
                 status: TranslationStatus.AVAILABLE,

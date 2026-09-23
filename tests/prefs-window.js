@@ -70,7 +70,7 @@ const simplifiedChinese = effectiveLocale.startsWith('zh_CN');
 const uiText = (english, chinese) => simplifiedChinese ? chinese : english;
 
 const application = new Adw.Application({
-    application_id: 'org.gnome.Shell.Extensions.MprisLyricsPrefsTest',
+    application_id: 'org.gnome.Shell.Extensions.LyricGlancePrefsTest',
     flags: Gio.ApplicationFlags.NON_UNIQUE,
 });
 let scenarioError = null;
@@ -85,7 +85,7 @@ application.connect('activate', async app => {
             path: extensionPath,
         });
         const screenshotPath = GLib.getenv(
-            'MPRIS_LYRICS_PREFS_SCREENSHOT_PATH');
+            'LYRIC_GLANCE_PREFS_SCREENSHOT_PATH');
         const window = new Adw.PreferencesWindow({
             application: app,
             title: metadata.name,

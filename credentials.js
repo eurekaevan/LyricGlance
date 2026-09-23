@@ -45,7 +45,7 @@ export class TranslationCredentialStore {
                 SCHEMA,
                 attributes(provider),
                 Secret.COLLECTION_DEFAULT,
-                `MPRIS Lyrics ${provider} translation API key`,
+                `LyricGlance ${provider} translation API key`,
                 password.trim(),
                 cancellable,
                 (_source, result) => {

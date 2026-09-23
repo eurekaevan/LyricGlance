@@ -1,11 +1,11 @@
-# MPRIS Lyrics
+# LyricGlance
 
-在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原生 Shell 弹出菜单中查看封面、
+LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原生 Shell 弹出菜单中查看封面、
 播放进度、逐行/逐字歌词和可选的行级翻译。
 
-![MPRIS Lyrics 双语歌词弹出菜单](docs/screenshots/bilingual-lyrics.png)
+![LyricGlance 双语歌词弹出菜单](docs/screenshots/bilingual-lyrics.png)
 
-![MPRIS Lyrics 设置](docs/screenshots/preferences.png)
+![LyricGlance 设置](docs/screenshots/preferences.png)
 
 ## 功能
 
@@ -31,6 +31,11 @@
 风险见 [`docs/compatibility.md`](docs/compatibility.md)。
 
 ## 安装
+
+LyricGlance 是扩展的展示名称。为确保现有安装、设置、翻译密钥和缓存可无缝沿用，
+GNOME 扩展 UUID、GSettings schema、gettext domain 及 XDG 数据目录仍保留原有
+`mpris-lyrics` 标识；这不是另一份独立扩展。GitHub 仓库目前也仍沿用原有 slug，
+待远端仓库本身改名后再更新克隆和发布链接。
 
 ### Release 用户
 
@@ -182,6 +187,6 @@ make integration-secret
 
 ## License
 
-MPRIS Lyrics 采用 [GPL-2.0-or-later](LICENSE)。随包提供的 readable ESM
+LyricGlance 采用 [GPL-2.0-or-later](LICENSE)。随包提供的 readable ESM
 `js-yaml` 4.1.0 采用 MIT License；来源、固定 SHA-256、是否修改和复现方式见
 [`README.js-yaml.md`](README.js-yaml.md) 与 [`LICENSE.js-yaml`](LICENSE.js-yaml)。

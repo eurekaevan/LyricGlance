@@ -90,7 +90,7 @@ export class ArtworkLoader {
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
             'idle-timeout': timeoutSeconds,
-            'user-agent': 'MPRIS Lyrics/0.9.0 (mpris-lyrics@eureka)',
+            'user-agent': 'LyricGlance/0.9.0 (mpris-lyrics@eureka)',
         });
         this._maintenanceCancellable = new Gio.Cancellable();
     }
@@ -234,7 +234,7 @@ export class ArtworkLoader {
         } catch (error) {
             if (!isIoError(error, Gio.IOErrorEnum.NOT_FOUND) &&
                 !isIoError(error, Gio.IOErrorEnum.CANCELLED))
-                console.debug(`MPRIS Lyrics: artwork cache read failed: ${error.message}`);
+                console.debug(`LyricGlance: artwork cache read failed: ${error.message}`);
             return false;
         }
     }
@@ -298,7 +298,7 @@ export class ArtworkLoader {
                     .delete_async(GLib.PRIORITY_DEFAULT, cancellable);
             } catch (error) {
                 if (!isIoError(error, Gio.IOErrorEnum.NOT_FOUND))
-                    console.debug(`MPRIS Lyrics: artwork cache eviction failed: ${error.message}`);
+                    console.debug(`LyricGlance: artwork cache eviction failed: ${error.message}`);
             }
             totalEntries--;
             totalBytes -= entry.size;

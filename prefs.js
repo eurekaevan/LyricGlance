@@ -41,7 +41,7 @@ function comboRow(settings, key, title, choices) {
     return row;
 }
 
-export default class MprisLyricsPreferences extends ExtensionPreferences {
+export default class LyricGlancePreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const _ = this.gettext.bind(this);
         const ngettext = this.ngettext.bind(this);

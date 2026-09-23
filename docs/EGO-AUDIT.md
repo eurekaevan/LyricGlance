@@ -1,4 +1,4 @@
-# EGO Review Audit for 0.9.0
+# LyricGlance EGO Review Audit for 0.9.0
 
 Audit date: 2026-08-23
 
@@ -10,7 +10,7 @@ Sources checked:
 - [GNOME Extension Anatomy](https://gjs.guide/extensions/overview/anatomy.html)
 - [GNOME Shell 50 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-50.html)
 
-This document records the current source and package audit. “PASS” means deterministic evidence exists in this checkout; it does not substitute for the remaining post-login live soak gates in `EGO-CHECKLIST.md`.
+This document records the source and package audit. “PASS” means deterministic evidence exists in this checkout. The final live desktop gates are recorded separately in `EGO-CHECKLIST.md`, including owner acceptance based on practical use where a new instrumented run was not captured.
 
 | Requirement | Current status | Action needed | Evidence |
 |---|---|---|---|

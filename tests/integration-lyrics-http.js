@@ -54,7 +54,7 @@ server.add_handler(null, (currentServer, message) => {
             {
                 id: 91,
                 trackName: 'Search Match',
-                artistName: 'MPRIS Lyrics',
+                artistName: 'LyricGlance',
                 albumName: 'HTTP Integration',
                 duration: 120.5,
                 syncedLyrics: '[00:01.00]scored candidate',
@@ -110,7 +110,7 @@ let provider = new LyricsProvider({
     persistentCache: false,
 });
 const baseTrack = {
-    artist: 'MPRIS Lyrics',
+    artist: 'LyricGlance',
     album: 'HTTP Integration',
     durationUs: 120_000_000,
 };
@@ -131,11 +131,11 @@ async function run() {
     const validRequest = receivedRequests.at(-1);
     const validQuery = validRequest.query;
     assert(validQuery.includes('track_name=Valid Lyrics') &&
-        validQuery.includes('artist_name=MPRIS Lyrics') &&
+        validQuery.includes('artist_name=LyricGlance') &&
         validQuery.includes('album_name=HTTP Integration') &&
         validQuery.includes('duration=120'),
         'the LRCLIB request must include title, artist, album and duration');
-    assert(validRequest.userAgent === 'MPRIS Lyrics/0.9.0 (mpris-lyrics@eureka)',
+    assert(validRequest.userAgent === 'LyricGlance/0.9.0 (mpris-lyrics@eureka)',
         'requests should identify this extension, not impersonate a browser');
     const afterFirstValid = receivedRequests.length;
     const cachedValid = await fetch('Valid Lyrics');

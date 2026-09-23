@@ -12,7 +12,7 @@ export {normalizeLyricsPayload} from './lyrics-normalizer.js';
 
 const API_URL = 'https://lrclib.net/api/get';
 const SEARCH_API_URL = 'https://lrclib.net/api/search';
-const USER_AGENT = 'MPRIS Lyrics/0.9.0 (mpris-lyrics@eureka)';
+const USER_AGENT = 'LyricGlance/0.9.0 (mpris-lyrics@eureka)';
 const REQUEST_SPACING_MS = 300;
 const MAX_CACHE_ENTRIES = 100;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -239,7 +239,7 @@ export class LyricsProvider {
     _normalize(payload) {
         return normalizeLyricsPayload(payload, {
             onLyricsfileError: error => {
-                console.debug(`MPRIS Lyrics: Lyricsfile fallback: ${error.message}`);
+                console.debug(`LyricGlance: Lyricsfile fallback: ${error.message}`);
             },
         });
     }
@@ -250,7 +250,7 @@ export class LyricsProvider {
             result = await this._diskCache.get(track, cancellable);
         } catch (error) {
             if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                console.debug(`MPRIS Lyrics: lyrics disk cache read failed: ${error.message}`);
+                console.debug(`LyricGlance: lyrics disk cache read failed: ${error.message}`);
         } finally {
             if (this._cancellable === cancellable)
                 this._cancellable = null;
@@ -296,7 +296,7 @@ export class LyricsProvider {
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
-            this._delayTimerId, `[mpris-lyrics] LRCLIB ${stage} delay`);
+            this._delayTimerId, `[LyricGlance] LRCLIB ${stage} delay`);
     }
 
     _sendRequest(track, key, serial, stage, attempt) {
@@ -312,7 +312,7 @@ export class LyricsProvider {
             if (!message)
                 throw new Error('Soup rejected the request URI');
         } catch (error) {
-            console.warn(`MPRIS Lyrics: invalid LRCLIB request: ${error.message}`);
+            console.warn(`LyricGlance: invalid LRCLIB request: ${error.message}`);
             this._complete(serial, null);
             return;
         }
@@ -353,7 +353,7 @@ export class LyricsProvider {
                 }
 
                 if (status !== 200) {
-                    console.warn(`MPRIS Lyrics: LRCLIB returned HTTP ${status}`);
+                    console.warn(`LyricGlance: LRCLIB returned HTTP ${status}`);
                     this._complete(serial, null);
                     return;
                 }
@@ -362,7 +362,7 @@ export class LyricsProvider {
                 try {
                     json = JSON.parse(new TextDecoder().decode(bytes.get_data()));
                 } catch (error) {
-                    console.warn(`MPRIS Lyrics: invalid LRCLIB response: ${error.message}`);
+                    console.warn(`LyricGlance: invalid LRCLIB response: ${error.message}`);
                     this._complete(serial, null);
                     return;
                 }
@@ -402,9 +402,9 @@ export class LyricsProvider {
                     error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                     return;
                 if (error instanceof ResponseTooLargeError) {
-                    console.warn('MPRIS Lyrics: LRCLIB response exceeded the size limit');
+                    console.warn('LyricGlance: LRCLIB response exceeded the size limit');
                 } else {
-                    console.warn(`MPRIS Lyrics: LRCLIB request failed: ${error.message}`);
+                    console.warn(`LyricGlance: LRCLIB request failed: ${error.message}`);
                 }
                 this._complete(serial, null);
             });
@@ -427,7 +427,7 @@ export class LyricsProvider {
             try {
                 callback(value);
             } catch (error) {
-                logError(error, 'MPRIS Lyrics callback failed');
+                logError(error, 'LyricGlance callback failed');
             }
         }
     }
@@ -446,7 +446,7 @@ export class LyricsProvider {
     _persist(track, payload) {
         this._diskCache?.put(track, payload).catch(error => {
             if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                console.warn(`MPRIS Lyrics: could not write lyrics cache: ${error.message}`);
+                console.warn(`LyricGlance: could not write lyrics cache: ${error.message}`);
         });
     }
 }

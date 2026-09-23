@@ -72,7 +72,7 @@ pack:
 pot:
 	xgettext --from-code=UTF-8 --language=JavaScript \
 		--keyword=_ --keyword=ngettext:1,2 \
-		--package-name="MPRIS Lyrics" --package-version=0.9.0 \
+		--package-name="LyricGlance" --package-version=0.9.0 \
 		--msgid-bugs-address="https://github.com/eurekaevan/mpris-lyrics/issues" \
 		--output=po/$(GETTEXT_DOMAIN).pot $(POT_SOURCES)
 

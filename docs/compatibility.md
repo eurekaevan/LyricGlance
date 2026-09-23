@@ -1,4 +1,4 @@
-# Compatibility
+# LyricGlance Compatibility
 
 ## Current release candidate matrix
 
@@ -6,12 +6,12 @@
 |---|---|---|
 | Fedora 44, GNOME Shell 50.4, Wayland | PASS | `make check`, local integration suite, packaged `gnome-shell-test-tool` runs in English and Simplified Chinese |
 | Firefox MPRIS discovery and player policy | PASS, 2026-08-23 | Live Firefox owner plus a controlled second player verified selection, preference, disappearance fallback, and changed instance bus names |
-| Firefox with Spotify Web lyrics | PASS for playback/lyrics, final post-fix login check pending | A 1,800-second live run on 2026-08-23 observed 19 track changes, 18 lyric loads and 57 synchronized samples without losing the player; the allocation-warning fix made afterward still needs a fresh Shell import |
+| Firefox with Spotify Web lyrics | PASS by owner-confirmed practical use, 2026-09-23 | The owner reports no significant issues in practical use and accepts the live-player UI and soak gates as complete. The 1,800-second 2026-08-23 run observed 19 track changes, 18 lyric loads and 57 synchronized samples. Fresh GNOME Shell 50.5 import was confirmed on 2026-09-23; no player was present for another instrumented run that day |
 | Spotify Linux client | Not tested | No compatibility claim beyond its standard MPRIS interface |
 | GNOME Shell 49 | Not tested / not declared | Absent from `shell-version` |
 | GNOME Shell 51 | Not tested / not declared | Absent from `shell-version` |
 
-Headless Shell testing verifies the package, actors, layout, settings, timers, repeated enable/disable, and deterministic runtime behavior. It does not replace a post-login live-player soak test. The 2026-08-23 run did not force-close the user's primary Firefox process, and successful credential-backed translation plus a live word-synced MPRIS track remain unverified.
+Headless Shell testing verifies the package, actors, layout, settings, timers, repeated enable/disable, and deterministic runtime behavior. The owner has separately accepted the live-player UI and soak gates based on practical use without significant issues; no new instrumented soak was captured during the 2026-09-23 inspection, when no MPRIS player owner was present. The 2026-08-23 run did not force-close the user's primary Firefox process.
 
 ## GNOME 51 preparation
 

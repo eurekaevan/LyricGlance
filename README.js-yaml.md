@@ -16,7 +16,7 @@ on Node.js or npm at runtime.
 Reproduce and verify the pinned upstream files without `node_modules`:
 
 ```sh
-tools/update-js-yaml.sh /tmp/mpris-lyrics-js-yaml-4.1.0
-cmp js-yaml.mjs /tmp/mpris-lyrics-js-yaml-4.1.0/js-yaml.mjs
-cmp LICENSE.js-yaml /tmp/mpris-lyrics-js-yaml-4.1.0/LICENSE.js-yaml
+tools/update-js-yaml.sh /tmp/lyric-glance-js-yaml-4.1.0
+cmp js-yaml.mjs /tmp/lyric-glance-js-yaml-4.1.0/js-yaml.mjs
+cmp LICENSE.js-yaml /tmp/lyric-glance-js-yaml-4.1.0/LICENSE.js-yaml
 ```

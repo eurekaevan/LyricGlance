@@ -195,7 +195,7 @@ export class LyricsDiskCache {
         } catch (error) {
             if (!isNotFound(error) &&
                 !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                console.debug(`MPRIS Lyrics: ignoring lyrics cache entry: ${error.message}`);
+                console.debug(`LyricGlance: ignoring lyrics cache entry: ${error.message}`);
             return {hit: false};
         }
 
@@ -215,7 +215,7 @@ export class LyricsDiskCache {
         record.lastAccessed = this._now();
         this._trackWrite(writeJson(
             file, record, this._cancellable)).catch(error => {
-            console.debug(`MPRIS Lyrics: could not refresh lyrics cache entry: ${error.message}`);
+            console.debug(`LyricGlance: could not refresh lyrics cache entry: ${error.message}`);
         });
         return {hit: true, payload: decoded.payload, record};
     }
@@ -452,7 +452,7 @@ export class OffsetStore {
         } catch (error) {
             if (!isNotFound(error) &&
                 !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                console.debug(`MPRIS Lyrics: ignoring offset store: ${error.message}`);
+                console.debug(`LyricGlance: ignoring offset store: ${error.message}`);
         }
 
         if (cancellable.is_cancelled())
@@ -513,7 +513,7 @@ export class OffsetStore {
             } catch (error) {
                 if (!error.matches?.(
                     Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
-                    console.warn(`MPRIS Lyrics: could not save track offsets: ${error.message}`);
+                    console.warn(`LyricGlance: could not save track offsets: ${error.message}`);
                 }
             }
         }

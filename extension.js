@@ -77,7 +77,7 @@ function displayMetadataKey(metadata) {
     return [metadata.title, metadata.artist, metadata.album].join('\u0000');
 }
 
-export default class MprisLyricsExtension extends Extension {
+export default class LyricGlanceExtension extends Extension {
     enable() {
         this._lineTimerId = 0;
         this._wordTimerId = 0;
@@ -276,7 +276,7 @@ export default class MprisLyricsExtension extends Extension {
                     this._requestTranslation();
             }).catch(error => {
                 if (this._translationService === service)
-                    console.warn(`MPRIS Lyrics: could not clear translation cache: ${error.message}`);
+                    console.warn(`LyricGlance: could not clear translation cache: ${error.message}`);
             });
             this._clearTranslation('idle');
         });
@@ -294,7 +294,7 @@ export default class MprisLyricsExtension extends Extension {
         });
         connect('cache-clear-generation', () => {
             this._lyricsProvider?.clearCaches().catch(error => {
-                console.warn(`MPRIS Lyrics: could not clear runtime cache: ${error.message}`);
+                console.warn(`LyricGlance: could not clear runtime cache: ${error.message}`);
             });
         });
     }
@@ -527,7 +527,7 @@ export default class MprisLyricsExtension extends Extension {
                 TranslationStatus.SKIPPED,
                 TranslationStatus.NOT_CONFIGURED].includes(result.status)) {
                 console.warn(
-                    `MPRIS Lyrics: translation status ${result.status}`);
+                    `LyricGlance: translation status ${result.status}`);
             }
             this._updateIndicatorAndSchedule(true);
         }).catch(() => {
@@ -536,7 +536,7 @@ export default class MprisLyricsExtension extends Extension {
                 return;
             this._indicator?.setTranslationState(
                 TranslationStatus.PROVIDER_ERROR);
-            console.warn('MPRIS Lyrics: unexpected translation service failure');
+            console.warn('LyricGlance: unexpected translation service failure');
         });
     }
 
@@ -578,7 +578,7 @@ export default class MprisLyricsExtension extends Extension {
                 return GLib.SOURCE_CONTINUE;
             });
         GLib.Source.set_name_by_id(
-            this._progressTimerId, '[mpris-lyrics] popup progress');
+            this._progressTimerId, '[LyricGlance] popup progress');
     }
 
     _updateProgress() {
@@ -723,7 +723,7 @@ export default class MprisLyricsExtension extends Extension {
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
-            this._lineTimerId, '[mpris-lyrics] next lyric line');
+            this._lineTimerId, '[LyricGlance] next lyric line');
     }
 
     _updateWordAndSchedule(effectivePositionMs = null) {
@@ -764,7 +764,7 @@ export default class MprisLyricsExtension extends Extension {
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
-            this._wordTimerId, '[mpris-lyrics] next lyric word boundary');
+            this._wordTimerId, '[LyricGlance] next lyric word boundary');
     }
 
     _adjustTrackOffset(deltaMs) {

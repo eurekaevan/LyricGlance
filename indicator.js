@@ -31,11 +31,11 @@ const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
 const PROGRESS_TRANSITION_MS = 480;
 const LINE_VISUAL_CLASS_NAMES = [
-    'mpris-lyrics-line-static',
-    'mpris-lyrics-line-far',
-    'mpris-lyrics-line-mid',
-    'mpris-lyrics-line-near',
-    'mpris-lyrics-line-current',
+    'lyric-glance-line-static',
+    'lyric-glance-line-far',
+    'lyric-glance-line-mid',
+    'lyric-glance-line-near',
+    'lyric-glance-line-current',
 ];
 
 function animationsEnabled() {
@@ -155,17 +155,17 @@ class PlaybackProgressView {
         this._lastPlaying = false;
         this._animateFill = false;
         this.actor = new St.BoxLayout({
-            style_class: 'mpris-lyrics-progress',
+            style_class: 'lyric-glance-progress',
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
         });
         this._track = new St.Widget({
-            style_class: 'mpris-lyrics-progress-track',
+            style_class: 'lyric-glance-progress-track',
             x_expand: true,
             layout_manager: new Clutter.BinLayout(),
         });
         this._fill = new St.Widget({
-            style_class: 'mpris-lyrics-progress-fill',
+            style_class: 'lyric-glance-progress-fill',
             x_align: Clutter.ActorAlign.FILL,
             x_expand: true,
             y_expand: true,
@@ -176,7 +176,7 @@ class PlaybackProgressView {
         this.actor.add_child(this._track);
 
         const timeRow = new St.BoxLayout({
-            style_class: 'mpris-lyrics-progress-time',
+            style_class: 'lyric-glance-progress-time',
             x_expand: true,
         });
         this._currentLabel = new St.Label({text: '0:00', x_expand: true});
@@ -312,19 +312,19 @@ export class LyricsIndicator {
         this._laters = global.compositor.get_laters();
 
         this.actor = new PanelMenu.Button(0.5, accessibleName);
-        this.actor.add_style_class_name('mpris-lyrics-indicator');
+        this.actor.add_style_class_name('lyric-glance-indicator');
         this._panelBox = new St.BoxLayout({
-            style_class: 'mpris-lyrics-panel',
+            style_class: 'lyric-glance-panel',
             y_align: Clutter.ActorAlign.CENTER,
             y_expand: true,
         });
         this._icon = new St.Icon({
-            style_class: 'mpris-lyrics-panel-icon',
+            style_class: 'lyric-glance-panel-icon',
             gicon: musicIcon(),
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._label = new St.Label({
-            style_class: 'mpris-lyrics-panel-label',
+            style_class: 'lyric-glance-panel-label',
             text: '',
             x_expand: true,
             x_align: Clutter.ActorAlign.FILL,
@@ -333,7 +333,7 @@ export class LyricsIndicator {
         });
         configureEllipsized(this._label);
         this._panelPanLabel = new St.Label({
-            style_class: 'mpris-lyrics-panel-label',
+            style_class: 'lyric-glance-panel-label',
             text: '',
             x_align: Clutter.ActorAlign.START,
             y_align: Clutter.ActorAlign.CENTER,
@@ -346,7 +346,7 @@ export class LyricsIndicator {
         this._panelLabelLayout = new PanelLabelLayout();
         this._panelLabelLayout.setPanLabel(this._panelPanLabel);
         this._labelViewport = new St.Widget({
-            style_class: 'mpris-lyrics-panel-label-viewport',
+            style_class: 'lyric-glance-panel-label-viewport',
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
             y_expand: true,
@@ -381,10 +381,10 @@ export class LyricsIndicator {
     }
 
     _buildMenu() {
-        this.actor.menu.box.add_style_class_name('mpris-lyrics-menu');
+        this.actor.menu.box.add_style_class_name('lyric-glance-menu');
 
         const mediaItem = new PopupMenu.PopupBaseMenuItem({
-            style_class: 'mpris-lyrics-media-section',
+            style_class: 'lyric-glance-media-section',
             reactive: false,
             can_focus: false,
         });
@@ -393,7 +393,7 @@ export class LyricsIndicator {
             x_expand: true,
         });
         const mediaHeader = new St.BoxLayout({
-            style_class: 'mpris-lyrics-media-header',
+            style_class: 'lyric-glance-media-header',
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
@@ -402,16 +402,16 @@ export class LyricsIndicator {
         });
         mediaHeader.add_child(this._artworkView.actor);
         const metadataBox = new St.BoxLayout({
-            style_class: 'mpris-lyrics-metadata',
+            style_class: 'lyric-glance-metadata',
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._titleLabel = createMetadataLabel('mpris-lyrics-title', {
+        this._titleLabel = createMetadataLabel('lyric-glance-title', {
             multiline: true,
         });
-        this._artistLabel = createMetadataLabel('mpris-lyrics-artist');
-        this._albumLabel = createMetadataLabel('mpris-lyrics-album');
+        this._artistLabel = createMetadataLabel('lyric-glance-artist');
+        this._albumLabel = createMetadataLabel('lyric-glance-album');
         metadataBox.add_child(this._titleLabel);
         metadataBox.add_child(this._artistLabel);
         metadataBox.add_child(this._albumLabel);
@@ -425,17 +425,17 @@ export class LyricsIndicator {
         this.actor.menu.addMenuItem(mediaItem);
 
         const lyricsItem = new PopupMenu.PopupBaseMenuItem({
-            style_class: 'mpris-lyrics-scroll-item',
+            style_class: 'lyric-glance-scroll-item',
             reactive: false,
             can_focus: false,
         });
         this._lyricsBox = new St.BoxLayout({
-            style_class: 'mpris-lyrics-lines',
+            style_class: 'lyric-glance-lines',
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
         });
         this._scrollView = new St.ScrollView({
-            style_class: 'mpris-lyrics-scroll',
+            style_class: 'lyric-glance-scroll',
             x_expand: true,
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
@@ -445,7 +445,7 @@ export class LyricsIndicator {
         this.actor.menu.addMenuItem(lyricsItem);
 
         this._translationItem = new PopupMenu.PopupBaseMenuItem({
-            style_class: 'mpris-lyrics-translation-status',
+            style_class: 'lyric-glance-translation-status',
             reactive: false,
             can_focus: false,
         });
@@ -458,7 +458,7 @@ export class LyricsIndicator {
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._translationActionButton = new St.Button({
-            style_class: 'button flat mpris-lyrics-translation-button',
+            style_class: 'button flat lyric-glance-translation-button',
             label: _('Translate'),
             can_focus: true,
         });
@@ -468,28 +468,28 @@ export class LyricsIndicator {
         this.actor.menu.addMenuItem(this._translationItem);
 
         const offsetItem = new PopupMenu.PopupBaseMenuItem({
-            style_class: 'mpris-lyrics-offset',
+            style_class: 'lyric-glance-offset',
             reactive: false,
             can_focus: false,
         });
         const offsetBox = new St.BoxLayout({
-            style_class: 'mpris-lyrics-footer',
+            style_class: 'lyric-glance-footer',
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
         });
         const titleRow = new St.BoxLayout({
-            style_class: 'mpris-lyrics-offset-heading',
+            style_class: 'lyric-glance-offset-heading',
             x_expand: true,
         });
         const offsetTitle = new St.Label({
-            style_class: 'mpris-lyrics-offset-title',
+            style_class: 'lyric-glance-offset-title',
             text: _('Lyrics timing'),
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
         titleRow.add_child(offsetTitle);
         this._resetButton = new St.Button({
-            style_class: 'button flat mpris-lyrics-reset-button',
+            style_class: 'button flat lyric-glance-reset-button',
             label: _('Reset'),
             can_focus: true,
             accessible_name: _('Reset lyrics offset'),
@@ -498,23 +498,23 @@ export class LyricsIndicator {
         offsetBox.add_child(titleRow);
 
         const controls = new St.BoxLayout({
-            style_class: 'mpris-lyrics-offset-controls',
+            style_class: 'lyric-glance-offset-controls',
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._decreaseButton = new St.Button({
-            style_class: 'button flat mpris-lyrics-offset-button',
+            style_class: 'button flat lyric-glance-offset-button',
             label: '−0.5 s',
             can_focus: true,
             accessible_name: _('Decrease lyrics offset by 0.5 seconds'),
         });
         this._offsetLabel = new St.Label({
-            style_class: 'mpris-lyrics-offset-label',
+            style_class: 'lyric-glance-offset-label',
             text: '+0.0 s',
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._increaseButton = new St.Button({
-            style_class: 'button flat mpris-lyrics-offset-button',
+            style_class: 'button flat lyric-glance-offset-button',
             label: '+0.5 s',
             can_focus: true,
             accessible_name: _('Increase lyrics offset by 0.5 seconds'),
@@ -524,7 +524,7 @@ export class LyricsIndicator {
         controls.add_child(this._increaseButton);
         offsetBox.add_child(controls);
         this._effectiveOffsetLabel = new St.Label({
-            style_class: 'mpris-lyrics-effective-offset',
+            style_class: 'lyric-glance-effective-offset',
             text: _('Global +0.0 s  ·  Effective +0.0 s'),
             x_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
@@ -535,9 +535,9 @@ export class LyricsIndicator {
 
         this.actor.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._playerMenu = new PopupMenu.PopupSubMenuMenuItem(_('Player'), false);
-        this._playerMenu.add_style_class_name('mpris-lyrics-player');
+        this._playerMenu.add_style_class_name('lyric-glance-player');
         this._playerMenu.label.add_style_class_name(
-            'mpris-lyrics-player-label');
+            'lyric-glance-player-label');
         configureEllipsized(this._playerMenu.label);
         this.actor.menu.addMenuItem(this._playerMenu);
 
@@ -673,7 +673,7 @@ export class LyricsIndicator {
         this._clearLyricsRows();
         for (const line of document.lines) {
             const row = new PopupMenu.PopupBaseMenuItem({
-                style_class: 'mpris-lyrics-line',
+                style_class: 'lyric-glance-line',
                 reactive: false,
                 can_focus: false,
             });
@@ -682,7 +682,7 @@ export class LyricsIndicator {
                 x_expand: true,
             });
             const label = new St.Label({
-                style_class: 'mpris-lyrics-original',
+                style_class: 'lyric-glance-original',
                 text: line.text,
                 x_expand: true,
             });
@@ -690,7 +690,7 @@ export class LyricsIndicator {
             label.clutter_text.set_line_wrap(true);
             label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
             const translatedLabel = new St.Label({
-                style_class: 'mpris-lyrics-translation',
+                style_class: 'lyric-glance-translation',
                 text: '',
                 x_expand: true,
                 visible: false,
@@ -928,7 +928,7 @@ export class LyricsIndicator {
     _showLyricsMessage(text) {
         this._clearLyricsRows();
         const message = new St.Label({
-            style_class: 'mpris-lyrics-message',
+            style_class: 'lyric-glance-message',
             text,
             x_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
@@ -947,7 +947,7 @@ export class LyricsIndicator {
             const level = getLineVisualLevel(index, currentIndex);
             for (const className of LINE_VISUAL_CLASS_NAMES)
                 row.remove_style_class_name(className);
-            row.add_style_class_name(`mpris-lyrics-line-${level.name}`);
+            row.add_style_class_name(`lyric-glance-line-${level.name}`);
 
             row.remove_all_transitions();
             if (animate && (index === previousIndex || index === currentIndex)) {
@@ -1141,7 +1141,7 @@ export class LyricsIndicator {
                 translated.text = text;
 
             translated.remove_style_class_name(
-                'mpris-lyrics-translation-only');
+                'lyric-glance-translation-only');
             switch (this._translationDisplayMode) {
             case 'original':
                 original.show();
@@ -1152,7 +1152,7 @@ export class LyricsIndicator {
                 translated.visible = hasTranslation;
                 if (hasTranslation)
                     translated.add_style_class_name(
-                        'mpris-lyrics-translation-only');
+                        'lyric-glance-translation-only');
                 break;
             default:
                 original.show();

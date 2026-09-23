@@ -1,240 +1,240 @@
 /* Spacing scale: XS 4px, S 6px, M 12px, L 18px, XL 24px. */
 
-.mpris-lyrics-panel {
+.lyric-glance-panel {
   spacing: 6px;
 }
 
-.mpris-lyrics-panel-icon {
+.lyric-glance-panel-icon {
   icon-size: 16px;
 }
 
-.mpris-lyrics-panel-label,
-.mpris-lyrics-panel-label-viewport {
+.lyric-glance-panel-label,
+.lyric-glance-panel-label-viewport {
   min-width: 1px;
 }
 
-.mpris-lyrics-panel-label {
+.lyric-glance-panel-label {
   text-align: left;
 }
 
-.mpris-lyrics-menu {
+.lyric-glance-menu {
   width: 456px;
   max-width: 456px;
 }
 
-.mpris-lyrics-media-section {
+.lyric-glance-media-section {
   padding: 16px 18px 10px;
 }
 
-.mpris-lyrics-media-header {
+.lyric-glance-media-header {
   spacing: 12px;
 }
 
-.mpris-lyrics-artwork,
-.mpris-lyrics-artwork-placeholder {
+.lyric-glance-artwork,
+.lyric-glance-artwork-placeholder {
   width: 80px;
   height: 80px;
 }
 
-.mpris-lyrics-artwork-placeholder {
+.lyric-glance-artwork-placeholder {
   border-radius: 10px;
   background-color: st-transparentize(currentColor, 0.9);
 }
 
-.mpris-lyrics-artwork-fallback-icon {
+.lyric-glance-artwork-fallback-icon {
   icon-size: 30px;
   opacity: 0.46;
 }
 
-.mpris-lyrics-metadata {
+.lyric-glance-metadata {
   height: 80px;
 }
 
-.mpris-lyrics-title {
+.lyric-glance-title {
   height: 2.4em;
   max-height: 2.4em;
   font-size: 1.14em;
   font-weight: 650;
 }
 
-.mpris-lyrics-artist {
+.lyric-glance-artist {
   margin-top: 4px;
   min-height: 1.1em;
   font-size: 0.98em;
   opacity: 0.82;
 }
 
-.mpris-lyrics-album {
+.lyric-glance-album {
   margin-top: 2px;
   min-height: 1em;
   font-size: 0.88em;
   opacity: 0.58;
 }
 
-.mpris-lyrics-progress {
+.lyric-glance-progress {
   margin-top: 10px;
 }
 
-.mpris-lyrics-progress-track,
-.mpris-lyrics-progress-fill {
+.lyric-glance-progress-track,
+.lyric-glance-progress-fill {
   height: 4px;
   border-radius: 2px;
 }
 
-.mpris-lyrics-progress-track {
+.lyric-glance-progress-track {
   background-color: st-transparentize(-st-accent-color, 0.82);
 }
 
-.mpris-lyrics-progress-fill {
+.lyric-glance-progress-fill {
   background-color: -st-accent-color;
 }
 
-.mpris-lyrics-progress-time {
+.lyric-glance-progress-time {
   margin-top: 4px;
   font-size: 0.83em;
   font-feature-settings: "tnum";
   opacity: 0.58;
 }
 
-.mpris-lyrics-scroll-item {
+.lyric-glance-scroll-item {
   padding: 0;
 }
 
-.mpris-lyrics-scroll {
+.lyric-glance-scroll {
   max-height: 18em;
 }
 
-.mpris-lyrics-scroll StScrollBar > .vhandle {
+.lyric-glance-scroll StScrollBar > .vhandle {
   opacity: 0.42;
 }
 
-.mpris-lyrics-scroll StScrollBar > .vhandle:hover {
+.lyric-glance-scroll StScrollBar > .vhandle:hover {
   opacity: 0.72;
 }
 
-.mpris-lyrics-scroll StScrollBar > .vhandle:active {
+.lyric-glance-scroll StScrollBar > .vhandle:active {
   opacity: 0.9;
 }
 
-.mpris-lyrics-lines {
+.lyric-glance-lines {
   padding-top: 12px;
   padding-bottom: 12px;
 }
 
-.mpris-lyrics-line {
+.lyric-glance-line {
   padding: 2px 18px;
 }
 
-.mpris-lyrics-line-near {
+.lyric-glance-line-near {
   padding-top: 4px;
   padding-bottom: 4px;
 }
 
-.mpris-lyrics-line-current {
+.lyric-glance-line-current {
   padding-top: 7px;
   padding-bottom: 7px;
 }
 
-.mpris-lyrics-original {
+.lyric-glance-original {
   font-size: 1em;
   font-weight: normal;
 }
 
-.mpris-lyrics-line-current .mpris-lyrics-original {
+.lyric-glance-line-current .lyric-glance-original {
   font-size: 1.14em;
   font-weight: 650;
 }
 
-.mpris-lyrics-translation {
+.lyric-glance-translation {
   margin-top: 3px;
   font-size: 0.88em;
   font-weight: normal;
   opacity: 0.74;
 }
 
-.mpris-lyrics-line-current .mpris-lyrics-translation {
+.lyric-glance-line-current .lyric-glance-translation {
   font-size: 0.94em;
   opacity: 0.8;
 }
 
-.mpris-lyrics-translation-only {
+.lyric-glance-translation-only {
   margin-top: 0;
   font-size: 1em;
   opacity: 1;
 }
 
-.mpris-lyrics-line-current .mpris-lyrics-translation-only {
+.lyric-glance-line-current .lyric-glance-translation-only {
   font-size: 1.12em;
   font-weight: 650;
   opacity: 1;
 }
 
-.mpris-lyrics-translation-status {
+.lyric-glance-translation-status {
   padding: 6px 18px;
   font-size: 0.88em;
   opacity: 0.62;
 }
 
-.mpris-lyrics-translation-button {
+.lyric-glance-translation-button {
   margin-left: 12px;
   opacity: 0.8;
 }
 
-.mpris-lyrics-message {
+.lyric-glance-message {
   padding: 24px 18px;
   opacity: 0.62;
 }
 
-.mpris-lyrics-offset {
+.lyric-glance-offset {
   padding: 8px 18px;
 }
 
-.mpris-lyrics-footer {
+.lyric-glance-footer {
   spacing: 4px;
 }
 
-.mpris-lyrics-offset-heading {
+.lyric-glance-offset-heading {
   spacing: 10px;
 }
 
-.mpris-lyrics-offset-title {
+.lyric-glance-offset-title {
   font-size: 0.82em;
   opacity: 0.55;
 }
 
-.mpris-lyrics-offset-controls {
+.lyric-glance-offset-controls {
   spacing: 8px;
 }
 
-.mpris-lyrics-offset-button {
+.lyric-glance-offset-button {
   padding: 3px 6px;
   font-size: 0.82em;
   opacity: 0.65;
 }
 
-.mpris-lyrics-offset-label {
+.lyric-glance-offset-label {
   min-width: 4.5em;
   font-size: 0.86em;
   font-feature-settings: "tnum";
   opacity: 0.72;
 }
 
-.mpris-lyrics-reset-button {
+.lyric-glance-reset-button {
   padding: 3px 6px;
   font-size: 0.8em;
   opacity: 0.68;
 }
 
-.mpris-lyrics-reset-button:insensitive {
+.lyric-glance-reset-button:insensitive {
   opacity: 0.28;
 }
 
-.mpris-lyrics-effective-offset {
+.lyric-glance-effective-offset {
   font-size: 0.78em;
   opacity: 0.46;
 }
 
-.mpris-lyrics-player {
+.lyric-glance-player {
   padding-top: 8px;
   padding-bottom: 8px;
 }

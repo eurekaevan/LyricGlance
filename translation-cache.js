@@ -145,7 +145,7 @@ export class TranslationDiskCache {
         } catch (error) {
             if (!isNotFound(error) &&
                 !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                console.debug('MPRIS Lyrics: ignoring invalid translation cache entry');
+                console.debug('LyricGlance: ignoring invalid translation cache entry');
             return {hit: false};
         }
     }

@@ -8,7 +8,7 @@ function assert(condition, message) {
 }
 
 const provider = `integration-test-${GLib.get_monotonic_time()}`;
-const dummyCredential = 'mpris-lyrics-test-value';
+const dummyCredential = 'lyric-glance-test-value';
 const store = new TranslationCredentialStore();
 
 let scenarioError = null;

@@ -54,7 +54,7 @@ async function countCacheFiles(directory) {
 const png = GLib.base64_decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
 const oversized = new Uint8Array(256);
-const tempRoot = GLib.dir_make_tmp('mpris-lyrics-artwork-test-XXXXXX');
+const tempRoot = GLib.dir_make_tmp('lyric-glance-artwork-test-XXXXXX');
 const cacheDirectory = GLib.build_filenamev([tempRoot, 'cache']);
 const localFile = Gio.File.new_for_path(
     GLib.build_filenamev([tempRoot, 'local.png']));

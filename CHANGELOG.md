@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Renamed the project branding to LyricGlance while retaining the existing GNOME extension UUID, settings schema, gettext domain, and data directories for upgrade compatibility.
+
 ## [0.9.0] - 2026-08-23
 
 ### Added

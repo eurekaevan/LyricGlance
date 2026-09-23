@@ -19,7 +19,7 @@ function assert(condition, message) {
         throw new Error(message);
 }
 
-const tempRoot = GLib.dir_make_tmp('mpris-lyrics-translation-XXXXXX');
+const tempRoot = GLib.dir_make_tmp('lyric-glance-translation-XXXXXX');
 const track = {
     title: 'Translation Test',
     artist: 'Fixture Artist',

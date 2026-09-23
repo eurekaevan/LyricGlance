@@ -125,7 +125,7 @@ async function run() {
     let result = await translate(provider);
     assert(result.length === 2 && result[0].text === '[zh-CN] Hello' &&
         observed.authorization === 'Bearer unit-test-token' &&
-        observed.userAgent.startsWith('MPRIS Lyrics/0.9.0') &&
+        observed.userAgent.startsWith('LyricGlance/0.9.0') &&
         observed.body.model === 'custom-translation-model' &&
         observed.body.store === false &&
         !Object.hasOwn(observed.body, 'reasoning') &&
