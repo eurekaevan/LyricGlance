@@ -148,6 +148,20 @@ make pack
 unzip -l lyric-glance@eureka.shell-extension.zip
 ```
 
+自动发布使用日期标签 `YYYY-MM-DD`，例如 `2026-10-09`。将包含发布工作流的改动提交到
+要发布的 commit 后，创建并推送标签：
+
+```sh
+git tag 2026-10-09
+git push origin 2026-10-09
+```
+
+请将示例日期替换为实际发布日期。Release 工作流会校验日期、执行 `make check` 和
+`make integration`，通过后自动创建该日期的 GitHub Release，并上传 ZIP 和 SHA-256
+校验文件。普通分支推送只上传 Actions artifact；版本号标签不再触发 Release 工作流。
+同一天需要重试时，在 Actions 中重新运行该日期标签的工作流，会更新已有 Release
+的附件；重跑仍使用该标签对应的 commit，不会自动包含后来提交的改动。
+
 可选的 Secret Service 测试会写入一个独立测试 secret，并在结束前删除：
 
 ```sh
