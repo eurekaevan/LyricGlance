@@ -116,6 +116,8 @@ export default class LyricGlanceExtension extends Extension {
                 this._settings.set_string('preferred-player', stableId);
             },
             onPopupOpenChanged: open => this._onPopupOpenChanged(open),
+            onMediaControl: (action, target, positionUs) =>
+                this._mprisManager.control(action, target, positionUs),
             onTranslationAction: options =>
                 this._requestTranslation({...options, allowNetwork: true}),
         });
@@ -326,6 +328,7 @@ export default class LyricGlanceExtension extends Extension {
     _onPlayerStateChanged(state) {
         const previousState = this._state;
         this._state = state;
+        this._indicator.setMediaState(state);
 
         if (!state) {
             this._currentTrackKey = null;
@@ -403,6 +406,7 @@ export default class LyricGlanceExtension extends Extension {
             this._startProgressTimer();
             this._updateWordAndSchedule();
         } else {
+            this._indicator.cancelMediaDrag();
             this._stopProgressTimer();
             this._stopWordTimer();
         }
@@ -663,6 +667,9 @@ export default class LyricGlanceExtension extends Extension {
             this._indicator.setCurrentLyricIndex(-1);
         }
 
+        if (!panelContent)
+            this._indicator.setText('');
+
         if (panelContent) {
             let panelTimeline = null;
             if (panelContentIsLyric && currentLine &&
@@ -698,7 +705,7 @@ export default class LyricGlanceExtension extends Extension {
         const hiddenWhilePaused =
             this._settings.get_boolean('hide-when-paused') &&
             this._state.playbackStatus === 'Paused';
-        this._indicator.setVisible(Boolean(panelContent) && !hiddenWhilePaused);
+        this._indicator.setVisible(!hiddenWhilePaused);
 
         this._updateWordAndSchedule(effectivePositionMs);
 

@@ -395,7 +395,7 @@ export async function run() {
     'the popup should format and display current playback progress');
     view.setProgress(999_000_000, 220_000_000);
     assert(view._progressView._currentLabel.text === '3:40' &&
-        view._progressView._fraction === 1,
+        view._progressView._slider.value === 1,
     'progress should clamp safely at track end');
     view.setProgress(119_000_000, 220_000_000);
 
@@ -455,10 +455,8 @@ export async function run() {
     await Scripting.sleep(500);
     assert(indicator.menu.isOpen,
         'the native PanelMenu popup should open');
-    const [trackX] = view._progressView._track.get_transformed_position();
-    const [fillX] = view._progressView._fill.get_transformed_position();
-    assert(Math.abs(fillX - trackX) < 0.5,
-        'playback progress fill should stay anchored to the start of the track');
+    assert(view._progressView._slider.width > 0,
+        'the native progress slider should have an allocated hit area');
     assert(instance._progressTimerId !== 0,
         'an open popup should run one low-frequency progress timer');
     assert(view._scrollView.vadjustment.value > 0,
@@ -502,26 +500,116 @@ export async function run() {
         album: 'Test Album',
     });
 
-    view.setProgress(60_000_000, 220_000_000, {
-        playing: true,
-        immediate: true,
+    const mediaCommands = [];
+    const originalMediaControl = view._onMediaControl;
+    view._onMediaControl = async (action, target, position) => {
+        mediaCommands.push({action, target, position});
+    };
+    const mediaState = {
+        playbackStatus: 'Paused',
+        controlTarget: {busName: 'test-player', generation: 1, trackKey: 'first'},
+        metadata: {trackId: '/test/first', durationUs: 220_000_000},
+        capabilities: {CanControl: true, CanPlay: true, CanPause: true,
+            CanGoNext: true, CanGoPrevious: true, CanSeek: true},
+    };
+    view.setMediaState(mediaState);
+    view.setProgress(60_000_000, 220_000_000);
+    const progress = view._progressView;
+    const slider = progress._slider;
+    assert(Math.abs(slider.value - 60 / 220) < 0.0001 && mediaCommands.length === 0,
+        'automatic progress updates must not seek');
+    for (const action of ['Play', 'Previous', 'Next']) {
+        view._mediaButtons.get(action).emit('clicked', 1);
+        await Scripting.sleep(10);
+        assert(mediaCommands.at(-1).action === action && indicator.menu.isOpen,
+            `${action} should dispatch without closing the popup`);
+    }
+    mediaState.playbackStatus = 'Playing';
+    view.setMediaState(mediaState);
+    view._mediaButtons.get('Play').emit('clicked', 1);
+    await Scripting.sleep(10);
+    assert(mediaCommands.at(-1).action === 'Pause',
+        'the playing button should dispatch Pause');
+    const beforeDrag = mediaCommands.length;
+    slider.emit('drag-begin');
+    slider.value = 0.5;
+    slider.value = 0.6;
+    view.setProgress(61_000_000, 220_000_000);
+    assert(slider.value === 0.6 && progress._currentLabel.text === '2:12' &&
+        mediaCommands.length === beforeDrag,
+    'dragging should preview time, resist clock updates, and send no command');
+    slider.emit('drag-end');
+    await Scripting.sleep(10);
+    assert(mediaCommands.length === beforeDrag + 1 &&
+        mediaCommands.at(-1).action === 'SetPosition' &&
+        mediaCommands.at(-1).position === 132_000_000,
+    'releasing a drag should submit one seek in microseconds');
+    slider.value = 0.7;
+    await Scripting.sleep(10);
+    assert(mediaCommands.at(-1).position === 154_000_000,
+        'non-drag slider changes should submit a seek');
+    slider.step(1);
+    await Scripting.sleep(10);
+    view.setProgress(20_000_000, 220_000_000);
+    slider.step(1);
+    await Scripting.sleep(10);
+    assert(Math.abs(mediaCommands.at(-1).position - 24_400_000) < 1,
+        'native keyboard/scroll stepping must start from the latest clock position');
+    const beforeCancelled = mediaCommands.length;
+    slider.emit('drag-begin');
+    slider.value = 0.8;
+    view.setMediaState({...mediaState, controlTarget:
+        {...mediaState.controlTarget, trackKey: 'second'}});
+    slider.emit('drag-end');
+    await Scripting.sleep(10);
+    assert(mediaCommands.length === beforeCancelled,
+        'switching tracks while dragging must cancel the seek');
+    view.setMediaState(mediaState);
+    slider.emit('drag-begin');
+    slider.value = 0.4;
+    view.setMediaState({...mediaState, controlTarget:
+        {...mediaState.controlTarget, busName: 'other-player', generation: 2}});
+    slider.emit('drag-end');
+    await Scripting.sleep(10);
+    assert(mediaCommands.length === beforeCancelled,
+        'switching players while dragging must cancel the seek');
+    view.setMediaState(mediaState);
+    slider.emit('drag-begin');
+    slider.value = 0.2;
+    view.cancelMediaDrag();
+    slider.emit('drag-end');
+    await Scripting.sleep(10);
+    assert(mediaCommands.length === beforeCancelled,
+        'closing a popup must cancel an uncommitted seek');
+    view.setMediaState({...mediaState, capabilities: {CanControl: false}});
+    assert(!slider.reactive && !view._mediaButtons.get('Play').reactive,
+        'unsupported media controls must be disabled');
+    view.setMediaState({...mediaState, metadata: {...mediaState.metadata, trackId: ''}});
+    assert(!slider.reactive, 'missing track IDs must disable absolute seeking');
+    view.setMediaState(mediaState);
+    view._onMediaControl = async () => { throw new Error('Expected media test failure'); };
+    view._mediaButtons.get('Play').emit('clicked', 1);
+    await Scripting.sleep(10);
+    assert(view._mediaErrorLabel.visible && view._mediaButtons.get('Play').reactive,
+        'a failed control must show an error and restore the controls');
+    let rejectOldControl;
+    view._onMediaControl = () => new Promise((_resolve, reject) => {
+        rejectOldControl = reject;
     });
-    await Scripting.sleep(520);
-    view.setProgress(60_500_000, 220_000_000, {playing: true});
-    assert(view._progressView._animateFill,
-        'normal playing progress should interpolate between 500ms updates');
-    view.setProgress(150_000_000, 220_000_000, {playing: true});
-    assert(!view._progressView._animateFill,
-        'a seek-sized progress jump should cancel interpolation and reposition');
-    view.setProgress(150_000_000, 220_000_000, {playing: false});
-    assert(!view._progressView._animateFill,
-        'paused progress should remain fixed without an active interpolation');
-    view.setProgress(119_000_000, 220_000_000, {immediate: true});
-    await Scripting.sleep(80);
-    assert(Math.abs(view._progressView._fill.scale_x - 119 / 220) < 0.0001 &&
-        Math.abs(view._progressView._fill.width -
-            view._progressView._track.width) < 0.5,
-        'an immediate progress update should cancel old fraction transitions');
+    view._mediaButtons.get('Play').emit('clicked', 1);
+    assert(!view._mediaButtons.get('Play').reactive && !slider.reactive,
+        'pending commands must disable controls to prevent duplicate requests');
+    view.setMediaState({...mediaState, controlTarget:
+        {...mediaState.controlTarget, generation: 2}});
+    rejectOldControl(new Error('Expected stale control failure'));
+    await Scripting.sleep(10);
+    assert(!view._mediaErrorLabel.visible && view._mediaButtons.get('Play').reactive,
+        'a stale control completion must not change the replacement player UI');
+    view._onMediaControl = originalMediaControl;
+    view.setMediaState(null);
+    view.setProgress(119_000_000, 220_000_000);
+    assert(Math.abs(slider.value - 119 / 220) < 0.0001,
+        'native slider progress should reposition directly after a seek');
 
     view.setPlayers([{
         stableId: 'desktop:firefox',
@@ -1018,26 +1106,20 @@ export async function run() {
     settings.set_int('max-panel-width', 500);
 
     const viewAnimationPreference = view._animationsEnabled;
-    const progressAnimationPreference = view._progressView._animationsEnabled;
     view._animationsEnabled = () => false;
-    view._progressView._animationsEnabled = () => false;
     view.setText('Reduced motion');
-    view.setProgress(10_000_000, 220_000_000, {
-        playing: true,
-        immediate: true,
-    });
+    view.setProgress(10_000_000, 220_000_000, {playing: true});
     view.setProgress(10_010_000, 220_000_000, {playing: true});
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
     await Scripting.sleep(80);
-    assert(view._label.opacity === 255 && !view._progressView._animateFill &&
+    assert(view._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
         view._label.visible && !view._panelPanLabel.visible &&
         !view._panelPanLabel.get_transition('translation-x'),
     'disabled Shell animations should keep text, panel pan, and progress direct');
     view._animationsEnabled = viewAnimationPreference;
-    view._progressView._animationsEnabled = progressAnimationPreference;
     view.setText('First');
 
     settings.set_boolean('hide-when-paused', true);
@@ -1070,8 +1152,13 @@ export async function run() {
     assert(indicator.visible && view._label.text === 'Offset Test — Paused Artist',
         'fallback track information should remain visible by default');
     settings.set_boolean('fallback-track-info', false);
-    assert(!indicator.visible,
-        'disabling fallback information should hide a no-lyrics indicator');
+    assert(indicator.visible && !view._label.text && view._icon.visible &&
+        !view._labelViewport.visible,
+        'no lyrics and no fallback should retain an icon-only media entry');
+    settings.set_boolean('show-icon', false);
+    assert(view._icon.visible,
+        'disabling the normal icon must not remove an icon-only media entry');
+    settings.set_boolean('show-icon', true);
     settings.set_boolean('fallback-track-info', true);
     assert(indicator.visible,
         're-enabling fallback information should restore the indicator');

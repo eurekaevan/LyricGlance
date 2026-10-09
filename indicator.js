@@ -8,6 +8,7 @@ import St from 'gi://St';
 
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {ArtworkView} from './artwork-view.js';
@@ -18,7 +19,6 @@ import {
     normalizePanelTimeline,
     panelPanState,
     panelTimelinesEqual,
-    progressFraction,
 } from './ui-utils.js';
 
 const OFFSET_STEP_MS = 500;
@@ -29,7 +29,6 @@ const PANEL_TEXT_OPACITY = 150;
 const PANEL_TEXT_FADE_MS = 140;
 const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
-const PROGRESS_TRANSITION_MS = 480;
 const LINE_VISUAL_CLASS_NAMES = [
     'lyric-glance-line-static',
     'lyric-glance-line-far',
@@ -146,35 +145,21 @@ class PanelLabelLayout extends Clutter.LayoutManager {
 }
 
 class PlaybackProgressView {
-    constructor({animationPreference = animationsEnabled} = {}) {
-        this._animationsEnabled = animationPreference;
-        this._fraction = 0;
-        this._lastPositionUs = 0;
-        this._lastDurationUs = 0;
-        this._lastUpdateUs = 0;
-        this._lastPlaying = false;
-        this._animateFill = false;
+    constructor({onSeek} = {}) {
+        this._onSeek = onSeek;
+        this._target = null;
+        this._dragTarget = null;
+        this._dragging = false;
+        this._updating = false;
+        this._durationUs = 0;
         this.actor = new St.BoxLayout({
             style_class: 'lyric-glance-progress',
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
         });
-        this._track = new St.Widget({
-            style_class: 'lyric-glance-progress-track',
-            x_expand: true,
-            layout_manager: new Clutter.BinLayout(),
-        });
-        this._fill = new St.Widget({
-            style_class: 'lyric-glance-progress-fill',
-            x_align: Clutter.ActorAlign.FILL,
-            x_expand: true,
-            y_expand: true,
-        });
-        this._fill.set_pivot_point(0, 0.5);
-        this._fill.scale_x = 0;
-        this._track.add_child(this._fill);
-        this.actor.add_child(this._track);
-
+        this._slider = new Slider(0);
+        this._slider.accessible_name = _('Playback position');
+        this.actor.add_child(this._slider);
         const timeRow = new St.BoxLayout({
             style_class: 'lyric-glance-progress-time',
             x_expand: true,
@@ -184,86 +169,65 @@ class PlaybackProgressView {
         timeRow.add_child(this._currentLabel);
         timeRow.add_child(this._durationLabel);
         this.actor.add_child(timeRow);
-
+        this._slider.connect('drag-begin', () => {
+            this._dragging = true;
+            this._dragTarget = this._slider.reactive ? this._target : null;
+        });
+        this._slider.connect('drag-end', () => {
+            const target = this._dragTarget;
+            this._dragging = false;
+            this._dragTarget = null;
+            if (target && this._slider.reactive)
+                this._onSeek?.(target, this._slider.value * this._durationUs);
+        });
+        this._slider.connect('notify::value', () => {
+            if (this._updating || !this._slider.reactive)
+                return;
+            this._currentLabel.text = formatDuration(
+                this._slider.value * this._durationUs / 1_000_000);
+            if (!this._dragging)
+                this._onSeek?.(this._target, this._slider.value * this._durationUs);
+        });
         this.actor.hide();
     }
 
-    setProgress(positionUs, durationUs, {
-        playing = false,
-        immediate = false,
-    } = {}) {
-        const duration = Number(durationUs);
-        const hasDuration = Number.isFinite(duration) && duration > 0;
-        this.actor.visible = hasDuration;
-        if (!hasDuration) {
-            this._fraction = 0;
-            this._lastPositionUs = 0;
-            this._lastDurationUs = 0;
-            this._lastUpdateUs = 0;
-            this._lastPlaying = false;
-            this._animateFill = false;
-            this._currentLabel.text = '0:00';
-            this._durationLabel.text = '0:00';
-            this._updateFillScale(false);
-            return;
-        }
-
-        const position = Math.min(Math.max(
-            0, Number(positionUs) || 0), duration);
-        const nowUs = GLib.get_monotonic_time();
-        const elapsedUs = this._lastUpdateUs > 0
-            ? Math.max(0, nowUs - this._lastUpdateUs)
-            : 0;
-        const expectedDeltaUs = this._lastPlaying ? elapsedUs : 0;
-        const actualDeltaUs = position - this._lastPositionUs;
-        const discontinuity = this._lastDurationUs !== duration ||
-            actualDeltaUs < -250_000 ||
-            Math.abs(actualDeltaUs - expectedDeltaUs) > 1_500_000;
-
-        this._fraction = progressFraction(position, duration);
-        this._animateFill = Boolean(playing) && !immediate &&
-            !discontinuity && this._animationsEnabled();
-        const currentText = formatDuration(
-            position / 1_000_000);
-        const durationText = formatDuration(duration / 1_000_000);
-        if (this._currentLabel.text !== currentText)
-            this._currentLabel.text = currentText;
-        if (this._durationLabel.text !== durationText)
-            this._durationLabel.text = durationText;
-        this._updateFillScale(this._animateFill);
-
-        this._lastPositionUs = position;
-        this._lastDurationUs = duration;
-        this._lastUpdateUs = nowUs;
-        this._lastPlaying = Boolean(playing);
+    setControlState(target, enabled) {
+        if (JSON.stringify(target) !== JSON.stringify(this._target) || !enabled)
+            this.cancelDrag();
+        this._target = target;
+        setButtonEnabled(this._slider, Boolean(enabled));
     }
 
-    _updateFillScale(animate) {
-        const fillScale = this._fraction;
-        this._fill.visible = fillScale > 0;
-        this._fill.remove_all_transitions();
-        if (Math.abs(this._fill.scale_x - fillScale) < 0.0001)
-            return;
+    cancelDrag() {
+        // Leave the gesture active until its release, but never commit it.
+        this._dragTarget = null;
+    }
 
-        if (animate) {
-            this._fill.ease({
-                scale_x: fillScale,
-                duration: PROGRESS_TRANSITION_MS,
-                mode: Clutter.AnimationMode.LINEAR,
-            });
-        } else {
-            this._fill.scale_x = fillScale;
-        }
+    setProgress(positionUs, durationUs) {
+        const duration = Number(durationUs);
+        this._durationUs = Number.isFinite(duration) && duration > 0 ? duration : 0;
+        this.actor.visible = this._durationUs > 0;
+        if (this._dragging && this._dragTarget)
+            return;
+        const position = Math.min(Math.max(0, Number(positionUs) || 0),
+            this._durationUs);
+        this._updating = true;
+        // Shell 50 retains a separate step origin after user interaction.
+        this._slider._unsnappedValue = null;
+        this._slider.value = this._durationUs > 0 ? position / this._durationUs : 0;
+        this._updating = false;
+        this._currentLabel.text = formatDuration(position / 1_000_000);
+        this._durationLabel.text = formatDuration(this._durationUs / 1_000_000);
     }
 
     destroy() {
-        this._fill?.remove_all_transitions();
+        this.cancelDrag();
+        this._onSeek = null;
+        this._target = null;
         this.actor = null;
-        this._track = null;
-        this._fill = null;
+        this._slider = null;
         this._currentLabel = null;
         this._durationLabel = null;
-        this._animationsEnabled = null;
     }
 }
 
@@ -274,6 +238,7 @@ export class LyricsIndicator {
         onPlayerSelected,
         onPopupOpenChanged,
         onTranslationAction,
+        onMediaControl,
         animationsEnabled: animationPreference = animationsEnabled,
     } = {}) {
         this._onOffsetAdjust = onOffsetAdjust ?? null;
@@ -281,6 +246,11 @@ export class LyricsIndicator {
         this._onPlayerSelected = onPlayerSelected ?? null;
         this._onPopupOpenChanged = onPopupOpenChanged ?? null;
         this._onTranslationAction = onTranslationAction ?? null;
+        this._onMediaControl = onMediaControl ?? null;
+        this._mediaTarget = null;
+        this._mediaRequest = 0;
+        this._mediaBusy = false;
+        this._mediaState = null;
         this._animationsEnabled = animationPreference;
         this._lyricRows = [];
         this._lyricLabels = [];
@@ -417,10 +387,44 @@ export class LyricsIndicator {
         metadataBox.add_child(this._albumLabel);
         mediaHeader.add_child(metadataBox);
         mediaBox.add_child(mediaHeader);
+        const mediaControls = new St.BoxLayout({
+            style_class: 'lyric-glance-media-controls',
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._mediaButtons = new Map();
+        for (const [action, label, icon] of [
+            ['Previous', _('Previous track'), 'media-skip-backward-symbolic'],
+            ['Play', _('Play'), 'media-playback-start-symbolic'],
+            ['Next', _('Next track'), 'media-skip-forward-symbolic'],
+        ]) {
+            const button = new St.Button({
+                style_class: 'button lyric-glance-media-button',
+                accessible_name: label,
+                child: new St.Icon({icon_name: icon, icon_size: 18}),
+                can_focus: true,
+            });
+            button.connect('clicked', () => {
+                const command = action === 'Play' &&
+                    this._mediaState?.playbackStatus === 'Playing' ? 'Pause' : action;
+                this._requestMediaControl(command, this._mediaTarget);
+            });
+            this._mediaButtons.set(action, button);
+            mediaControls.add_child(button);
+        }
+        mediaBox.add_child(mediaControls);
         this._progressView = new PlaybackProgressView({
-            animationPreference: this._animationsEnabled,
+            onSeek: (target, positionUs) =>
+                this._requestMediaControl('SetPosition', target, positionUs),
         });
         mediaBox.add_child(this._progressView.actor);
+        this._mediaErrorLabel = new St.Label({
+            style_class: 'lyric-glance-media-error',
+            text: _('Could not control playback'),
+            visible: false,
+        });
+        this._mediaErrorLabel.clutter_text.set_line_wrap(true);
+        mediaBox.add_child(this._mediaErrorLabel);
+        this.setMediaState(null);
         mediaItem.add_child(mediaBox);
         this.actor.menu.addMenuItem(mediaItem);
 
@@ -574,6 +578,12 @@ export class LyricsIndicator {
         timeline = null,
         contentKey = null,
     } = {}) {
+        this._icon.visible = this._showIcon || !text;
+        const iconOnly = !text;
+        if (this._labelViewport.visible === iconOnly) {
+            this._labelViewport.visible = !iconOnly;
+            this._applyPanelWidth();
+        }
         const canScroll = Boolean(scrollable);
         const normalizedTimeline = normalizePanelTimeline(timeline);
         const timelineChanged = !panelTimelinesEqual(
@@ -611,7 +621,7 @@ export class LyricsIndicator {
 
     setTrack(metadata, trackKey) {
         this.updateTrackMetadata(metadata, trackKey);
-        this.setProgress(0, metadata.durationUs, {immediate: true});
+        this.setProgress(0, metadata.durationUs);
         this._document = null;
         this._translationDocument = null;
         this.setTranslationState('idle');
@@ -636,8 +646,62 @@ export class LyricsIndicator {
         this._artworkView.setArtwork(artUrl, trackKey);
     }
 
+    setMediaState(state) {
+        const target = state?.controlTarget ?? null;
+        if (JSON.stringify(target) !== JSON.stringify(this._mediaTarget)) {
+            this._mediaRequest++;
+            this._mediaBusy = false;
+            this._mediaErrorLabel.hide();
+        }
+        this._mediaTarget = target;
+        this._mediaState = state;
+        const capabilities = state?.capabilities ?? {};
+        const enabled = Boolean(target && capabilities.CanControl && !this._mediaBusy);
+        const playing = state?.playbackStatus === 'Playing';
+        const playButton = this._mediaButtons.get('Play');
+        playButton.child.icon_name = playing
+            ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic';
+        playButton.accessible_name = playing ? _('Pause') : _('Play');
+        setButtonEnabled(playButton, enabled &&
+            Boolean(playing ? capabilities.CanPause : capabilities.CanPlay));
+        setButtonEnabled(this._mediaButtons.get('Previous'),
+            enabled && Boolean(capabilities.CanGoPrevious));
+        setButtonEnabled(this._mediaButtons.get('Next'),
+            enabled && Boolean(capabilities.CanGoNext));
+        const trackId = state?.metadata.trackId ?? '';
+        this._progressView.setControlState(target, enabled && capabilities.CanSeek &&
+            state.metadata.durationUs > 0 && GLib.Variant.is_object_path(trackId) &&
+            trackId !== '/org/mpris/MediaPlayer2/TrackList/NoTrack');
+    }
+
+    async _requestMediaControl(action, target, positionUs = null) {
+        if (!target || !this._onMediaControl || this._mediaBusy)
+            return;
+        const request = ++this._mediaRequest;
+        this._mediaBusy = true;
+        this._mediaErrorLabel.hide();
+        this.setMediaState(this._mediaState);
+        try {
+            await this._onMediaControl(action, target, positionUs);
+        } catch (error) {
+            if (this.actor && request === this._mediaRequest) {
+                this._mediaErrorLabel.show();
+                console.warn(`LyricGlance: playback control failed: ${error.message}`);
+            }
+        } finally {
+            if (this.actor && request === this._mediaRequest) {
+                this._mediaBusy = false;
+                this.setMediaState(this._mediaState);
+            }
+        }
+    }
+
+    cancelMediaDrag() {
+        this._progressView.cancelDrag();
+    }
+
     setProgress(positionUs, durationUs, options = {}) {
-        this._progressView?.setProgress(positionUs, durationUs, options);
+        this._progressView?.setProgress(positionUs, durationUs);
         this._setPanelPlaying(Boolean(options.playing));
     }
 
@@ -651,7 +715,7 @@ export class LyricsIndicator {
         this._artistLabel.text = '';
         this._albumLabel.text = '';
         this._artworkView.clear();
-        this.setProgress(0, 0, {immediate: true});
+        this.setProgress(0, 0);
         this._document = null;
         this._translationDocument = null;
         this._clearLyricsRows();
@@ -864,7 +928,7 @@ export class LyricsIndicator {
 
     setShowIcon(visible) {
         this._showIcon = Boolean(visible);
-        this._icon.visible = this._showIcon;
+        this._icon.visible = this._showIcon || !this._label.text;
         this._applyPanelWidth();
     }
 
@@ -969,9 +1033,10 @@ export class LyricsIndicator {
         // running transition can otherwise request a stage-view update while
         // the panel hierarchy is waiting for its new allocation.
         this._cancelPanelPan();
-        const reservedForIcon = this._showIcon ? 22 : 0;
+        const reservedForIcon = this._icon.visible ? 22 : 0;
         const preferredWidth = Math.min(
-            PANEL_PREFERRED_WIDTH, this._maxPanelWidth);
+            this._labelViewport.visible ? PANEL_PREFERRED_WIDTH : 22,
+            this._maxPanelWidth);
         const labelWidth = Math.max(1,
             preferredWidth - reservedForIcon);
         this._panelBox.natural_width = preferredWidth;
@@ -1318,6 +1383,12 @@ export class LyricsIndicator {
         this._onPlayerSelected = null;
         this._onPopupOpenChanged = null;
         this._onTranslationAction = null;
+        this._onMediaControl = null;
+        this._mediaRequest++;
+        this._mediaState = null;
+        this._mediaTarget = null;
+        this._mediaButtons = null;
+        this._mediaErrorLabel = null;
         this._animationsEnabled = null;
         this._artworkView?.destroy();
         this._progressView?.destroy();

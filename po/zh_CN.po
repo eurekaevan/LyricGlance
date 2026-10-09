@@ -452,6 +452,24 @@ msgstr "翻译缓存已清除"
 msgid "Could not clear translation cache"
 msgstr "无法清除翻译缓存"
 
+msgid "Previous track"
+msgstr "上一首"
+
+msgid "Play"
+msgstr "播放"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Next track"
+msgstr "下一首"
+
+msgid "Playback position"
+msgstr "播放进度"
+
+msgid "Could not control playback"
+msgstr "无法控制播放"
+
 #~ msgid ""
 #~ "Translations are aligned by lyric line and never change original timing."
 #~ msgstr "翻译按歌词行对齐，不会改变原始时间。"

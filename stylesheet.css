@@ -75,18 +75,18 @@
   margin-top: 10px;
 }
 
-.lyric-glance-progress-track,
-.lyric-glance-progress-fill {
-  height: 4px;
-  border-radius: 2px;
+.lyric-glance-media-controls {
+  spacing: 8px;
+  margin-top: 10px;
 }
 
-.lyric-glance-progress-track {
-  background-color: st-transparentize(-st-accent-color, 0.82);
+.lyric-glance-media-button {
+  padding: 6px 10px;
 }
 
-.lyric-glance-progress-fill {
-  background-color: -st-accent-color;
+.lyric-glance-media-error {
+  margin-top: 6px;
+  font-size: 0.83em;
 }
 
 .lyric-glance-progress-time {

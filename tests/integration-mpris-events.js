@@ -22,6 +22,20 @@ const rootInterfaceXml = `
 const playerInterfaceXml = `
 <node>
   <interface name="org.mpris.MediaPlayer2.Player">
+    <method name="Play"/>
+    <method name="Pause"/>
+    <method name="Next"/>
+    <method name="Previous"/>
+    <method name="SetPosition">
+      <arg name="TrackId" type="o" direction="in"/>
+      <arg name="Position" type="x" direction="in"/>
+    </method>
+    <property name="CanControl" type="b" access="read"/>
+    <property name="CanPlay" type="b" access="read"/>
+    <property name="CanPause" type="b" access="read"/>
+    <property name="CanGoNext" type="b" access="read"/>
+    <property name="CanGoPrevious" type="b" access="read"/>
+    <property name="CanSeek" type="b" access="read"/>
     <property name="PlaybackStatus" type="s" access="read"/>
     <property name="Rate" type="d" access="read"/>
     <property name="Metadata" type="a{sv}" access="read"/>
@@ -74,8 +88,44 @@ let playbackStatus = 'Paused';
 let currentMetadata = metadata('Initial Track');
 let positionUs = 10_000_000;
 let positionGets = 0;
+let canSeek = true;
+let failNext = false;
+let holdNext = false;
+let nextInvocation = null;
+const commands = [];
 
 const implementation = {
+    get CanControl() { return true; },
+    get CanPlay() { return true; },
+    get CanPause() { return true; },
+    get CanGoNext() { return true; },
+    get CanGoPrevious() { return true; },
+    get CanSeek() { return canSeek; },
+    Play() {
+        commands.push('Play');
+        playbackStatus = 'Playing';
+        propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus)});
+    },
+    Pause() {
+        commands.push('Pause');
+        playbackStatus = 'Paused';
+        propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus)});
+    },
+    NextAsync(_parameters, invocation) {
+        commands.push('Next');
+        if (failNext)
+            invocation.return_dbus_error('org.mpris.MediaPlayer2.Error.Failed',
+                'Test playback failure');
+        else if (holdNext)
+            nextInvocation = invocation;
+        else
+            invocation.return_value(new GLib.Variant('()', []));
+    },
+    Previous() { commands.push('Previous'); },
+    SetPosition(trackId, position) {
+        commands.push([trackId, position]);
+        seeked(position);
+    },
     get Identity() {
         return 'Event Test Player';
     },
@@ -257,7 +307,93 @@ async function run() {
             positionGets === beforeMetadataGets + 1,
         'Metadata change did not update the track and recalibrate Position');
 
+    const target = state.controlTarget;
+    assert(state.capabilities.CanControl && state.capabilities.CanSeek,
+        'initial MPRIS capabilities were not loaded');
+    assert(await manager.control('Play', target), 'Play was not dispatched');
+    await waitUntil(() => state.playbackStatus === 'Playing', 'Play feedback missing');
+    assert(await manager.control('Pause', target), 'Pause was not dispatched');
+    await waitUntil(() => state.playbackStatus === 'Paused', 'Pause feedback missing');
+    let beforeRefresh = callbackCount;
+    assert(await manager.control('Previous', target), 'Previous was not dispatched');
+    await waitUntil(() => callbackCount > beforeRefresh,
+        'Previous without a signal was not reconciled');
+    beforeRefresh = callbackCount;
+    assert(await manager.control('Next', target), 'Next was not dispatched');
+    await waitUntil(() => callbackCount > beforeRefresh,
+        'Next without a signal was not reconciled');
+    const beforeControlSeekGets = positionGets;
+    assert(await manager.control('SetPosition', target, 55_000_000),
+        'SetPosition was not dispatched');
+    await waitUntil(() => manager.getPositionUs() === 55_000_000,
+        'SetPosition feedback did not synchronize the playback clock');
+    assert(commands.at(-1)[0] === '/org/mpris/MediaPlayer2/event_test' &&
+        commands.at(-1)[1] === 55_000_000,
+        'SetPosition must include the current object-path track ID and microseconds');
+    // Gio may dispatch the method reply before the queued Seeked callback.
+    // In that case one reconciliation read is allowed, never repeated polling.
+    await sleep(100);
+    assert(positionGets <= beforeControlSeekGets + 1,
+        'a control seek performed more than one reconciliation query');
+    const settledSeekGets = positionGets;
+    await sleep(100);
+    assert(positionGets === settledSeekGets,
+        'a completed control seek started Position polling');
+    assert(await manager.control('SetPosition', target, -1),
+        'negative progress must clamp to the beginning');
+    assert(commands.at(-1)[1] === 0, 'progress was not clamped to zero');
+    assert(await manager.control('SetPosition', target, 999_000_000),
+        'progress past the duration must clamp');
+    assert(commands.at(-1)[1] === 180_000_000, 'progress exceeded track duration');
+    const beforeRejected = commands.length;
+    assert(!await manager.control('SetPosition', target, NaN), 'NaN seek was accepted');
+    assert(!await manager.control('Stop', target), 'unsupported action was accepted');
+    assert(!await manager.control('Play', {...target, generation: -1}),
+        'a target from another player instance was accepted');
+    assert(!await manager.control('SetPosition', {...target, trackKey: 'old track'}, 1),
+        'a drag targeting an old track was accepted');
+    canSeek = false;
+    propertiesChanged({CanSeek: new GLib.Variant('b', false)});
+    await waitUntil(() => !state.capabilities.CanSeek, 'CanSeek update missing');
+    assert(!await manager.control('SetPosition', target, 1),
+        'a player without seeking support received a seek');
+    assert(commands.length === beforeRejected, 'rejected commands reached D-Bus');
+    canSeek = true;
+    propertiesChanged({CanSeek: new GLib.Variant('b', true)});
+    await waitUntil(() => state.capabilities.CanSeek, 'CanSeek restoration missing');
+    failNext = true;
+    let rejected = false;
+    try {
+        await manager.control('Next', target);
+    } catch (error) {
+        rejected = error.message.includes('Test playback failure');
+    }
+    assert(rejected, 'D-Bus control failures must remain observable');
+    failNext = false;
+
+    holdNext = true;
+    let pending = manager.control('Next', state.controlTarget).then(
+        () => false, error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED));
+    await waitUntil(() => nextInvocation !== null, 'delayed control did not start');
+    currentMetadata = metadata('Changed During Control');
+    propertiesChanged({Metadata: new GLib.Variant('a{sv}', currentMetadata)});
+    await waitUntil(() => state?.metadata.title === 'Changed During Control',
+        'same-ID track replacement was not observed');
+    assert(await pending, 'changing tracks must cancel pending control calls');
+    nextInvocation.return_value(new GLib.Variant('()', []));
+    nextInvocation = null;
+    currentMetadata = metadata('Replacement Track');
+    propertiesChanged({Metadata: new GLib.Variant('a{sv}', currentMetadata)});
+    await waitUntil(() => state?.metadata.title === 'Replacement Track',
+        'replacement track restoration failed');
+    pending = manager.control('Next', state.controlTarget).then(
+        () => false, error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED));
+    await waitUntil(() => nextInvocation !== null, 'second delayed control did not start');
     releaseName();
+    assert(await pending, 'player removal must cancel pending control calls');
+    nextInvocation.return_value(new GLib.Variant('()', []));
+    nextInvocation = null;
+    holdNext = false;
     await waitUntil(
         () => state === null,
         'NameOwnerChanged did not remove the vanished player');
@@ -266,6 +402,8 @@ async function run() {
     await waitUntil(
         () => state?.metadata.title === 'Replacement Track',
         'NameOwnerChanged did not rediscover the returning player');
+    assert(!await manager.control('Play', target),
+        'a command for the vanished player instance reached its replacement');
     releaseName();
     await waitUntil(
         () => state === null,
@@ -273,6 +411,26 @@ async function run() {
 
     manager.destroy();
     manager = null;
+    requestName();
+    manager = new MprisManager(nextState => {
+        state = nextState;
+        callbackCount++;
+    });
+    state = null;
+    manager.start();
+    await waitUntil(() => state?.capabilities.CanControl,
+        'initial ListNames discovery did not resolve the unique owner');
+    holdNext = true;
+    pending = manager.control('Next', state.controlTarget).then(
+        () => false, error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED));
+    await waitUntil(() => nextInvocation !== null, 'destroy test control did not start');
+    manager.destroy();
+    manager = null;
+    assert(await pending, 'destroy must cancel pending media control calls');
+    nextInvocation.return_value(new GLib.Variant('()', []));
+    nextInvocation = null;
+    holdNext = false;
+    releaseName();
     const callbacksAfterDestroy = callbackCount;
     requestName();
     await sleep(200);

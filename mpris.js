@@ -10,6 +10,8 @@ const MPRIS_PATH = '/org/mpris/MediaPlayer2';
 const ROOT_INTERFACE = 'org.mpris.MediaPlayer2';
 const PLAYER_INTERFACE = 'org.mpris.MediaPlayer2.Player';
 const CALL_TIMEOUT_MS = 5000;
+const CAPABILITIES = ['CanControl', 'CanPlay', 'CanPause', 'CanGoNext',
+    'CanGoPrevious', 'CanSeek'];
 
 function unpack(value) {
     return value instanceof GLib.Variant ? value.deepUnpack() : value;
@@ -98,6 +100,7 @@ export class MprisManager {
         this._dbusSignalId = 0;
         this._cancellable = null;
         this._activitySerial = 0;
+        this._playerSerial = 0;
         this._preferredPlayer = 'auto';
         this._playerListSignature = '';
     }
@@ -172,6 +175,77 @@ export class MprisManager {
         return player ? this._positionAt(player) : 0;
     }
 
+    async control(action, target, positionUs = null) {
+        const player = this._players.get(this._selectedName);
+        if (!this._cancellable || !player?.ready || !player.owner ||
+            !target || target.generation !== player.generation ||
+            target.busName !== player.name ||
+            target.trackKey !== metadataKey(player.metadata))
+            return false;
+
+        const capability = {
+            Play: 'CanPlay', Pause: 'CanPause', Next: 'CanGoNext',
+            Previous: 'CanGoPrevious', SetPosition: 'CanSeek',
+        }[action];
+        if (!capability || !player.capabilities.CanControl ||
+            !player.capabilities[capability])
+            return false;
+
+        let parameters = null;
+        if (action === 'SetPosition') {
+            const trackId = player.metadata.trackId;
+            if (!GLib.Variant.is_object_path(trackId) ||
+                trackId === '/org/mpris/MediaPlayer2/TrackList/NoTrack' ||
+                !Number.isFinite(positionUs) ||
+                !Number.isSafeInteger(Math.round(positionUs)) ||
+                player.metadata.durationUs <= 0)
+                return false;
+            const position = Math.round(Math.min(
+                player.metadata.durationUs, Math.max(0, positionUs)));
+            parameters = new GLib.Variant('(ox)', [trackId, position]);
+        }
+
+        if (player.controlRequest)
+            return false;
+        const lifetime = this._cancellable;
+        const request = {cancellable: new Gio.Cancellable(), trackKey: target.trackKey};
+        player.controlRequest = request;
+        const version = player.stateVersion;
+        const positionSerial = player.positionRequestSerial;
+        try {
+            await new Promise((resolve, reject) => {
+                this._connection.call(
+                    player.owner, MPRIS_PATH, PLAYER_INTERFACE, action,
+                    parameters, new GLib.VariantType('()'),
+                    Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, request.cancellable,
+                    (connection, result) => {
+                        try {
+                            connection.call_finish(result);
+                            resolve();
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+            });
+        } finally {
+            if (player.controlRequest === request)
+                player.controlRequest = null;
+        }
+        if (this._cancellable !== lifetime ||
+            this._players.get(this._selectedName) !== player ||
+            target.trackKey !== metadataKey(player.metadata))
+            return false;
+
+        // Some players omit the change signal. Reconcile once, never poll.
+        if (action === 'SetPosition') {
+            if (player.positionRequestSerial === positionSerial)
+                this._queryPosition(player);
+        } else if (player.stateVersion === version) {
+            this._refreshPlayer(player);
+        }
+        return true;
+    }
+
     _watchPlayers(cancellable) {
         this._dbusSignalId = this._connection.signal_subscribe(
             DBUS_NAME,
@@ -188,7 +262,7 @@ export class MprisManager {
                 if (oldOwner)
                     this._removePlayer(name);
                 if (newOwner)
-                    this._addPlayer(name);
+                    this._addPlayer(name, newOwner);
             });
 
         this._connection.call(
@@ -222,13 +296,16 @@ export class MprisManager {
             });
     }
 
-    _addPlayer(name) {
+    _addPlayer(name, owner = '') {
         if (!this._cancellable || this._players.has(name))
             return;
 
         const now = GLib.get_monotonic_time();
         const player = {
             name,
+            owner,
+            generation: ++this._playerSerial,
+            capabilities: {},
             identity: '',
             desktopEntry: '',
             stableId: stablePlayerId({busName: name}),
@@ -246,6 +323,26 @@ export class MprisManager {
             seekedSignalId: 0,
         };
         this._players.set(name, player);
+        if (!owner) {
+            this._connection.call(
+                DBUS_NAME, DBUS_PATH, DBUS_INTERFACE, 'GetNameOwner',
+                new GLib.Variant('(s)', [name]), new GLib.VariantType('(s)'),
+                Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, this._cancellable,
+                (connection, result) => {
+                    let currentOwner;
+                    try {
+                        [currentOwner] = connection.call_finish(result).deepUnpack();
+                    } catch (error) {
+                        if (this._cancellable && this._players.get(name) === player)
+                            console.debug(`LyricGlance: owner lookup failed: ${error.message}`);
+                        return;
+                    }
+                    if (!this._cancellable || this._players.get(name) !== player)
+                        return;
+                    player.owner = currentOwner;
+                    this._notifyStateChanged();
+                });
+        }
 
         player.propertySignalId = this._connection.signal_subscribe(
             name,
@@ -286,6 +383,8 @@ export class MprisManager {
     }
 
     _unsubscribePlayer(player) {
+        player.controlRequest?.cancellable.cancel();
+        player.controlRequest = null;
         if (!this._connection)
             return;
 
@@ -383,6 +482,8 @@ export class MprisManager {
         player.metadata = parseMetadata(properties.Metadata);
         player.anchorPositionUs = Math.max(0, unpackNumber(properties.Position));
         player.anchorMonotonicUs = now;
+        for (const property of CAPABILITIES)
+            player.capabilities[property] = unpack(properties[property]) === true;
         player.ready = true;
         player.lastActivity = ++this._activitySerial;
         this._notifyStateChanged();
@@ -439,9 +540,17 @@ export class MprisManager {
             shouldQueryPosition = false;
         }
 
+        for (const property of CAPABILITIES) {
+            if (Object.hasOwn(changed, property))
+                player.capabilities[property] = unpack(changed[property]) === true;
+            if (invalidated.includes(property))
+                player.capabilities[property] = false;
+        }
         const relevantInvalidation = invalidated.some(property =>
-            ['Metadata', 'PlaybackStatus', 'Rate', 'Position'].includes(property));
+            ['Metadata', 'PlaybackStatus', 'Rate', 'Position', ...CAPABILITIES]
+                .includes(property));
         if (relevantInvalidation) {
+            this._notifyStateChanged();
             this._refreshPlayer(player);
             return;
         }
@@ -592,6 +701,13 @@ export class MprisManager {
             return;
 
         const selected = this._choosePlayer();
+        for (const player of this._players.values()) {
+            if (player.controlRequest && (player !== selected ||
+                player.controlRequest.trackKey !== metadataKey(player.metadata))) {
+                player.controlRequest.cancellable.cancel();
+                player.controlRequest = null;
+            }
+        }
         this._selectedName = selected?.name ?? null;
         this._notifyPlayersChanged();
 
@@ -602,6 +718,13 @@ export class MprisManager {
 
         this._onStateChanged({
             busName: selected.name,
+            controlTarget: {
+                busName: selected.name,
+                generation: selected.generation,
+                trackKey: metadataKey(selected.metadata),
+            },
+            capabilities: {...selected.capabilities,
+                CanControl: Boolean(selected.owner) && selected.capabilities.CanControl},
             playbackStatus: selected.playbackStatus,
             positionUs: this._positionAt(selected),
             player: this._descriptor(selected),
