@@ -141,7 +141,10 @@ export default class LyricGlanceExtension extends Extension {
             panelIndex,
             placement.boxName);
 
-        this._lyricsProvider = new LyricsProvider();
+        this._lyricsProvider = new LyricsProvider({
+            lrcApiEnabled: this._settings.get_boolean('lrcapi-enabled'),
+            lrcApiUrl: this._settings.get_string('lrcapi-endpoint'),
+        });
         this._translationService = this._createTranslationService();
         this._mprisManager = new MprisManager(
             state => this._onPlayerStateChanged(state), {
@@ -219,6 +222,8 @@ export default class LyricGlanceExtension extends Extension {
             this._updateIndicatorAndSchedule(true));
         connect('fallback-track-info', () =>
             this._updateIndicatorAndSchedule(true));
+        connect('lrcapi-enabled', () => this._replaceLyricsProvider());
+        connect('lrcapi-endpoint', () => this._replaceLyricsProvider());
         connect('word-sync-enabled', () => {
             this._wordSyncEnabled =
                 this._settings.get_boolean('word-sync-enabled');
@@ -299,6 +304,17 @@ export default class LyricGlanceExtension extends Extension {
                 console.warn(`LyricGlance: could not clear runtime cache: ${error.message}`);
             });
         });
+    }
+
+    _replaceLyricsProvider() {
+        this._lyricsProvider?.destroy();
+        this._lyricsProvider = new LyricsProvider({
+            lrcApiEnabled: this._settings.get_boolean('lrcapi-enabled'),
+            lrcApiUrl: this._settings.get_string('lrcapi-endpoint'),
+        });
+        this._currentTrackIdentity = null;
+        if (this._state)
+            this._onPlayerStateChanged(this._state);
     }
 
     _panelBox(boxName) {

@@ -30,6 +30,14 @@
       <default>true</default>
       <summary>Show track information when synchronized lyrics are unavailable</summary>
     </key>
+    <key name="lrcapi-enabled" type="b">
+      <default>false</default>
+      <summary>Use LrcAPI when LRCLIB has no usable lyrics</summary>
+    </key>
+    <key name="lrcapi-endpoint" type="s">
+      <default>'https://api.lrc.cx/jsonapi'</default>
+      <summary>LrcAPI JSON lyrics search endpoint</summary>
+    </key>
     <key name="word-sync-enabled" type="b">
       <default>true</default>
       <summary>Highlight word-synchronized lyrics in the popup</summary>

@@ -1,7 +1,9 @@
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
-import {LyricsProvider} from '../lyrics.js';
+import {LyricsProvider, normalizeLrcApiEndpoint} from '../lyrics.js';
+import {removeTree} from '../storage.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -30,6 +32,7 @@ function response(message, status, body = '') {
 const server = new Soup.Server();
 const receivedRequests = [];
 let rateLimitAttempts = 0;
+let fallbackRateAttempts = 0;
 server.add_handler(null, (currentServer, message) => {
     const query = decodeURIComponent(message.get_uri().get_query() ?? '');
     const path = message.get_uri().get_path();
@@ -39,7 +42,62 @@ server.add_handler(null, (currentServer, message) => {
         userAgent: message.get_request_headers().get_one('User-Agent'),
     });
 
-    if (query.includes('Search Match') && path.endsWith('/api/get')) {
+    if (path.startsWith('/lrcapi')) {
+        const requestedTitle = decodeURIComponent(
+            (message.get_uri().get_query() ?? '').match(/(?:^|&)title=([^&]*)/)?.[1] ?? '');
+        if (query.includes('Fallback Error') || (query.includes('Fallback Raw') &&
+            !query.includes('Fallback Raw Success'))) {
+            response(message, 500);
+        } else if (query.includes('Fallback Empty')) {
+            response(message, 200, '[]');
+        } else if (query.includes('Fallback Missing')) {
+            response(message, 404);
+        } else if (query.includes('Fallback Bad JSON')) {
+            response(message, 200, '{broken');
+        } else if (query.includes('Fallback Bad Shape')) {
+            response(message, 200, '{}');
+        } else if (query.includes('Fallback Redirect')) {
+            message.get_response_headers().append('Location', `${baseUri}/redirect-leak`);
+            response(message, 302);
+        } else if (query.includes('Fallback Rate') && fallbackRateAttempts++ === 0) {
+            message.get_response_headers().append('Retry-After', '1');
+            response(message, 429);
+        } else {
+            const body = JSON.stringify([
+                {title: 'Wrong Song', artist: 'Wrong Artist', lyrics: '[00:01]wrong'},
+                ...(query.includes('Fallback Modern') ? [{title: requestedTitle,
+                    artist: 'LyricGlance', duration: 500, lrc: '[00:01]wrong duration'},
+                    {title: requestedTitle, artist: 'LyricGlance', duration: 120,
+                        lrc: '[00:01]modern fallback'}] : []),
+                {id: 'remote-id', title: requestedTitle, artist: 'LyricGlance',
+                    lyrics: query.includes('Fallback Reject') ? 'not LRC' :
+                        `[00:01]${path === '/lrcapi-other' ? 'other endpoint' :
+                            query.includes('Fallback Large') ? 'x'.repeat(512) : 'fallback line'}`},
+            ]);
+            if (query.includes('Fallback Slow')) {
+                currentServer.pause_message(message);
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                    response(message, 200, body);
+                    currentServer.unpause_message(message);
+                    return GLib.SOURCE_REMOVE;
+                });
+            } else {
+                response(message, 200, body);
+            }
+        }
+    } else if (query.includes('Fallback Raw') && path.endsWith('/api/get')) {
+        response(message, 200, JSON.stringify({lyricsfile: 'version: unsupported'}));
+    } else if (query.includes('Fallback Unusable') && path.endsWith('/api/get')) {
+        response(message, 200, '{"syncedLyrics":null}');
+    } else if (query.includes('Fallback') && path.endsWith('/api/get')) {
+        response(message, 404);
+    } else if (query.includes('Fallback') && path.endsWith('/api/search')) {
+        response(message, 200, '[]');
+    } else if (query.includes('Plain Priority')) {
+        response(message, 200, '{"plainLyrics":"plain from primary"}');
+    } else if (query.includes('Instrumental Priority')) {
+        response(message, 200, '{"instrumental":true}');
+    } else if (query.includes('Search Match') && path.endsWith('/api/get')) {
         response(message, Soup.Status.NOT_FOUND);
     } else if (query.includes('Search Match') && path.endsWith('/api/search')) {
         response(message, Soup.Status.OK, JSON.stringify([
@@ -238,6 +296,128 @@ async function run() {
     assert(staleCallbacks === 0,
         'a delayed stale response must not invoke its callback');
 
+    for (const url of ['https://example.test/jsonapi', 'http://127.0.0.1:28883/jsonapi',
+        'http://[::1]:28883/api/v1/lyrics/advance'])
+        assert(normalizeLrcApiEndpoint(url) === url, 'valid endpoint was rejected');
+    for (const url of ['http://example.test/jsonapi', 'https://user:key@example.test/jsonapi',
+        'https://example.test/jsonapi?key=secret', 'https://example.test/jsonapi#fragment',
+        'file:///tmp/lyrics', 'not a URL'])
+        assert(normalizeLrcApiEndpoint(url) === null, 'unsafe endpoint was accepted');
+
+    const fallbackRoot = GLib.dir_make_tmp('lyricglance-lrcapi-XXXXXX');
+    const options = {apiUrl: `${baseUri}/api/get`, requestSpacingMs: 0,
+        lrcApiEnabled: true, lrcApiUrl: `${baseUri}/lrcapi`, cacheRoot: fallbackRoot};
+    let fallback = new LyricsProvider(options);
+    const fallbackFetch = title => new Promise(resolve =>
+        fallback.fetch({...baseTrack, title}, resolve));
+    const beforePrimary = receivedRequests.length;
+    assert((await fallbackFetch('Primary Priority'))?.source === 'lrclib-synced' &&
+        (await fallbackFetch('Plain Priority'))?.source === 'lrclib-plain' &&
+        (await fallbackFetch('Instrumental Priority'))?.instrumental &&
+        receivedRequests.slice(beforePrimary).every(item => item.path === '/api/get'),
+    'usable primary lyrics and instrumental records must never contact the fallback');
+    const beforeFallback = receivedRequests.length;
+    const fallbackDocument = await fallbackFetch('Fallback Match');
+    assert(fallbackDocument?.source === 'lrcapi-synced' &&
+        fallbackDocument.sourceId === null && fallbackDocument.lines[0].text === 'fallback line' &&
+        receivedRequests.length === beforeFallback + 3 &&
+        receivedRequests.at(-1).query.includes('title=Fallback Match') &&
+        receivedRequests.at(-1).query.includes('artist=LyricGlance') &&
+        receivedRequests.at(-1).query.includes('album=HTTP Integration') &&
+        !receivedRequests.at(-1).query.includes('track_name='),
+    'the fallback must use its query contract, score candidates and preserve source identity');
+    assert((await fallbackFetch('Fallback Modern'))?.lines[0].text === 'modern fallback',
+        'the modern lrc field must work and reject a candidate with mismatched duration');
+    assert((await fallbackFetch('Fallback Unusable'))?.source === 'lrcapi-synced',
+        'an unusable successful primary response must try the fallback');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    const beforeDiskHit = receivedRequests.length;
+    assert((await fallbackFetch('Fallback Match'))?.source === 'lrcapi-synced' &&
+        receivedRequests.length === beforeDiskHit,
+    'recreation must reuse fallback disk data with the correct source');
+    fallback.destroy();
+    fallback = new LyricsProvider({...options, lrcApiUrl: `${baseUri}/lrcapi-other`});
+    assert((await fallbackFetch('Fallback Match'))?.lines[0].text === 'other endpoint',
+        "changing endpoint must not reuse another endpoint's cached lyrics");
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider({...options, lrcApiEnabled: false});
+    const beforeDisabled = receivedRequests.length;
+    assert(await fallbackFetch('Fallback Match') === null &&
+        receivedRequests.length === beforeDisabled + 2,
+    'disabled fallback must neither reuse its cache nor contact its endpoint');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    assert((await fallbackFetch('Fallback Match'))?.source === 'lrcapi-synced',
+        'a disabled primary negative cache must not block an enabled fallback');
+    for (const title of ['Fallback Error', 'Fallback Empty', 'Fallback Missing',
+        'Fallback Bad JSON', 'Fallback Bad Shape', 'Fallback Reject', 'Fallback Redirect']) {
+        const before = receivedRequests.length;
+        assert(await fallbackFetch(title) === null, `${title} must not fabricate lyrics`);
+        assert(!(await fallback._diskCache.get({...baseTrack, title})).hit,
+            `${title} must not persist a negative cache entry`);
+        assert(await fallbackFetch(title) === null && receivedRequests.length === before + 6,
+            `${title} must remain retryable instead of returning a cached miss`);
+    }
+    assert((await fallbackFetch('Fallback Raw Success'))?.source === 'lrcapi-synced',
+        'a successful fallback must replace unrenderable primary data');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    const replacement = await fallback._diskCache.get({...baseTrack, title: 'Fallback Raw Success'});
+    assert(replacement.payload.provider === 'lrcapi' && replacement.payload.lyricsfile === null,
+        'unrenderable primary data must not race with and overwrite fallback cache data');
+    assert(await fallbackFetch('Fallback Raw') === null,
+        'unrenderable primary lyrics and failed fallback must not fabricate success');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    const raw = await fallback._diskCache.get({...baseTrack, title: 'Fallback Raw'});
+    assert(raw.hit && !raw.record.negative && raw.payload.lyricsfile === 'version: unsupported',
+        'a failed fallback must preserve unrenderable nonempty primary data for future parsers');
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    const beforeRawRetry = receivedRequests.length;
+    assert(await fallbackFetch('Fallback Raw') === null &&
+        receivedRequests.length === beforeRawRetry + 2,
+    'unrenderable raw disk data must remain retryable after recreation');
+    assert(!receivedRequests.some(item => item.path === '/redirect-leak'),
+        'redirects must not disclose song metadata to another endpoint');
+    const beforePrimaryError = receivedRequests.length;
+    assert(await fallbackFetch('HTTP Error') === null &&
+        receivedRequests.length === beforePrimaryError + 1,
+    'a primary transport/service failure must not masquerade as a missing lyric');
+    const rateStart = GLib.get_monotonic_time();
+    assert((await fallbackFetch('Fallback Rate'))?.source === 'lrcapi-synced' &&
+        fallbackRateAttempts === 2 && GLib.get_monotonic_time() - rateStart >= 900_000,
+    'fallback rate limiting must honor Retry-After with one bounded retry');
+    const beforeCoalescedFallback = receivedRequests.length;
+    const sharedTrack = {...baseTrack, title: 'Fallback Slow Shared'};
+    const shared = await Promise.all([
+        new Promise(resolve => fallback.fetch(sharedTrack, resolve)),
+        new Promise(resolve => fallback.fetch(sharedTrack, resolve)),
+    ]);
+    assert(shared.every(item => item?.source === 'lrcapi-synced') &&
+        receivedRequests.length === beforeCoalescedFallback + 3,
+    'coalesced fallback lookups must share one HTTP chain');
+    let staleFallbackCallbacks = 0;
+    fallback.fetch({...baseTrack, title: 'Fallback Slow Cancel'}, () => staleFallbackCallbacks++);
+    await sleep(80);
+    assert((await fallbackFetch('Fallback Current'))?.source === 'lrcapi-synced',
+        'replacement fallback lookup failed');
+    await sleep(550);
+    assert(staleFallbackCallbacks === 0, 'switching tracks must suppress old fallback callbacks');
+    fallback.fetch({...baseTrack, title: 'Fallback Slow Destroy'}, () => staleFallbackCallbacks++);
+    await sleep(80);
+    fallback.destroy();
+    await sleep(550);
+    assert(staleFallbackCallbacks === 0, 'destroy must suppress in-flight fallback callbacks');
+    const smallFallback = new LyricsProvider({...options, persistentCache: false, maxResponseBytes: 64});
+    assert(await new Promise(resolve => smallFallback.fetch(
+        {...baseTrack, title: 'Fallback Large'}, resolve)) === null,
+    'oversized fallback responses must be rejected');
+    smallFallback.destroy();
+    await removeTree(Gio.File.new_for_path(fallbackRoot));
+
     let destroyedCallbacks = 0;
     provider.fetch(
         {...baseTrack, title: 'Slow Request'},
@@ -261,4 +441,4 @@ server.disconnect();
 if (scenarioError)
     throw scenarioError;
 
-print('LRCLIB get/search/scoring, 429, coalescing, cache and cancellation tests passed');
+print('LRCLIB and LrcAPI matching, isolation, errors, 429, cache and cancellation tests passed');

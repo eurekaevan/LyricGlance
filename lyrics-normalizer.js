@@ -17,6 +17,7 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
     if (!payload || typeof payload !== 'object')
         return null;
 
+    const provider = payload.provider === 'lrcapi' ? 'lrcapi' : 'lrclib';
     const sourceId = payload.id ?? null;
     const metadata = providerMetadata(payload);
     let lyricsfileDocument = null;
@@ -37,7 +38,7 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
 
     if (payload.instrumental === true) {
         return createLyricsDocument({
-            source: 'lrclib',
+            source: provider,
             sourceId,
             instrumental: true,
             metadata,
@@ -45,7 +46,7 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
     }
 
     const syncedDocument = LrcParser.parseDocument(payload.syncedLyrics, {
-        source: 'lrclib-synced',
+        source: `${provider}-synced`,
         sourceId,
         metadata,
     });
@@ -54,7 +55,7 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
 
     if (typeof payload.plainLyrics === 'string' && payload.plainLyrics) {
         return createPlainLyricsDocument(payload.plainLyrics, {
-            source: 'lrclib-plain',
+            source: `${provider}-plain`,
             sourceId,
             metadata,
         });

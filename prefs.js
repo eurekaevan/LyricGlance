@@ -6,6 +6,7 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 
 import {TranslationCredentialStore} from './credentials.js';
 import {clearLyricsCache} from './storage.js';
+import {normalizeLrcApiEndpoint} from './lyrics.js';
 import {
     clearTranslationCache,
     countTranslationCache,
@@ -114,6 +115,34 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             'word-sync-enabled',
             _('Word-synced highlighting'),
             _('Highlight the current word when timing is available')));
+
+        lyricsGroup.add(bindSwitch(
+            settings, 'lrcapi-enabled', _('Use LrcAPI as a fallback'),
+            _('When LRCLIB has no lyrics, send the song title, artist and album to LrcAPI')));
+        const lrcApiEndpointRow = new Adw.EntryRow({
+            title: _('LrcAPI endpoint'),
+            text: settings.get_string('lrcapi-endpoint'),
+            show_apply_button: true,
+        });
+        lyricsGroup.add(lrcApiEndpointRow);
+        settings.bind('lrcapi-enabled', lrcApiEndpointRow, 'sensitive',
+            Gio.SettingsBindFlags.GET);
+        lrcApiEndpointRow.connect('apply', () => {
+            const endpoint = normalizeLrcApiEndpoint(lrcApiEndpointRow.text);
+            if (!endpoint) {
+                lrcApiEndpointRow.add_css_class('error');
+                window.add_toast(new Adw.Toast({title: _(
+                    'Use HTTPS, or HTTP only for a local loopback endpoint')}));
+                return;
+            }
+            lrcApiEndpointRow.remove_css_class('error');
+            settings.set_string('lrcapi-endpoint', endpoint);
+            lrcApiEndpointRow.text = endpoint;
+        });
+        signalIds.push(settings.connect('changed::lrcapi-endpoint', () => {
+            lrcApiEndpointRow.text = settings.get_string('lrcapi-endpoint');
+            lrcApiEndpointRow.remove_css_class('error');
+        }));
 
         const globalOffsetRow = new Adw.SpinRow({
             title: _('Global lyrics offset'),

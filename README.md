@@ -10,7 +10,7 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 ## 功能
 
 - 通过 MPRIS 自动发现播放器；不依赖 `playerctl`，不轮询播放器状态。
-- 从 LRCLIB 获取逐行、逐字、纯文本或纯音乐信息。
+- 从 LRCLIB 获取逐行、逐字、纯文本或纯音乐信息，可选 LrcAPI 作为逐行歌词备用源。
 - 顶栏歌词、原生 popup、封面、播放/暂停、上一首/下一首、可交互播放进度、播放器选择和每首歌曲时间偏移。
 - 原文、双语或仅译文显示；原歌词和 timing 始终是唯一事实来源。
 - 逐字高亮只作用于原文，不为译文伪造 karaoke timing。
@@ -127,6 +127,28 @@ popup 使用 Shell 原生滑块和主题。
 - `storage.js`：有界缓存和歌曲偏移持久化。
 - `prefs.js`、`schemas/`：Preferences 和 GSettings。
 
+## LrcAPI 备用歌词源
+
+在设置的“歌词”中打开“使用 LrcAPI 作为备用歌词源”。默认关闭，LRCLIB 找不到可用歌词时
+才会查询 LrcAPI；逐字、逐行、纯文本和纯音乐的主源结果均优先保留。主源网络或服务错误
+不会触发备用查询。LrcAPI 提供逐行时间轴，本次不接入其逐字或翻译数据。
+
+默认地址为 `https://api.lrc.cx/jsonapi`。也可填写自建 LrcAPI 的完整 JSON 搜索接口地址，
+例如 `http://127.0.0.1:28883/jsonapi` 或支持该路由的 `/api/v1/lyrics/advance`。
+修改后点击输入框的应用按钮，当前歌曲会重新查询。地址必须使用 HTTPS；仅本机回环地址
+允许 HTTP。不支持 URL 中携带账号、密码、查询参数或 fragment，也不跟随备用服务的重定向。
+本次未提供需要鉴权的自建实例的密钥配置。
+
+适配候选数组中的 `title`、`artist`、可选 `album`/`duration` 和 `lyrics` 或 `lrc` 字段，
+使用歌名、歌手、专辑和可用时长筛选候选，而不是直接采用第一条。缺少时长时无法保证
+不同录音版本完全对应，仍可能需要手动调整偏移。接口文档见
+[LrcAPI 歌词 API](https://docs.lrc.cx/docs/APIv1/lyrics/)。2026-10-13 公共服务实测中，
+文档里的 `/api/v1/lyrics/advance` 返回 404，`/jsonapi` 返回使用 `lrc` 字段的候选数组。
+
+备用结果按是否启用及服务地址隔离缓存，避免启用或切换服务后复用旧的未找到结果。
+成功的备用歌词会缓存并保留来源；备用空结果、404、低可信候选和服务故障均不缓存为
+“没有歌词”，以后可重试。成功的备用结果可替代不能显示的主源原始数据。
+
 ## 开发与测试
 
 确定性发布检查：
@@ -191,6 +213,7 @@ make integration-secret
 可能产生的外部访问：
 
 - **LRCLIB**：发送当前歌曲的 title、artist、album 和 duration，以查找歌词。
+- **LrcAPI（仅启用备用源时）**：主源没有可用歌词后，将 title、artist、album 发送到配置的服务；公共服务可能继续查询其上游来源。
 - **已配置的翻译 provider**：仅在翻译已启用并实际请求时发送 title、artist、歌词文本和
   target language。
 - **Artwork**：读取播放器提供的本地 `file://`，或仅在播放器给出远程 art URL 时访问

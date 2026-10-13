@@ -175,9 +175,11 @@ export class LyricsDiskCache {
         negativeTtlMs = NEGATIVE_TTL_MS,
         maxEntries = MAX_LYRICS_CACHE_ENTRIES,
         now = () => Date.now(),
+        providerConfiguration = 'lrclib',
     } = {}) {
         this._directory = Gio.File.new_for_path(
             GLib.build_filenamev([cacheRoot, 'lyrics']));
+        this._providerConfiguration = providerConfiguration;
         this._positiveTtlMs = positiveTtlMs;
         this._negativeTtlMs = negativeTtlMs;
         this._maxEntries = Math.max(1, Math.floor(maxEntries));
@@ -235,6 +237,8 @@ export class LyricsDiskCache {
         const record = {
             version: LYRICS_CACHE_VERSION,
             trackHash: hash,
+            providerConfiguration: this._providerConfiguration,
+            provider: raw.provider,
             title: track.title ?? '',
             artist: track.artist ?? '',
             album: track.album ?? '',
@@ -273,6 +277,7 @@ export class LyricsDiskCache {
 
     _sanitizePayload(payload) {
         return {
+            provider: payload?.provider === 'lrcapi' ? 'lrcapi' : 'lrclib',
             id: Number.isInteger(payload?.id) ? payload.id : null,
             instrumental: payload?.instrumental === true,
             plainLyrics: typeof payload?.plainLyrics === 'string'
@@ -289,6 +294,8 @@ export class LyricsDiskCache {
 
     _decodeRecord(record, hash) {
         const commonValid = record?.trackHash === hash &&
+            (record.providerConfiguration ?? 'lrclib') === this._providerConfiguration &&
+            (record.provider === undefined || ['lrclib', 'lrcapi'].includes(record.provider)) &&
             typeof record.title === 'string' &&
             typeof record.artist === 'string' &&
             typeof record.album === 'string' &&
@@ -333,6 +340,7 @@ export class LyricsDiskCache {
         return {
             valid: true,
             payload: {
+                provider: record.provider ?? 'lrclib',
                 id: Number.isInteger(record.id) ? record.id : null,
                 instrumental: record.instrumental,
                 plainLyrics: record.plainLyrics,

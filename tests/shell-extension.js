@@ -131,6 +131,22 @@ export async function run() {
         box => box.get_n_children() - 1);
     assertPanelPosition('center', Main.panel._centerBox, () => 0);
 
+    const initialLyricsProvider = instance._lyricsProvider;
+    settings.set_boolean('lrcapi-enabled', true);
+    const enabledLyricsProvider = instance._lyricsProvider;
+    assert(enabledLyricsProvider !== initialLyricsProvider &&
+        initialLyricsProvider._session === null &&
+        enabledLyricsProvider._lrcApiUrl === 'https://api.lrc.cx/jsonapi',
+    'enabling fallback should replace the provider and release its old resources');
+    settings.set_string('lrcapi-endpoint', 'http://127.0.0.1:28883/jsonapi');
+    assert(enabledLyricsProvider._session === null &&
+        instance._lyricsProvider._lrcApiUrl === 'http://127.0.0.1:28883/jsonapi',
+    'runtime endpoint changes should replace the provider and apply immediately');
+    settings.set_boolean('lrcapi-enabled', false);
+    settings.reset('lrcapi-endpoint');
+    assert(instance._lyricsProvider._lrcApiUrl === null,
+        'disabling fallback should stop using its endpoint');
+
     const localArtwork = Gio.File.new_for_path(
         '/usr/share/pixmaps/faces/guitar2.jpg');
     view.setTrack({

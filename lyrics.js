@@ -12,6 +12,7 @@ export {normalizeLyricsPayload} from './lyrics-normalizer.js';
 
 const API_URL = 'https://lrclib.net/api/get';
 const SEARCH_API_URL = 'https://lrclib.net/api/search';
+export const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const REQUEST_SPACING_MS = 300;
 const MAX_CACHE_ENTRIES = 100;
@@ -104,6 +105,24 @@ function defaultSearchUrl(apiUrl) {
         : apiUrl.replace(/\/api\/get\/?$/, '/api/search');
 }
 
+export function normalizeLrcApiEndpoint(endpoint) {
+    if (typeof endpoint !== 'string' || !endpoint.trim())
+        return null;
+    const value = endpoint.trim();
+    try {
+        const uri = GLib.Uri.parse(value, GLib.UriFlags.NONE);
+        const scheme = uri.get_scheme()?.toLowerCase();
+        const host = uri.get_host()?.toLowerCase();
+        if (!['http', 'https'].includes(scheme) || !host ||
+            uri.get_userinfo() || uri.get_query() || uri.get_fragment() ||
+            (scheme === 'http' && !['localhost', '127.0.0.1', '::1'].includes(host)))
+            return null;
+    } catch {
+        return null;
+    }
+    return value;
+}
+
 export function retryAfterDelayMs(value, now = Date.now()) {
     if (typeof value !== 'string' || !value.trim())
         return 5000;
@@ -122,6 +141,8 @@ export class LyricsProvider {
     constructor({
         apiUrl = API_URL,
         searchUrl = undefined,
+        lrcApiEnabled = false,
+        lrcApiUrl = LRCAPI_URL,
         requestSpacingMs = REQUEST_SPACING_MS,
         timeoutSeconds = 15,
         maxCacheEntries = MAX_CACHE_ENTRIES,
@@ -137,6 +158,13 @@ export class LyricsProvider {
         });
         this._apiUrl = apiUrl;
         this._searchUrl = searchUrl ?? defaultSearchUrl(apiUrl);
+        this._lrcApiUrl = lrcApiEnabled ? normalizeLrcApiEndpoint(lrcApiUrl) : null;
+        if (lrcApiEnabled && !this._lrcApiUrl)
+            console.warn('LyricGlance: invalid LrcAPI endpoint; fallback disabled');
+        const providerConfiguration = lrcApiEnabled
+            ? `lrclib+lrcapi:${GLib.compute_checksum_for_string(
+                GLib.ChecksumType.SHA256, this._lrcApiUrl ?? 'invalid', -1)}`
+            : 'lrclib';
         this._requestSpacingMs = requestSpacingMs;
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         const cacheLimit = Math.floor(maxCacheEntries);
@@ -147,6 +175,7 @@ export class LyricsProvider {
         this._diskCache = persistentCache
             ? new LyricsDiskCache({
                 ...diskCacheOptions,
+                providerConfiguration,
                 ...(cacheRoot === undefined ? {} : {cacheRoot}),
             })
             : null;
@@ -156,6 +185,7 @@ export class LyricsProvider {
         this._lastRequestUs = 0;
         this._pendingKey = null;
         this._pendingCallbacks = [];
+        this._pendingRawPayload = null;
     }
 
     fetch(track, callback) {
@@ -215,6 +245,7 @@ export class LyricsProvider {
         this._cancellable = null;
         this._pendingKey = null;
         this._pendingCallbacks = [];
+        this._pendingRawPayload = null;
 
         if (this._delayTimerId) {
             GLib.source_remove(this._delayTimerId);
@@ -296,23 +327,31 @@ export class LyricsProvider {
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
-            this._delayTimerId, `[LyricGlance] LRCLIB ${stage} delay`);
+            this._delayTimerId, `[LyricGlance] lyrics ${stage} delay`);
     }
 
     _sendRequest(track, key, serial, stage, attempt) {
         if (serial !== this._requestSerial)
             return;
 
+        const providerName = stage === 'lrcapi' ? 'LrcAPI' : 'LRCLIB';
         let message;
         try {
-            const uri = stage === 'get'
-                ? buildGetUri(track, this._apiUrl)
-                : buildSearchUri(track, this._searchUrl);
+            const uri = stage === 'lrcapi'
+                ? appendQuery(this._lrcApiUrl, [
+                    ['title', track.title], ['artist', track.artist],
+                    ['album', track.album ?? ''],
+                ])
+                : stage === 'get'
+                    ? buildGetUri(track, this._apiUrl)
+                    : buildSearchUri(track, this._searchUrl);
             message = Soup.Message.new('GET', uri);
             if (!message)
                 throw new Error('Soup rejected the request URI');
+            if (stage === 'lrcapi')
+                message.set_flags(Soup.MessageFlags.NO_REDIRECT);
         } catch (error) {
-            console.warn(`LyricGlance: invalid LRCLIB request: ${error.message}`);
+            console.warn(`LyricGlance: invalid ${providerName} request: ${error.message}`);
             this._complete(serial, null);
             return;
         }
@@ -348,12 +387,15 @@ export class LyricsProvider {
                 }
 
                 if (status === 404) {
-                    this._cacheNegative(track, key, serial);
+                    if (stage === 'lrcapi')
+                        this._complete(serial, null);
+                    else
+                        this._handleMissingLyrics(track, key, serial);
                     return;
                 }
 
                 if (status !== 200) {
-                    console.warn(`LyricGlance: LRCLIB returned HTTP ${status}`);
+                    console.warn(`LyricGlance: ${providerName} returned HTTP ${status}`);
                     this._complete(serial, null);
                     return;
                 }
@@ -362,8 +404,40 @@ export class LyricsProvider {
                 try {
                     json = JSON.parse(new TextDecoder().decode(bytes.get_data()));
                 } catch (error) {
-                    console.warn(`LyricGlance: invalid LRCLIB response: ${error.message}`);
+                    console.warn(`LyricGlance: invalid ${providerName} response: ${error.message}`);
                     this._complete(serial, null);
+                    return;
+                }
+
+                if (stage === 'lrcapi') {
+                    if (!Array.isArray(json)) {
+                        console.warn('LyricGlance: LrcAPI response is not a candidate array');
+                        this._complete(serial, null);
+                        return;
+                    }
+                    const candidates = json.slice(0, 20)
+                        .filter(item => item && typeof item.title === 'string' &&
+                            typeof item.artist === 'string' &&
+                            (typeof item.lyrics === 'string' || typeof item.lrc === 'string'))
+                        .map(item => ({
+                            provider: 'lrcapi',
+                            trackName: item.title,
+                            artistName: item.artist,
+                            albumName: typeof item.album === 'string' ? item.album : '',
+                            duration: Number.isFinite(item.duration) && item.duration > 0
+                                ? item.duration : null,
+                            syncedLyrics: typeof item.lyrics === 'string' && item.lyrics.trim()
+                                ? item.lyrics : item.lrc,
+                        }));
+                    const best = rankLyricsCandidates(track, candidates)
+                        .find(item => item.accepted);
+                    if (best) {
+                        this._remember(key, best.document);
+                        this._persist(track, best.candidate);
+                    }
+                    // LrcAPI can hide upstream failures as empty/404 results.
+                    // Never persist a negative result from the fallback.
+                    this._complete(serial, best?.document ?? null);
                     return;
                 }
 
@@ -371,7 +445,7 @@ export class LyricsProvider {
                     const best = rankLyricsCandidates(track, json)
                         .find(item => item.accepted);
                     if (!best) {
-                        this._cacheNegative(track, key, serial);
+                        this._handleMissingLyrics(track, key, serial);
                         return;
                     }
 
@@ -386,9 +460,17 @@ export class LyricsProvider {
                     // Preserve the provider payload even when today's parser
                     // cannot render it. A future parser can retry from disk
                     // without discarding the original Lyricsfile.
-                    this._remember(key, null);
-                    this._persist(track, json);
-                    this._complete(serial, null);
+                    if (this._lrcApiUrl) {
+                        if (['lyricsfile', 'syncedLyrics', 'plainLyrics'].some(field =>
+                            typeof json?.[field] === 'string' && json[field].trim()))
+                            this._pendingRawPayload = {track, payload: json};
+                        this._scheduleStage(track, key, serial, 'lrcapi',
+                            this._spacingDelayMs(), 0);
+                    } else {
+                        this._remember(key, null);
+                        this._persist(track, json);
+                        this._complete(serial, null);
+                    }
                     return;
                 }
 
@@ -402,15 +484,19 @@ export class LyricsProvider {
                     error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                     return;
                 if (error instanceof ResponseTooLargeError) {
-                    console.warn('LyricGlance: LRCLIB response exceeded the size limit');
+                    console.warn(`LyricGlance: ${providerName} response exceeded the size limit`);
                 } else {
-                    console.warn(`LyricGlance: LRCLIB request failed: ${error.message}`);
+                    console.warn(`LyricGlance: ${providerName} request failed: ${error.message}`);
                 }
                 this._complete(serial, null);
             });
     }
 
-    _cacheNegative(track, key, serial) {
+    _handleMissingLyrics(track, key, serial) {
+        if (this._lrcApiUrl) {
+            this._scheduleStage(track, key, serial, 'lrcapi', this._spacingDelayMs(), 0);
+            return;
+        }
         this._remember(key, null);
         this._persist(track, null);
         this._complete(serial, null);
@@ -420,6 +506,13 @@ export class LyricsProvider {
         if (serial !== this._requestSerial)
             return;
 
+        // Keep unrenderable primary data only if the fallback failed. Writing
+        // it before the fallback could race and overwrite a successful result.
+        if (value === null && this._pendingRawPayload) {
+            const {track, payload} = this._pendingRawPayload;
+            this._persist(track, payload);
+        }
+        this._pendingRawPayload = null;
         const callbacks = this._pendingCallbacks;
         this._pendingCallbacks = [];
         this._pendingKey = null;

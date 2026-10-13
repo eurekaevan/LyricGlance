@@ -111,8 +111,8 @@ application.connect('activate', async app => {
                     widget.title === uiText('Enable translation', '启用翻译')),
                 'preferences should translate setting rows');
                 assert(widgets.filter(widget => widget instanceof Adw.SwitchRow)
-                    .length === 6,
-                'preferences should contain six boolean SwitchRows');
+                    .length === 7,
+                'preferences should contain seven boolean SwitchRows');
                 assert(widgets.filter(widget => widget instanceof Adw.SpinRow)
                     .length === 2,
                 'preferences should contain width and global-offset SpinRows');
@@ -120,8 +120,25 @@ application.connect('activate', async app => {
                     .length === 3,
                 'preferences should expose position, popup, and panel choices');
                 assert(widgets.filter(widget => widget instanceof Adw.EntryRow)
-                    .length === 3,
-                'preferences should expose target-language, endpoint, and model entries');
+                    .length === 4,
+                'preferences should expose translation and fallback endpoint entries');
+                const lrcApiSwitch = widgets.find(widget => widget instanceof Adw.SwitchRow &&
+                    widget.title === uiText('Use LrcAPI as a fallback', '使用 LrcAPI 作为备用歌词源'));
+                const lrcApiEndpoint = widgets.find(widget => widget instanceof Adw.EntryRow &&
+                    widget.title === uiText('LrcAPI endpoint', 'LrcAPI 服务地址'));
+                assert(lrcApiSwitch && lrcApiEndpoint && !lrcApiSwitch.active &&
+                    !lrcApiEndpoint.sensitive, 'LrcAPI must default to disabled');
+                lrcApiSwitch.active = true;
+                assert(lrcApiEndpoint.sensitive, 'enabling LrcAPI should enable its endpoint editor');
+                lrcApiEndpoint.text = 'http://example.test/jsonapi';
+                lrcApiEndpoint.emit('apply');
+                assert(lrcApiEndpoint.has_css_class('error'), 'insecure endpoints must be rejected');
+                lrcApiEndpoint.text = 'http://127.0.0.1:28883/jsonapi';
+                lrcApiEndpoint.emit('apply');
+                assert(!lrcApiEndpoint.has_css_class('error') &&
+                    preferences.getSettings().get_string('lrcapi-endpoint') === lrcApiEndpoint.text,
+                'applying a loopback endpoint should persist it');
+                lrcApiSwitch.active = false;
                 const endpointRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText(
