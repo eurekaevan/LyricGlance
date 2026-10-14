@@ -27,6 +27,8 @@ const MAX_OFFSET_MS = 10_000;
 const PANEL_PREFERRED_WIDTH = 320;
 const PANEL_TEXT_OPACITY = 150;
 const PANEL_TEXT_FADE_MS = 140;
+const PANEL_PAN_END_PADDING = 8;
+const PANEL_PAN_CATCH_UP_MS = 200;
 const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
 const LINE_VISUAL_CLASS_NAMES = [
@@ -330,7 +332,17 @@ export class LyricsIndicator {
             if (width === this._panelViewportWidth)
                 return;
             this._panelViewportWidth = width;
-            this._schedulePanelPan();
+            // Visibility changes invalidate the hierarchy being allocated.
+            // Defer the entire restart, including cancellation, until idle.
+            if (this._panelPanLaterId)
+                this._laters.remove(this._panelPanLaterId);
+            this._panelPanLaterId = this._laters.add(
+                Meta.LaterType.IDLE,
+                () => {
+                    this._panelPanLaterId = 0;
+                    this._schedulePanelPan();
+                    return GLib.SOURCE_REMOVE;
+                });
         });
         this.actor.connect('enter-event', () => {
             this._panelHovered = true;
@@ -1118,7 +1130,8 @@ export class LyricsIndicator {
             return;
 
         const panState = panelPanState(
-            this._panelPanTimeline, this._panelPanPositionAt(), overflow);
+            this._panelPanTimeline, this._panelPanPositionAt(),
+            overflow + PANEL_PAN_END_PADDING);
         if (!panState)
             return;
 
@@ -1197,7 +1210,28 @@ export class LyricsIndicator {
             !this._panelPanLabel?.visible)
             return;
         this._panelPanPaused = false;
-        this._schedulePanelPan();
+        if (!this._animationsEnabled()) {
+            this._schedulePanelPan();
+            return;
+        }
+        const [, naturalWidth] =
+            this._panelPanLabel.get_preferred_width(-1);
+        // Catch the timeline where it will be when the transition finishes,
+        // rather than chasing a position already in the past.
+        const panState = panelPanState(
+            this._panelPanTimeline,
+            this._panelPanPositionAt(GLib.get_monotonic_time() +
+                PANEL_PAN_CATCH_UP_MS * 1000),
+            Math.ceil(naturalWidth - this._labelViewport.width) +
+                PANEL_PAN_END_PADDING);
+        if (!panState)
+            return;
+        this._panelPanLabel.ease({
+            translation_x: panState.initialX,
+            duration: PANEL_PAN_CATCH_UP_MS,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => this._startPanelPan(),
+        });
     }
 
     _clearLyricsRows() {

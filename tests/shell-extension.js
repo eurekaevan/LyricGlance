@@ -289,9 +289,27 @@ export async function run() {
     assert(Math.abs(pausedPanX - firstPanX) < 0.5,
         'hover-style pause should freeze the panel lyric pan in place');
     view._resumePanelPan();
-    await Scripting.sleep(180);
+    assert(view._panelPanLabel.visible && !view._label.visible &&
+        Math.abs(view._panelPanLabel.translation_x - pausedPanX) < 0.5,
+    'leaving hover should start catching up without resetting or jumping');
+    await Scripting.sleep(100);
     assert(view._panelPanLabel.translation_x < pausedPanX,
-        'leaving hover should resume the panel lyric pan');
+        'leaving hover should smoothly catch up to lyric time');
+    view._pausePanelPan();
+    const interruptedCatchUpX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(180);
+    assert(Math.abs(view._panelPanLabel.translation_x - interruptedCatchUpX) < 0.5 &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'hovering again should cancel catch-up without restarting linear motion');
+    view._resumePanelPan();
+    await Scripting.sleep(280);
+    const catchUpOverflow = Math.ceil(
+        panNaturalWidth - view._labelViewport.width) + 8;
+    const expectedCatchUpX = -catchUpOverflow *
+        ((view._panelPanPositionAt() - 600) / 3400);
+    assert(Math.abs(view._panelPanLabel.translation_x - expectedCatchUpX) < 8 &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'catch-up should reconnect to the moving timeline and continue linearly');
     settings.set_int('max-panel-width', 150);
     await Scripting.sleep(300);
     assert(view._panelPanLabel.visible &&
@@ -305,12 +323,40 @@ export async function run() {
     'restoring the panel width should keep the active pan allocated');
     view.setText(panningText, {
         scrollable: true,
+        timeline: panelTimeline(8000),
+        contentKey: 'external-width',
+    });
+    settings.set_string('panel-position', 'left');
+    const panConstraint = new St.Widget({width: 200, height: 1});
+    Main.panel._centerBox.add_child(panConstraint);
+    await Scripting.sleep(700);
+    const panViewportWidths = [];
+    for (let index = 0; index < 8; index++) {
+        panConstraint.width = index % 2 ? 200 : 750;
+        await Scripting.sleep(150);
+        panViewportWidths.push(view._labelViewport.width);
+        assert(view._panelPanLabel.visible &&
+            view._panelPanLabel.get_transition('translation-x'),
+        'external panel constraints should reallocate and restart an active pan');
+    }
+    assert(Math.max(...panViewportWidths) - Math.min(...panViewportWidths) > 100,
+        'the allocation regression should exercise substantial viewport changes');
+    panConstraint.destroy();
+    settings.set_string('panel-position', 'center');
+    await Scripting.sleep(150);
+    view._pausePanelPan();
+    view._resumePanelPan();
+    view.setText(panningText, {
+        scrollable: true,
         timeline: panelTimeline(5000),
         contentKey: 'repeated-line-2',
     });
     assert(view._panelPanLabel.translation_x === 0 &&
         !view._panelPanLabel.visible && view._label.visible,
     'a repeated lyric with a new line ID should still reset the old panel pan');
+    await Scripting.sleep(280);
+    assert(Math.abs(view._panelPanLabel.translation_x) < 0.5,
+        'a new line should cancel catch-up and preserve its initial hold');
     view.setText('The next line', {
         scrollable: true,
         timeline: panelTimeline(3000),
@@ -334,8 +380,8 @@ export async function run() {
     const viewportRight = viewportEndX + view._labelViewport.width;
     print(`panelPanEndDelta=${(panRight - viewportRight).toFixed(1)}`);
     assert(view._panelPanLabel.clutter_text.get_text() === panningText &&
-        Math.abs(panRight - viewportRight) <= 1.5,
-    'the completed panel pan should reveal the exact full lyric ending');
+        Math.abs(panRight - viewportRight + 8) <= 1.5,
+    'the completed panel pan should reveal the full ending with eight pixels of space');
 
     view.setProgress(119_000_000, 220_000_000, {playing: false});
     view.setText(panningText, {
@@ -344,7 +390,8 @@ export async function run() {
         contentKey: 'seek-position',
     });
     await Scripting.sleep(100);
-    const seekOverflow = panNaturalWidth - view._labelViewport.width;
+    const seekOverflow = Math.ceil(
+        panNaturalWidth - view._labelViewport.width) + 8;
     const expectedSeekX = -seekOverflow * ((3000 - 600) / 3400);
     print(`panelPanSeekDelta=${(
         view._panelPanLabel.translation_x - expectedSeekX).toFixed(1)}`);
