@@ -480,8 +480,12 @@ msgstr "无法控制播放"
 msgid "Use LrcAPI as a fallback"
 msgstr "使用 LrcAPI 作为备用歌词源"
 
-msgid "When LRCLIB has no lyrics, send the song title, artist and album to LrcAPI"
-msgstr "LRCLIB 未找到歌词时，将歌名、歌手和专辑发送至 LrcAPI"
+msgid "When LRCLIB has no synchronized lyrics, send the song title, artist and album to LrcAPI"
+msgstr "LRCLIB 没有同步歌词时，将歌名、歌手和专辑发送至 LrcAPI"
 
 msgid "LrcAPI endpoint"
 msgstr "LrcAPI 服务地址"
+
+#, javascript-format
+msgid "Lyrics source: %s"
+msgstr "歌词来源：%s"

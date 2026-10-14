@@ -33,6 +33,8 @@ const server = new Soup.Server();
 const receivedRequests = [];
 let rateLimitAttempts = 0;
 let fallbackRateAttempts = 0;
+let plainUpgradeReady = false;
+let instrumentalReady = false;
 server.add_handler(null, (currentServer, message) => {
     const query = decodeURIComponent(message.get_uri().get_query() ?? '');
     const path = message.get_uri().get_path();
@@ -69,8 +71,18 @@ server.add_handler(null, (currentServer, message) => {
                     artist: 'LyricGlance', duration: 500, lrc: '[00:01]wrong duration'},
                     {title: requestedTitle, artist: 'LyricGlance', duration: 120,
                         lrc: '[00:01]modern fallback'}] : []),
-                {id: 'remote-id', title: requestedTitle, artist: 'LyricGlance',
-                    lyrics: query.includes('Fallback Reject') ? 'not LRC' :
+                ...(query.includes('Fallback Quality') ? [{title: requestedTitle,
+                    artist: 'LyricGlance', album: 'HTTP Integration', duration: 120,
+                    lyrics: 'high score plain text'}] : []),
+                ...(query.includes('Fallback Dual') ? [{title: requestedTitle,
+                    artist: 'LyricGlance',
+                    lyrics: query.includes('Reverse') ? '[00:01]dual synchronized' : 'dual plain',
+                    lrc: query.includes('Reverse') ? 'dual plain' : '[00:01]dual synchronized'}] : []),
+                {id: 'remote-id', title: requestedTitle,
+                    artist: query.includes('Fallback Reject') ? 'Wrong Artist' : 'LyricGlance',
+                    lyrics: query.includes('Fallback Blank Plain') ? '   ' :
+                        query.includes('Fallback Plain') || (query.includes('Plain Priority Plain') &&
+                        !(plainUpgradeReady && query.includes('Retry'))) ? 'plain from fallback' :
                         `[00:01]${path === '/lrcapi-other' ? 'other endpoint' :
                             query.includes('Fallback Large') ? 'x'.repeat(512) : 'fallback line'}`},
             ]);
@@ -85,6 +97,9 @@ server.add_handler(null, (currentServer, message) => {
                 response(message, 200, body);
             }
         }
+    } else if (query.includes('Plain Priority') && path.endsWith('/api/get')) {
+        response(message, 200, instrumentalReady && query.includes('To Instrumental')
+            ? '{"instrumental":true}' : '{"plainLyrics":"plain from primary"}');
     } else if (query.includes('Fallback Raw') && path.endsWith('/api/get')) {
         response(message, 200, JSON.stringify({lyricsfile: 'version: unsupported'}));
     } else if (query.includes('Fallback Unusable') && path.endsWith('/api/get')) {
@@ -93,10 +108,17 @@ server.add_handler(null, (currentServer, message) => {
         response(message, 404);
     } else if (query.includes('Fallback') && path.endsWith('/api/search')) {
         response(message, 200, '[]');
-    } else if (query.includes('Plain Priority')) {
-        response(message, 200, '{"plainLyrics":"plain from primary"}');
     } else if (query.includes('Instrumental Priority')) {
         response(message, 200, '{"instrumental":true}');
+    } else if (query.includes('Search Quality') && path.endsWith('/api/get')) {
+        response(message, 404);
+    } else if (query.includes('Search Quality') && path.endsWith('/api/search')) {
+        response(message, 200, JSON.stringify([
+            {id: 201, trackName: 'Search Quality', artistName: 'LyricGlance',
+                albumName: 'HTTP Integration', duration: 120, plainLyrics: 'high score plain'},
+            {id: 202, trackName: 'Search Quality', artistName: 'LyricGlance',
+                syncedLyrics: '[00:01]lower score synchronized'},
+        ]));
     } else if (query.includes('Search Match') && path.endsWith('/api/get')) {
         response(message, Soup.Status.NOT_FOUND);
     } else if (query.includes('Search Match') && path.endsWith('/api/search')) {
@@ -310,12 +332,51 @@ async function run() {
     let fallback = new LyricsProvider(options);
     const fallbackFetch = title => new Promise(resolve =>
         fallback.fetch({...baseTrack, title}, resolve));
+    assert((await fallbackFetch('Search Quality'))?.sourceId === 202,
+        'credible synchronized search candidates must outrank higher-scoring plain candidates');
+    assert((await fallbackFetch('Fallback Quality'))?.lines[0].text === 'fallback line',
+        'credible synchronized fallback candidates must outrank higher-scoring plain candidates');
+    for (const title of ['Fallback Dual', 'Fallback Dual Reverse'])
+        assert((await fallbackFetch(title))?.lines[0].text === 'dual synchronized',
+            'both reply fields must be considered before preferring plain text');
     const beforePrimary = receivedRequests.length;
     assert((await fallbackFetch('Primary Priority'))?.source === 'lrclib-synced' &&
-        (await fallbackFetch('Plain Priority'))?.source === 'lrclib-plain' &&
         (await fallbackFetch('Instrumental Priority'))?.instrumental &&
         receivedRequests.slice(beforePrimary).every(item => item.path === '/api/get'),
-    'usable primary lyrics and instrumental records must never contact the fallback');
+    'synchronized primary lyrics and instrumental records must never contact the fallback');
+    assert((await fallbackFetch('Plain Priority Upgrade'))?.source === 'lrcapi-synced',
+        'fallback synchronized lyrics must upgrade primary plain lyrics');
+    assert((await fallbackFetch('Plain Priority Plain'))?.source === 'lrclib-plain',
+        'equally plain fallback lyrics must not replace primary lyrics');
+    for (const suffix of ['Fallback Error', 'Fallback Empty', 'Fallback Missing',
+        'Fallback Bad JSON', 'Fallback Bad Shape', 'Fallback Reject', 'Fallback Redirect',
+        'Fallback Blank Plain']) {
+        const title = `Plain Priority ${suffix}`;
+        const document = await fallbackFetch(title);
+        assert(document?.source === 'lrclib-plain' && document.lines[0].text === 'plain from primary',
+            `${suffix} must preserve usable primary text`);
+    }
+    const plainOnly = await fallbackFetch('Fallback Plain Only');
+    assert(plainOnly?.source === 'lrcapi-plain' && plainOnly.syncLevel === 'none',
+        'plain fallback text is better than no lyrics');
+    assert((await fallbackFetch('Plain Priority Plain Retry'))?.source === 'lrclib-plain',
+        'plain baseline lookup failed');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    plainUpgradeReady = true;
+    assert((await fallbackFetch('Plain Priority Plain Retry'))?.source === 'lrcapi-synced',
+        'cached plain lyrics must not prevent a later synchronized upgrade');
+    assert((await fallbackFetch('Plain Priority Plain To Instrumental'))?.source === 'lrclib-plain',
+        'instrumental upgrade baseline failed');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    instrumentalReady = true;
+    const beforeInstrumentalUpgrade = receivedRequests.length;
+    assert((await fallbackFetch('Plain Priority Plain To Instrumental'))?.instrumental &&
+        receivedRequests.length === beforeInstrumentalUpgrade + 1,
+    'a primary instrumental result must override cached plain lyrics without a fallback request');
     const beforeFallback = receivedRequests.length;
     const fallbackDocument = await fallbackFetch('Fallback Match');
     assert(fallbackDocument?.source === 'lrcapi-synced' &&
@@ -354,7 +415,8 @@ async function run() {
     assert((await fallbackFetch('Fallback Match'))?.source === 'lrcapi-synced',
         'a disabled primary negative cache must not block an enabled fallback');
     for (const title of ['Fallback Error', 'Fallback Empty', 'Fallback Missing',
-        'Fallback Bad JSON', 'Fallback Bad Shape', 'Fallback Reject', 'Fallback Redirect']) {
+        'Fallback Bad JSON', 'Fallback Bad Shape', 'Fallback Reject', 'Fallback Redirect',
+        'Fallback Blank Plain']) {
         const before = receivedRequests.length;
         assert(await fallbackFetch(title) === null, `${title} must not fabricate lyrics`);
         assert(!(await fallback._diskCache.get({...baseTrack, title})).hit,
@@ -400,13 +462,13 @@ async function run() {
         receivedRequests.length === beforeCoalescedFallback + 3,
     'coalesced fallback lookups must share one HTTP chain');
     let staleFallbackCallbacks = 0;
-    fallback.fetch({...baseTrack, title: 'Fallback Slow Cancel'}, () => staleFallbackCallbacks++);
+    fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Cancel'}, () => staleFallbackCallbacks++);
     await sleep(80);
     assert((await fallbackFetch('Fallback Current'))?.source === 'lrcapi-synced',
         'replacement fallback lookup failed');
     await sleep(550);
     assert(staleFallbackCallbacks === 0, 'switching tracks must suppress old fallback callbacks');
-    fallback.fetch({...baseTrack, title: 'Fallback Slow Destroy'}, () => staleFallbackCallbacks++);
+    fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Destroy'}, () => staleFallbackCallbacks++);
     await sleep(80);
     fallback.destroy();
     await sleep(550);

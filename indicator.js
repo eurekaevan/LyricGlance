@@ -448,6 +448,19 @@ export class LyricsIndicator {
         lyricsItem.add_child(this._scrollView);
         this.actor.menu.addMenuItem(lyricsItem);
 
+        this._lyricsSourceItem = new PopupMenu.PopupBaseMenuItem({
+            style_class: 'lyric-glance-source-item',
+            reactive: false,
+            can_focus: false,
+        });
+        this._lyricsSourceLabel = new St.Label({
+            style_class: 'lyric-glance-source-label',
+            text: '',
+        });
+        this._lyricsSourceItem.add_child(this._lyricsSourceLabel);
+        this._lyricsSourceItem.hide();
+        this.actor.menu.addMenuItem(this._lyricsSourceItem);
+
         this._translationItem = new PopupMenu.PopupBaseMenuItem({
             style_class: 'lyric-glance-translation-status',
             reactive: false,
@@ -718,6 +731,8 @@ export class LyricsIndicator {
         this.setProgress(0, 0);
         this._document = null;
         this._translationDocument = null;
+        this._lyricsSourceLabel.text = '';
+        this._lyricsSourceItem.hide();
         this._clearLyricsRows();
         this._updateTranslationControlVisibility();
     }
@@ -725,6 +740,16 @@ export class LyricsIndicator {
     setLyrics(document) {
         this._document = document ?? null;
         this._translationDocument = null;
+        const source = typeof document?.source === 'string' ? document.source : '';
+        const provider = source === 'lrclib' || source.startsWith('lrclib-')
+            ? 'LRCLIB'
+            : source === 'lrcapi' || source.startsWith('lrcapi-')
+                ? 'LrcAPI'
+                : null;
+        const showSource = Boolean(provider &&
+            (document?.instrumental || document?.lines?.length));
+        this._lyricsSourceLabel.text = showSource ? _('Lyrics source: %s').format(provider) : '';
+        this._lyricsSourceItem.visible = showSource;
         if (document?.instrumental) {
             this._showLyricsMessage(_('Instrumental'));
             return;
@@ -1406,6 +1431,8 @@ export class LyricsIndicator {
         this._albumLabel = null;
         this._artworkView = null;
         this._progressView = null;
+        this._lyricsSourceItem = null;
+        this._lyricsSourceLabel = null;
         this._lyricsBox = null;
         this._scrollView = null;
         this._laters = null;

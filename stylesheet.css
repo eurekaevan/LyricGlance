@@ -238,3 +238,12 @@
   padding-top: 8px;
   padding-bottom: 8px;
 }
+
+.lyric-glance-source-item {
+  padding: 2px 18px 6px;
+}
+
+.lyric-glance-source-label {
+  font-size: 0.78em;
+  opacity: 0.55;
+}

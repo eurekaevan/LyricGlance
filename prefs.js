@@ -118,7 +118,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
 
         lyricsGroup.add(bindSwitch(
             settings, 'lrcapi-enabled', _('Use LrcAPI as a fallback'),
-            _('When LRCLIB has no lyrics, send the song title, artist and album to LrcAPI')));
+            _('When LRCLIB has no synchronized lyrics, send the song title, artist and album to LrcAPI')));
         const lrcApiEndpointRow = new Adw.EntryRow({
             title: _('LrcAPI endpoint'),
             text: settings.get_string('lrcapi-endpoint'),

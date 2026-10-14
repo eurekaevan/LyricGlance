@@ -32,7 +32,7 @@
     </key>
     <key name="lrcapi-enabled" type="b">
       <default>false</default>
-      <summary>Use LrcAPI when LRCLIB has no usable lyrics</summary>
+      <summary>Use LrcAPI when LRCLIB has no synchronized lyrics</summary>
     </key>
     <key name="lrcapi-endpoint" type="s">
       <default>'https://api.lrc.cx/jsonapi'</default>

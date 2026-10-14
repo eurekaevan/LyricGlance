@@ -3,10 +3,11 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {rankLyricsCandidates} from './lyrics-matcher.js';
+import {LrcParser} from './lyrics-parser.js';
 import {normalizeLyricsPayload} from './lyrics-normalizer.js';
 import {LyricsDiskCache, trackKey} from './storage.js';
 
-export {LrcParser} from './lyrics-parser.js';
+export {LrcParser};
 export {scoreLyricsCandidate} from './lyrics-matcher.js';
 export {normalizeLyricsPayload} from './lyrics-normalizer.js';
 
@@ -123,6 +124,12 @@ export function normalizeLrcApiEndpoint(endpoint) {
     return value;
 }
 
+function bestLyricsCandidate(track, candidates) {
+    const accepted = rankLyricsCandidates(track, candidates).filter(item =>
+        item.accepted && (item.document.instrumental || item.document.lines.length));
+    return accepted.find(item => item.document.syncLevel !== 'none') ?? accepted[0];
+}
+
 export function retryAfterDelayMs(value, now = Date.now()) {
     if (typeof value !== 'string' || !value.trim())
         return 5000;
@@ -162,7 +169,7 @@ export class LyricsProvider {
         if (lrcApiEnabled && !this._lrcApiUrl)
             console.warn('LyricGlance: invalid LrcAPI endpoint; fallback disabled');
         const providerConfiguration = lrcApiEnabled
-            ? `lrclib+lrcapi:${GLib.compute_checksum_for_string(
+            ? `lrclib+lrcapi:v2:${GLib.compute_checksum_for_string(
                 GLib.ChecksumType.SHA256, this._lrcApiUrl ?? 'invalid', -1)}`
             : 'lrclib';
         this._requestSpacingMs = requestSpacingMs;
@@ -186,6 +193,7 @@ export class LyricsProvider {
         this._pendingKey = null;
         this._pendingCallbacks = [];
         this._pendingRawPayload = null;
+        this._pendingPlainLyrics = null;
     }
 
     fetch(track, callback) {
@@ -246,6 +254,7 @@ export class LyricsProvider {
         this._pendingKey = null;
         this._pendingCallbacks = [];
         this._pendingRawPayload = null;
+        this._pendingPlainLyrics = null;
 
         if (this._delayTimerId) {
             GLib.source_remove(this._delayTimerId);
@@ -298,9 +307,15 @@ export class LyricsProvider {
         if (result.hit) {
             const document = this._normalize(result.payload);
             if (document) {
-                this._remember(key, document);
-                this._complete(serial, document);
-                return;
+                if (this._lrcApiUrl && !document.instrumental && document.syncLevel === 'none') {
+                    // A cached plain result must not prevent a later upgrade.
+                    if (document.lines.length)
+                        this._pendingPlainLyrics = {track, payload: result.payload, document};
+                } else {
+                    this._remember(key, document);
+                    this._complete(serial, document);
+                    return;
+                }
             }
         }
 
@@ -419,19 +434,32 @@ export class LyricsProvider {
                         .filter(item => item && typeof item.title === 'string' &&
                             typeof item.artist === 'string' &&
                             (typeof item.lyrics === 'string' || typeof item.lrc === 'string'))
-                        .map(item => ({
-                            provider: 'lrcapi',
-                            trackName: item.title,
-                            artistName: item.artist,
-                            albumName: typeof item.album === 'string' ? item.album : '',
-                            duration: Number.isFinite(item.duration) && item.duration > 0
-                                ? item.duration : null,
-                            syncedLyrics: typeof item.lyrics === 'string' && item.lyrics.trim()
-                                ? item.lyrics : item.lrc,
-                        }));
-                    const best = rankLyricsCandidates(track, candidates)
-                        .find(item => item.accepted);
+                        .map(item => {
+                            const texts = [item.lyrics, item.lrc].filter(text =>
+                                typeof text === 'string' && text.trim());
+                            const text = texts.length > 1
+                                ? texts.find(value => LrcParser.parse(value).length) ?? texts[0]
+                                : texts[0];
+                            return {
+                                provider: 'lrcapi',
+                                trackName: item.title,
+                                artistName: item.artist,
+                                albumName: typeof item.album === 'string' ? item.album : '',
+                                duration: Number.isFinite(item.duration) && item.duration > 0
+                                    ? item.duration : null,
+                                syncedLyrics: text,
+                                plainLyrics: text,
+                            };
+                        });
+                    const best = bestLyricsCandidate(track, candidates);
                     if (best) {
+                        if (best.document.syncLevel === 'none')
+                            best.candidate.syncedLyrics = null;
+                        else
+                            best.candidate.plainLyrics = null;
+                    }
+                    if (best && (!this._pendingPlainLyrics || best.document.syncLevel !== 'none' ||
+                        !this._pendingPlainLyrics.document.source.startsWith('lrclib'))) {
                         this._remember(key, best.document);
                         this._persist(track, best.candidate);
                     }
@@ -442,16 +470,13 @@ export class LyricsProvider {
                 }
 
                 if (stage === 'search') {
-                    const best = rankLyricsCandidates(track, json)
-                        .find(item => item.accepted);
+                    const best = bestLyricsCandidate(track, json);
                     if (!best) {
                         this._handleMissingLyrics(track, key, serial);
                         return;
                     }
 
-                    this._remember(key, best.document);
-                    this._persist(track, best.candidate);
-                    this._complete(serial, best.document);
+                    this._usePrimaryLyrics(track, key, serial, best.candidate, best.document);
                     return;
                 }
 
@@ -474,9 +499,7 @@ export class LyricsProvider {
                     return;
                 }
 
-                this._remember(key, document);
-                this._persist(track, json);
-                this._complete(serial, document);
+                this._usePrimaryLyrics(track, key, serial, json, document);
             }).catch(error => {
                 if (this._cancellable === cancellable)
                     this._cancellable = null;
@@ -490,6 +513,18 @@ export class LyricsProvider {
                 }
                 this._complete(serial, null);
             });
+    }
+
+    _usePrimaryLyrics(track, key, serial, payload, document) {
+        if (this._lrcApiUrl && !document.instrumental && document.syncLevel === 'none') {
+            if (document.lines.length)
+                this._pendingPlainLyrics = {track, payload, document};
+            this._scheduleStage(track, key, serial, 'lrcapi', this._spacingDelayMs(), 0);
+            return;
+        }
+        this._remember(key, document);
+        this._persist(track, payload);
+        this._complete(serial, document);
     }
 
     _handleMissingLyrics(track, key, serial) {
@@ -506,6 +541,13 @@ export class LyricsProvider {
         if (serial !== this._requestSerial)
             return;
 
+        const plain = this._pendingPlainLyrics;
+        if (plain && (!value || (!value.instrumental && value.syncLevel === 'none' &&
+            plain.document.source.startsWith('lrclib')))) {
+            value = plain.document;
+            this._persist(plain.track, plain.payload);
+        }
+        this._pendingPlainLyrics = null;
         // Keep unrenderable primary data only if the fallback failed. Writing
         // it before the fallback could race and overwrite a successful result.
         if (value === null && this._pendingRawPayload) {
@@ -526,6 +568,8 @@ export class LyricsProvider {
     }
 
     _remember(key, value) {
+        if (this._lrcApiUrl && value && !value.instrumental && value.syncLevel === 'none')
+            return;
         if (this._cache.has(key))
             this._cache.delete(key);
         this._cache.set(key, value);

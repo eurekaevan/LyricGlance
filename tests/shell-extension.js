@@ -167,13 +167,28 @@ export async function run() {
         text: `Synchronized lyric line ${index + 1} with wrapping text`,
     }));
     const lineDocument = {
-        source: 'test',
+        source: 'lrclib-synced',
         sourceId: null,
         instrumental: false,
         metadata: {},
         syncLevel: 'line',
         lines,
     };
+    for (const [source, provider] of [
+        ['lrclib-synced', 'LRCLIB'], ['lrclib-plain', 'LRCLIB'],
+        ['lrclib-lyricsfile', 'LRCLIB'], ['lrclib', 'LRCLIB'],
+        ['lrcapi-synced', 'LrcAPI'],
+    ]) {
+        view.setLyrics({...lineDocument, source});
+        assert(view._lyricsSourceItem.visible && view._lyricsSourceLabel.text ===
+            uiText(`Lyrics source: ${provider}`, `歌词来源：${provider}`),
+        `the source label must show the actual provider for ${source}`);
+    }
+    view.setLyrics(null);
+    assert(!view._lyricsSourceItem.visible && !view._lyricsSourceLabel.text,
+        'no lyrics must clear the previous provider label');
+    view.setLyrics({...lineDocument, source: 'unknown'});
+    assert(!view._lyricsSourceItem.visible, 'unknown sources must not be guessed');
     view.setLyrics(lineDocument);
     let originalRows = [...view._lyricRows];
     view.setCurrentLyricIndex(20);
@@ -1238,6 +1253,11 @@ export async function run() {
     assert(view._titleLabel.text === 'No Lyrics Track' &&
         view._artistLabel.text === 'Another Artist',
         'the no-lyrics state should retain title and artist');
+
+    view.setLyrics({...lineDocument, source: 'lrcapi-synced'});
+    view.clearTrack();
+    assert(!view._lyricsSourceItem.visible && !view._lyricsSourceLabel.text,
+        'clearing a track must clear its source label');
 
     instance._state = null;
     instance._lyricsDocument = null;
