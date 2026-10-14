@@ -1,5 +1,6 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
@@ -266,6 +267,9 @@ export async function run() {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
+    assert(view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
+        view._label.visible,
+    'synchronized lyrics should begin as full clipped text without an ellipsis');
     view.setProgress(119_000_000, 220_000_000, {
         playing: true,
         immediate: true,
@@ -283,6 +287,12 @@ export async function run() {
         view._panelPanLabel.width > view._labelViewport.width &&
         view._panelPanLabel.get_transition('translation-x'),
     'an overflowing synchronized lyric should pan at full width inside its clipped viewport');
+    assert(view._panelFadeEffect.enabled &&
+        view._labelViewport.clip_to_allocation &&
+        Math.abs(view._label.width - panNaturalWidth) < 0.5 &&
+        view._panelFadeEffect._edges[1] > 0 &&
+        view._panelFadeEffect._edges[2] === 1,
+    'clipped synchronized lyrics should fade their overflowing edges during motion');
     view._pausePanelPan();
     await Scripting.sleep(180);
     const pausedPanX = view._panelPanLabel.translation_x;
@@ -368,12 +378,15 @@ export async function run() {
     await Scripting.sleep(120);
     assert(!view._panelPanLabel.visible && view._label.visible,
         'fallback track information should remain ellipsized without panning');
+    assert(view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
+        !view._panelFadeEffect.enabled,
+    'fallback text should retain its ellipsis without the lyric edge effect');
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(1800),
         contentKey: 'full-ending',
     });
-    await Scripting.sleep(1520);
+    await Scripting.sleep(1900);
     const [panEndX] = view._panelPanLabel.get_transformed_position();
     const [viewportEndX] = view._labelViewport.get_transformed_position();
     const panRight = panEndX + view._panelPanLabel.width;
@@ -382,6 +395,33 @@ export async function run() {
     assert(view._panelPanLabel.clutter_text.get_text() === panningText &&
         Math.abs(panRight - viewportRight + 8) <= 1.5,
     'the completed panel pan should reveal the full ending with eight pixels of space');
+    assert(view._panelFadeEffect._edges[2] === 0,
+        'the fully revealed lyric ending should not be faded');
+
+    // Find a real glyph string that exceeds this viewport by only a few pixels.
+    let tinyText = '';
+    let tinyNaturalWidth = 0;
+    while (tinyNaturalWidth <= view._labelViewport.width) {
+        tinyText += 'i';
+        view._panelPanLabel.text = tinyText;
+        [, tinyNaturalWidth] = view._panelPanLabel.get_preferred_width(-1);
+    }
+    const tinyOverflow = Math.ceil(tinyNaturalWidth - view._labelViewport.width);
+    assert(tinyOverflow > 0 && tinyOverflow <= 8,
+        'the small overflow regression should exceed the viewport by at most eight pixels');
+    view.setText(tinyText, {
+        scrollable: true,
+        timeline: panelTimeline(1200),
+        contentKey: 'tiny-overflow',
+    });
+    await Scripting.sleep(300);
+    const tinyPanX = view._panelPanLabel.translation_x;
+    assert(tinyPanX < 0 && tinyPanX > -tinyOverflow &&
+        view._panelPanTargetX === -tinyOverflow,
+    'a small overflow should move gently without adding eight pixels of travel');
+    await Scripting.sleep(1050);
+    assert(Math.abs(view._panelPanLabel.translation_x + tinyOverflow) < 0.5,
+        'small overflow motion should reveal the full ending by the line boundary');
 
     view.setProgress(119_000_000, 220_000_000, {playing: false});
     view.setText(panningText, {
@@ -1195,7 +1235,9 @@ export async function run() {
     await Scripting.sleep(80);
     assert(view._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
         view._label.visible && !view._panelPanLabel.visible &&
-        !view._panelPanLabel.get_transition('translation-x'),
+        !view._panelPanLabel.get_transition('translation-x') &&
+        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
+        !view._panelFadeEffect.enabled,
     'disabled Shell animations should keep text, panel pan, and progress direct');
     view._animationsEnabled = viewAnimationPreference;
     view.setText('First');

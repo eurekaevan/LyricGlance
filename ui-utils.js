@@ -28,6 +28,8 @@ const PANEL_PAN_LEAD_FRACTION = 0.12;
 const PANEL_PAN_END_HOLD_FRACTION = 0.20;
 const PANEL_PAN_MAX_LEAD_MS = 600;
 const PANEL_PAN_MAX_END_HOLD_MS = 1000;
+const PANEL_PAN_REFERENCE_SPEED = 240;
+const PANEL_PAN_SMALL_DISTANCE = 8;
 
 export function normalizePanelTimeline(timeline) {
     const startMs = timeline?.startMs;
@@ -66,12 +68,26 @@ export function panelPanState(timeline, positionMs, overflow) {
         return null;
 
     const lineDurationMs = normalized.endMs - normalized.startMs;
-    const leadMs = Math.min(
+    let leadMs = Math.min(
         PANEL_PAN_MAX_LEAD_MS,
         lineDurationMs * PANEL_PAN_LEAD_FRACTION);
-    const endHoldMs = Math.min(
+    let endHoldMs = Math.min(
         PANEL_PAN_MAX_END_HOLD_MS,
         lineDurationMs * PANEL_PAN_END_HOLD_FRACTION);
+    if (distance <= PANEL_PAN_SMALL_DISTANCE) {
+        // Spread a tiny overflow across the whole line instead of adding a
+        // noticeable start/stop to an otherwise almost stationary label.
+        leadMs = 0;
+        endHoldMs = 0;
+    } else {
+        const holdMs = leadMs + endHoldMs;
+        const requiredMotionMs = distance * normalized.playbackRate /
+            PANEL_PAN_REFERENCE_SPEED * 1000;
+        const availableHoldMs = Math.max(0, lineDurationMs - requiredMotionMs);
+        const holdScale = holdMs > 0 ? Math.min(1, availableHoldMs / holdMs) : 1;
+        leadMs *= holdScale;
+        endHoldMs *= holdScale;
+    }
     const motionStartMs = normalized.startMs + leadMs;
     const motionEndMs = Math.max(
         motionStartMs, normalized.endMs - endHoldMs);
@@ -93,7 +109,7 @@ export function panelPanState(timeline, positionMs, overflow) {
         delayMs,
         durationMs,
         speedPxPerSecond: remainingDistance / durationMs * 1000,
-        shouldAnimate: position < motionEndMs && remainingDistance > 0.5,
+        shouldAnimate: position < motionEndMs && remainingDistance > 0,
     };
 }
 

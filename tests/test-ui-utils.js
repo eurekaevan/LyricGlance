@@ -71,8 +71,30 @@ const doubleRatePan = panelPanState({
     ...normalizedTimeline,
     playbackRate: 2,
 }, 0, 429);
-assert(doubleRatePan.delayMs === 180 && doubleRatePan.durationMs === 1020,
-'playback rate should scale wall-clock delay and motion duration');
+assert(doubleRatePan.delayMs === 0 && doubleRatePan.durationMs === 1500 &&
+    doubleRatePan.targetX === -429 && doubleRatePan.speedPxPerSecond === 286,
+'fast playback should use all available time when the reference speed is unattainable');
+const protectedPan = panelPanState(normalizedTimeline, 0, 600);
+assert(Math.abs(protectedPan.delayMs - 188) <= 1 &&
+    protectedPan.durationMs === 2500 && protectedPan.speedPxPerSecond === 240,
+'a fast line should proportionally shorten its holds to reach the reference speed');
+const protectedSeek = panelPanState(normalizedTimeline, 1200, 600);
+assert(Math.abs(protectedSeek.initialX + (1200 - 187.5) * 0.24) < 0.01 &&
+    protectedSeek.delayMs === 0,
+'seeking into a protected line should use the same adjusted timeline');
+const protectedEnd = panelPanState(normalizedTimeline, 2700, 600);
+assert(protectedEnd.initialX === -600 && !protectedEnd.shouldAnimate,
+'a protected line should still reveal its full ending during its remaining hold');
+const tinyPan = panelPanState(normalizedTimeline, 1500, 3);
+assert(tinyPan.initialX === -1.5 && tinyPan.targetX === -3 &&
+    tinyPan.delayMs === 0 && tinyPan.durationMs === 1500 &&
+    tinyPan.speedPxPerSecond === 1,
+'a tiny overflow should move gently across the full line without extra holds');
+const tinyEnd = panelPanState(normalizedTimeline, 3000, 3);
+assert(tinyEnd.initialX === -3 && !tinyEnd.shouldAnimate,
+'a tiny overflow must still reveal every pixel of the ending');
+assert(panelPanState(normalizedTimeline, 2700, 3).shouldAnimate,
+'resuming or seeking near a tiny overflow ending should still finish the last fraction of a pixel');
 assert(panelPanState(null, 0, 429) === null &&
     panelPanState(normalizedTimeline, 0, 0) === null,
 'invalid panel pan inputs should remain static');

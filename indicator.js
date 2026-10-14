@@ -1,9 +1,11 @@
 import Clutter from 'gi://Clutter';
+import Cogl from 'gi://Cogl';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -29,6 +31,7 @@ const PANEL_TEXT_OPACITY = 150;
 const PANEL_TEXT_FADE_MS = 140;
 const PANEL_PAN_END_PADDING = 8;
 const PANEL_PAN_CATCH_UP_MS = 200;
+const PANEL_EDGE_FADE_WIDTH = 8;
 const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
 const LINE_VISUAL_CLASS_NAMES = [
@@ -79,6 +82,41 @@ function setButtonEnabled(button, enabled) {
         button.remove_style_pseudo_class('insensitive');
     else
         button.add_style_pseudo_class('insensitive');
+}
+
+class PanelEdgeFade extends Shell.GLSLEffect {
+    static {
+        GObject.registerClass(this);
+    }
+
+    _init() {
+        super._init({enabled: false});
+        this._edgesLocation = this.get_uniform_location('edges');
+        this._edges = [];
+    }
+
+    vfunc_build_pipeline() {
+        this.add_glsl_snippet(Cogl.SnippetHook.FRAGMENT,
+            'uniform vec3 edges;', `
+                float x = cogl_tex_coord_in[0].x;
+                float left = mix(1.0, clamp(x / edges.x, 0.0, 1.0), edges.y);
+                float right = mix(1.0, clamp((1.0 - x) / edges.x, 0.0, 1.0), edges.z);
+                cogl_color_out *= left * right;
+            `, false);
+    }
+
+    setEdges(width, offset, textWidth) {
+        const edges = [
+            Math.min(0.5, PANEL_EDGE_FADE_WIDTH / Math.max(1, width)),
+            Math.min(1, Math.max(0, -offset / PANEL_EDGE_FADE_WIDTH)),
+            Math.min(1, Math.max(0,
+                (textWidth + offset - width) / PANEL_EDGE_FADE_WIDTH)),
+        ];
+        if (edges.every((value, index) => value === this._edges[index]))
+            return;
+        this._edges = edges;
+        this.set_uniform_float(this._edgesLocation, 3, edges);
+    }
 }
 
 class PanelLabelLayout extends Clutter.LayoutManager {
@@ -134,13 +172,14 @@ class PanelLabelLayout extends Clutter.LayoutManager {
         const viewportWidth = Math.max(0, box.get_width());
         const viewportHeight = Math.max(0, box.get_height());
         for (const child of container) {
+            let childWidth = viewportWidth;
+            if (child === this._panLabel && this._panWidth > 0)
+                childWidth = Math.max(viewportWidth, this._panWidth);
+            else if (child.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE)
+                childWidth = Math.max(viewportWidth, child.get_preferred_width(-1)[1]);
             const childBox = new Clutter.ActorBox();
             childBox.set_origin(0, 0);
-            childBox.set_size(
-                child === this._panLabel && this._panWidth > 0
-                    ? Math.max(viewportWidth, this._panWidth)
-                    : viewportWidth,
-                viewportHeight);
+            childBox.set_size(childWidth, viewportHeight);
             child.allocate(childBox);
         }
     }
@@ -327,6 +366,10 @@ export class LyricsIndicator {
         });
         this._labelViewport.add_child(this._label);
         this._labelViewport.add_child(this._panelPanLabel);
+        this._panelFadeEffect = new PanelEdgeFade();
+        this._labelViewport.add_effect(this._panelFadeEffect);
+        this._panelPanLabel.connect('notify::translation-x', () =>
+            this._updatePanelFade());
         this._labelViewport.connect('notify::allocation', () => {
             const width = Math.round(this._labelViewport.width);
             if (width === this._panelViewportWidth)
@@ -615,6 +658,10 @@ export class LyricsIndicator {
             this._panelPanTimeline, normalizedTimeline);
         this._panelPanTimeline = normalizedTimeline;
         this._panelPanTimelineAnchorUs = GLib.get_monotonic_time();
+        this._label.clutter_text.set_ellipsize(
+            canScroll && normalizedTimeline && this._animationsEnabled()
+                ? Pango.EllipsizeMode.NONE
+                : Pango.EllipsizeMode.END);
         if (!this._label ||
             (this._label.text === text &&
                 this._panelPanScrollable === canScroll &&
@@ -630,6 +677,7 @@ export class LyricsIndicator {
         this._label.remove_all_transitions();
         this._label.text = text;
         this._panelPanLabel.text = text;
+        this._updatePanelFade();
         if (!this._label.mapped || !this._animationsEnabled()) {
             this._label.opacity = 255;
             return;
@@ -1100,7 +1148,27 @@ export class LyricsIndicator {
 
     _schedulePanelPan() {
         this._cancelPanelPan();
+        this._label.clutter_text.set_ellipsize(
+            this._panelPanScrollable && this._panelPanTimeline &&
+                this._animationsEnabled()
+                ? Pango.EllipsizeMode.NONE
+                : Pango.EllipsizeMode.END);
+        this._updatePanelFade();
         this._queuePanelPan();
+    }
+
+    _updatePanelFade() {
+        const width = this._labelViewport.width;
+        const [, textWidth] = this._panelPanLabel.get_preferred_width(-1);
+        const active = this._panelPanScrollable && this._panelPanTimeline &&
+            this._animationsEnabled() && width > 0 && textWidth > width + 1;
+        this._panelFadeEffect.enabled = Boolean(active);
+        if (active) {
+            this._panelFadeEffect.setEdges(width,
+                this._panelPanLabel.visible
+                    ? this._panelPanLabel.translation_x : 0,
+                textWidth);
+        }
     }
 
     _queuePanelPan() {
@@ -1126,12 +1194,13 @@ export class LyricsIndicator {
             this._panelPanLabel.get_preferred_width(-1);
         const viewportWidth = this._labelViewport.width;
         const overflow = Math.ceil(naturalWidth - viewportWidth);
-        if (!(viewportWidth > 0) || overflow <= 1)
+        if (!(viewportWidth > 0) || overflow <= 0)
             return;
 
         const panState = panelPanState(
             this._panelPanTimeline, this._panelPanPositionAt(),
-            overflow + PANEL_PAN_END_PADDING);
+            overflow <= PANEL_PAN_END_PADDING
+                ? overflow : overflow + PANEL_PAN_END_PADDING);
         if (!panState)
             return;
 
@@ -1152,6 +1221,7 @@ export class LyricsIndicator {
         this._panelPanLabel.translation_x = panState.initialX;
         this._panelPanLabel.show();
         this._label.hide();
+        this._updatePanelFade();
         this._panelPanTargetX = panState.targetX;
         const shouldAnimate = this._panelPlaying && panState.shouldAnimate;
         if (shouldAnimate) {
@@ -1202,7 +1272,7 @@ export class LyricsIndicator {
         this._panelPanLabel.remove_transition('translation-x');
         this._panelPanLabel.translation_x = currentX;
         this._panelPanPaused =
-            currentX > this._panelPanTargetX + 0.5;
+            currentX > this._panelPanTargetX;
     }
 
     _resumePanelPan() {
@@ -1216,14 +1286,15 @@ export class LyricsIndicator {
         }
         const [, naturalWidth] =
             this._panelPanLabel.get_preferred_width(-1);
+        const overflow = Math.ceil(naturalWidth - this._labelViewport.width);
         // Catch the timeline where it will be when the transition finishes,
         // rather than chasing a position already in the past.
         const panState = panelPanState(
             this._panelPanTimeline,
             this._panelPanPositionAt(GLib.get_monotonic_time() +
                 PANEL_PAN_CATCH_UP_MS * 1000),
-            Math.ceil(naturalWidth - this._labelViewport.width) +
-                PANEL_PAN_END_PADDING);
+            overflow <= PANEL_PAN_END_PADDING
+                ? overflow : overflow + PANEL_PAN_END_PADDING);
         if (!panState)
             return;
         this._panelPanLabel.ease({
@@ -1458,6 +1529,7 @@ export class LyricsIndicator {
         this._label = null;
         this._panelPanLabel = null;
         this._panelLabelLayout = null;
+        this._panelFadeEffect = null;
         this._labelViewport = null;
         this._panelPanTimeline = null;
         this._titleLabel = null;
