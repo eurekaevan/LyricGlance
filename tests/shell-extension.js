@@ -263,6 +263,28 @@ export async function run() {
         positionMs,
         playbackRate,
     });
+    view.setVisible(false);
+    view.setText(panningText, {
+        scrollable: true,
+        timeline: panelTimeline(8000),
+        contentKey: 'hidden-before-song',
+    });
+    view.setProgress(0, 220_000_000, {playing: true, immediate: true});
+    view.setVisible(true);
+    await Scripting.sleep(850);
+    assert(view._panelPanLabel.visible &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'lyrics received while hidden must begin panning when the panel maps');
+    view._panelPanLabel.set_style('font-size: 1px;');
+    await Scripting.sleep(200);
+    assert(!view._panelPanLabel.visible && view._label.visible &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'a font change that removes overflow must cancel the stale pan');
+    view._panelPanLabel.set_style(null);
+    await Scripting.sleep(200);
+    assert(view._panelPanLabel.visible &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'a font change that restores overflow must restart the pan');
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
@@ -320,6 +342,14 @@ export async function run() {
     assert(Math.abs(view._panelPanLabel.translation_x - expectedCatchUpX) < 8 &&
         view._panelPanLabel.get_transition('translation-x'),
     'catch-up should reconnect to the moving timeline and continue linearly');
+    const beforeResyncX = view._panelPanLabel.translation_x;
+    view.setText(panningText, {
+        scrollable: true,
+        timeline: panelTimeline(5000, view._panelPanPositionAt()),
+    });
+    assert(view._panelPanLabel.visible && !view._label.visible &&
+        Math.abs(view._panelPanLabel.translation_x - beforeResyncX) < 0.5,
+    'resynchronizing the same line must keep the currently visible text and offset');
     settings.set_int('max-panel-width', 150);
     await Scripting.sleep(300);
     assert(view._panelPanLabel.visible &&
@@ -348,9 +378,65 @@ export async function run() {
         assert(view._panelPanLabel.visible &&
             view._panelPanLabel.get_transition('translation-x'),
         'external panel constraints should reallocate and restart an active pan');
+        const actualWidth = view._labelViewport.width;
+        const actualOverflow = Math.ceil(
+            view._panelPanLabel.get_preferred_width(-1)[1] - actualWidth);
+        assert(view._panelPanTargetX === -(actualOverflow + 8),
+            'external compression must set the endpoint from allocated text width');
+        print(`externalPanelWidth=setting:${settings.get_int('max-panel-width')},` +
+            `box:${view._panelBox.width},text:${actualWidth},target:${view._panelPanTargetX}`);
+        if (index === 0) {
+            settings.set_int('max-panel-width', 640);
+            await Scripting.sleep(150);
+            assert(view._labelViewport.width === actualWidth &&
+                view._panelPanLabel.visible &&
+                view._panelPanLabel.get_transition('translation-x'),
+            'changing a width preference without changing the constrained allocation must resume panning');
+            settings.set_int('max-panel-width', 500);
+            await Scripting.sleep(150);
+            view.setShowIcon(view._showIcon);
+            await Scripting.sleep(150);
+            assert(view._labelViewport.width === actualWidth &&
+                view._panelPanLabel.visible &&
+                view._panelPanLabel.get_transition('translation-x'),
+            'reapplying the icon preference must not stop a constrained pan');
+        }
     }
     assert(Math.max(...panViewportWidths) - Math.min(...panViewportWidths) > 100,
         'the allocation regression should exercise substantial viewport changes');
+    panConstraint.width = 750;
+    view.setText(panningText, {scrollable: true,
+        timeline: panelTimeline(8000, 8000), contentKey: 'compressed-ending'});
+    await Scripting.sleep(200);
+    const [compressedTextX] = view._panelPanLabel.get_transformed_position();
+    const [compressedViewportX] = view._labelViewport.get_transformed_position();
+    assert(Math.abs(compressedTextX + view._panelPanLabel.width -
+        compressedViewportX - view._labelViewport.width + 8) <= 1.5,
+    'the final glyph must reach the actual viewport ending under external compression');
+    view.setProgress(0, 8000000, {playing: false});
+    panConstraint.width = 200;
+    view.setText('A lyric that fits before compression', {scrollable: true,
+        timeline: panelTimeline(8000, 8000), contentKey: 'compression-fit-boundary'});
+    await Scripting.sleep(150);
+    const fitNaturalWidth = view._panelPanLabel.get_preferred_width(-1)[1];
+    assert(fitNaturalWidth < view._labelViewport.width &&
+        !view._panelPanLabel.visible && !view._panelFadeEffect.enabled,
+    'a lyric that fits its allocated viewport must remain static');
+    panConstraint.width = 750;
+    await Scripting.sleep(150);
+    print(`compressedFit=natural:${fitNaturalWidth},` +
+        `viewport:${view._labelViewport.width},offset:${view._panelPanLabel.translation_x}`);
+    assert(fitNaturalWidth > view._labelViewport.width &&
+        view._panelPanLabel.visible &&
+        Math.abs(fitNaturalWidth + view._panelPanLabel.translation_x -
+            view._labelViewport.width + 8) <= 1.5,
+    'external compression must reveal the ending even when the lyric originally fitted');
+    panConstraint.width = 200;
+    await Scripting.sleep(150);
+    assert(!view._panelPanLabel.visible && view._label.visible &&
+        view._panelWordTimeoutId === 0 && !view._panelFadeEffect.enabled,
+    'releasing external space must restore a static fitting lyric and clear scrolling state');
+    view.setProgress(0, 8000000, {playing: true});
     panConstraint.destroy();
     settings.set_string('panel-position', 'center');
     await Scripting.sleep(150);
@@ -440,6 +526,145 @@ export async function run() {
         Math.abs(view._panelPanLabel.translation_x - expectedSeekX) <= 1.5,
     'a paused seek should immediately anchor the panel pan to lyric time');
 
+    view.setProgress(0, 5000000, {playing: true});
+    for (const duration of [120, 240, 500, 1000]) {
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(duration), contentKey: `ending-frame-${duration}`});
+        await new Promise((resolve, reject) => {
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
+                try {
+                    assert(view._panelPanLabel.visible &&
+                        view._panelPanLabel.width + view._panelPanLabel.translation_x <=
+                            view._labelViewport.width,
+                    'a fast line must expose its ending before the next-line callback cancels it');
+                    view.setText('Next lyric line');
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+        });
+    }
+    view.setProgress(0, 5000000, {playing: false});
+
+    // Opening the popup must release an accidental hover freeze on its button.
+    const popupWasOpen = indicator.menu.isOpen;
+    view._panelHovered = true;
+    view.setText(panningText, {scrollable: true,
+        timeline: panelTimeline(5000), contentKey: 'popup-hover'});
+    view.setProgress(0, 5000000, {playing: true});
+    indicator.menu.open();
+    await Scripting.sleep(850);
+    assert(view._panelPanLabel.translation_x < 0 && !view._panelPanPaused,
+        'panel lyrics should keep moving with the popup open even if its button remains hovered');
+    view._panelHovered = false;
+    view.setProgress(0, 5000000, {playing: false});
+    if (!popupWasOpen)
+        indicator.menu.close();
+
+    const panelWords = [
+        {text: '你好 é 😀 ', startMs: 0, endMs: 1000},
+        {text: 'This deliberately wide singing word ', startMs: 1500, endMs: 2500},
+        {text: '停顿之后 continuing the melody ', startMs: 2500, endMs: 4000},
+        {text: 'the final words of this synchronized line', startMs: 4000, endMs: 6000},
+    ];
+    const panelWordText = panelWords.map(word => word.text).join('');
+    view.setText(panelWordText, {scrollable: true, words: panelWords,
+        timeline: panelTimeline(6000, 1200), contentKey: 'panel-word-gap'});
+    view.setProgress(0, 6000000, {playing: true});
+    await Scripting.sleep(100);
+    const gapWordX = view._panelPanLabel.translation_x;
+    assert(view._panelWordTimeoutId !== 0 &&
+        view._panelPanState(view._panelPanPositionAt()).nextMs === 1500 &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'playback during a word gap should hold its position until the next word starts');
+    await Scripting.sleep(450);
+    assert(view._panelWordTimeoutId !== 0 &&
+        view._panelPanState(view._panelPanPositionAt()).nextMs === 2500 &&
+        view._panelPanLabel.translation_x <= gapWordX,
+    'the gap callback should advance to the next word without restarting the line');
+    view.setProgress(0, 6000000, {playing: false});
+    view.setText(panelWordText, {scrollable: true, words: panelWords,
+        timeline: panelTimeline(6000, 2000), contentKey: 'panel-words'});
+    await Scripting.sleep(100);
+    const geometry = view._panelWordGeometry?.words;
+    assert(geometry?.length === panelWords.length,
+        'Chinese, Latin, combining characters and emoji should use measured UTF-8 word boundaries');
+    const focusX = (geometry[1].startX + geometry[1].endX) / 2;
+    const wordDistance = Math.ceil(view._panelPanLabel.width - view._labelViewport.width) + 8;
+    const expectedWordX = -Math.min(wordDistance,
+        Math.max(0, focusX - view._labelViewport.width * 0.6));
+    assert(Math.abs(view._panelPanLabel.translation_x - expectedWordX) < 1 &&
+        view._panelWordTimeoutId === 0,
+    'a paused seek should immediately place the current word at the viewport focus');
+    view.setProgress(0, 6000000, {playing: true});
+    await Scripting.sleep(120);
+    assert(view._panelWordTimeoutId !== 0,
+        'word follow should schedule a one-shot word boundary while playing');
+    view._pausePanelPan();
+    const hoveredWordX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(220);
+    assert(view._panelWordTimeoutId === 0 &&
+        Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
+    'hover should stop both word motion and its boundary callback');
+    view._resumePanelPan();
+    assert(Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
+        'word follow should catch up from the held position without an immediate jump');
+    await Scripting.sleep(280);
+    assert(view._panelWordTimeoutId !== 0 && view._panelPanLabel.translation_x < hoveredWordX,
+        'word catch-up should reconnect across the next word boundary');
+    settings.set_int('max-panel-width', 200);
+    await Scripting.sleep(100);
+    assert(view._panelWordTimeoutId !== 0 &&
+        Math.abs(view._panelPanLabel.translation_x -
+            view._panelPanState(view._panelPanPositionAt()).initialX) < 8,
+        'a panel resize should reconnect word focus using the new viewport width');
+    settings.set_int('max-panel-width', 500);
+    await Scripting.sleep(100);
+    view.setProgress(0, 6000000, {playing: false});
+    await Scripting.sleep(80);
+    const pausedWordX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(120);
+    assert(view._panelWordTimeoutId === 0 &&
+        Math.abs(view._panelPanLabel.translation_x - pausedWordX) < 0.5,
+        'playback pause should freeze word follow and cancel its boundary timer');
+    view.setProgress(0, 6000000, {playing: true});
+    view.setWordSyncEnabled(false);
+    await Scripting.sleep(100);
+    assert(view._panelWordTimeoutId === 0,
+        'disabling word sync should cancel panel word callbacks and use line motion');
+    view.setWordSyncEnabled(true);
+    view.setText(panelWordText, {scrollable: true,
+        timeline: panelTimeline(6000, 3000), contentKey: 'panel-translation'});
+    await Scripting.sleep(100);
+    assert(view._panelWords === null && view._panelWordTimeoutId === 0,
+        'translated or line-only text should retain line motion without word callbacks');
+    view.setText('مرحبا بالعالم '.repeat(8), {scrollable: true,
+        words: [{text: 'مرحبا بالعالم '.repeat(8), startMs: 0, endMs: 6000}],
+        timeline: panelTimeline(6000, 3000), contentKey: 'panel-rtl'});
+    await Scripting.sleep(100);
+    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+        'bidirectional geometry should fall back to line motion');
+    const overlappingWords = panelWords.map((word, index) =>
+        ({...word, startMs: index === 1 ? 500 : word.startMs}));
+    view.setText(panelWordText, {scrollable: true, words: overlappingWords,
+        timeline: panelTimeline(6000, 3000), contentKey: 'panel-overlap'});
+    await Scripting.sleep(100);
+    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+        'overlapping word times should fall back to line motion');
+    const splitGrapheme = [
+        {text: 'e', startMs: 0, endMs: 1000},
+        {text: '́ long lyric text '.repeat(12), startMs: 1000, endMs: 6000},
+    ];
+    view.setText(splitGrapheme.map(word => word.text).join(''), {
+        scrollable: true, words: splitGrapheme,
+        timeline: panelTimeline(6000, 3000), contentKey: 'panel-split-grapheme'});
+    await Scripting.sleep(100);
+    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+        'word boundaries inside a combining grapheme should fall back to line motion');
+    view.setProgress(0, 6000000, {playing: false});
+
     view.setProgress(119_000_000, 220_000_000, {playing: false});
     view.setText('Synchronized lyric line 21 with wrapping text');
 
@@ -449,6 +674,56 @@ export async function run() {
         'the popup should show the artist');
     assert(view._albumLabel.text === 'Test Album' && view._albumLabel.visible,
         'the popup should show a present album');
+    const titleMetadata = {title: view._titleLabel.text,
+        artist: view._artistLabel.text, album: view._albumLabel.text};
+    const titlePopupWasOpen = indicator.menu.isOpen;
+    indicator.menu.open();
+    await Scripting.sleep(300);
+    let loopTitle = 'Loop title ';
+    view._cancelTitlePan();
+    const titleMeasure = view._titleLabel.clutter_text.get_layout().copy();
+    titleMeasure.set_ellipsize(Pango.EllipsizeMode.NONE);
+    titleMeasure.set_width(-1);
+    do {
+        loopTitle += 'i';
+        titleMeasure.set_text(loopTitle, -1);
+    } while (titleMeasure.get_pixel_size()[0] <=
+        view._titleViewport.width + 4 && loopTitle.length < 300);
+    assert(titleMeasure.get_pixel_size()[0] > view._titleViewport.width &&
+        titleMeasure.get_pixel_size()[0] < view._titleViewport.width + 30,
+        'the title loop regression should use a short overflow with a bounded cycle');
+    view.updateMetadataDisplay({...titleMetadata, title: loopTitle + 'i'});
+    await Scripting.sleep(2300);
+    const titleDistance = Math.ceil(view._titleLabel.get_preferred_width(-1)[1] -
+        view._titleViewport.width) + 8;
+    print(`titlePan=viewport:${view._titleViewport.width},` +
+        `natural:${view._titleLabel.get_preferred_width(-1)[1]},` +
+        `actor:${view._titleLabel.width},offset:${view._titleLabel.translation_x},` +
+        `mapped:${view._titleViewport.mapped},open:${indicator.menu.isOpen}`);
+    assert(view._titleLabel.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
+        Math.abs(view._titleLabel.translation_x + titleDistance) < 1,
+    'an overflowing title should expose its complete ending without an ellipsis');
+    await Scripting.sleep(1800);
+    assert(Math.abs(view._titleLabel.translation_x) < 0.5,
+        'the title loop should return to its beginning and hold there');
+    await Scripting.sleep(1000);
+    assert(view._titleLabel.translation_x < 0,
+        'a long title should begin scrolling again on its next loop');
+    indicator.menu.close();
+    assert(view._titleLabel.translation_x === 0 && view._titlePanLaterId === 0 &&
+        !view._titleLabel.get_transition('translation-x'),
+    'closing the popup should cancel the title loop and pending allocation callback');
+    indicator.menu.open();
+    await Scripting.sleep(1400);
+    assert(view._titleLabel.get_transition('translation-x') &&
+        view._titleLabel.translation_x < 0,
+        'reopening the popup should restart a mapped title loop');
+    view.updateMetadataDisplay(titleMetadata);
+    if (!titlePopupWasOpen)
+        indicator.menu.close();
+    // The longer animation checks exceed PerfHelper's 30-second idle window.
+    // A normal helper request renews it so the harness can cleanly exit later.
+    await Scripting.waitTestWindows();
     assert(view._artworkView._displayedTrackKey === 'shell-track-a' &&
         view._artworkView.actor.width === 80 &&
         view._artworkView.actor.height === 80 &&
@@ -1096,8 +1371,21 @@ export async function run() {
         view._panelPanTimeline?.startMs === 0 &&
         view._panelPanTimeline?.endMs === 3000 &&
         view._panelPanTimeline?.positionMs === 1750 &&
-        view._panelPanTimeline?.playbackRate === 1,
+        view._panelPanTimeline?.playbackRate === 1 &&
+        view._panelWords === wordDocument.lines[0].words,
         'a synchronized line should arm its word timer and panel timeline');
+    const originalPanelLanguage = instance._panelLyricsLanguage;
+    const originalPanelTranslation = instance._translationDocument;
+    instance._panelLyricsLanguage = 'translated';
+    instance._translationDocument = {lines: [{lineId: wordDocument.lines[0].lineId,
+        text: 'Translated word-synchronized lyric'}]};
+    instance._updateIndicatorAndSchedule(true);
+    assert(view._label.text === 'Translated word-synchronized lyric' &&
+        view._panelWords === null,
+        'the extension must not attach original word timing to translated panel text');
+    instance._panelLyricsLanguage = originalPanelLanguage;
+    instance._translationDocument = originalPanelTranslation;
+    instance._updateIndicatorAndSchedule(true);
     fakePositionUs = 2_250_000;
     instance._updateWordAndSchedule();
     assert(view._label.text === markupText,
@@ -1123,6 +1411,31 @@ export async function run() {
         view._panelPanTimeline?.endMs === 2000 &&
         view._panelPanTimeline?.positionMs === 1750,
         'pause should cancel the word timer and preserve the lyric-time anchor');
+    for (const [endMs, words, nextStartMs, expectedEndMs] of [
+        [4000, [], 25000, 4000],
+        [30000, [], 25000, 25000],
+        [null, [{text: 'First', startMs: 1000, endMs: 4000}], 25000, 4000],
+        [null, [{text: 'Fir', startMs: 1000, endMs: 4000},
+            {text: 'st', startMs: 2000, endMs: null}], 25000, 25000],
+        [null, [{text: 'Fir', startMs: 1000, endMs: 5000},
+            {text: 'st', startMs: 2000, endMs: 4000}], 25000, 5000],
+        [4000, [], null, 4000],
+        [null, [], 25000, 25000],
+        [null, [], null, 180000],
+    ]) {
+        const lines = [{...offsetLines[0], endMs, words}];
+        if (nextStartMs !== null)
+            lines.push({...offsetLines[1], startMs: nextStartMs});
+        const timingDocument = {...offsetDocument, lines};
+        instance._lyricsDocument = timingDocument;
+        view.setLyrics(timingDocument);
+        instance._updateIndicatorAndSchedule(true);
+        assert(view._panelPanTimeline?.endMs === expectedEndMs,
+            'panel timing must honor explicit ends, cap overlaps, and retain untimed fallbacks');
+    }
+    instance._lyricsDocument = offsetDocument;
+    view.setLyrics(offsetDocument);
+    instance._updateIndicatorAndSchedule(true);
     const offsetRows = [...view._lyricRows];
     instance._updateIndicatorAndSchedule(true);
     assert(instance._currentLyricIndex === 0,
@@ -1223,8 +1536,17 @@ export async function run() {
         'a configured maximum below the preferred width should cap both widths');
     settings.set_int('max-panel-width', 500);
 
-    const viewAnimationPreference = view._animationsEnabled;
-    view._animationsEnabled = () => false;
+    const reducedMotionSettings = St.Settings.get();
+    const reducedMotionTitle = view._titleLabel.text;
+    // This view-only playback test must not be overwritten by the paused
+    // player's independent popup progress updates.
+    const reducedMotionProgressWasRunning = Boolean(instance._progressTimerId);
+    instance._stopProgressTimer();
+    reducedMotionSettings.inhibit_animations();
+    assert(!view._animationsEnabled(),
+        'native Shell animation inhibition must reach the view');
+    view.updateMetadataDisplay({title: 'Reduced motion title '.repeat(8),
+        artist: view._artistLabel.text, album: view._albumLabel.text});
     view.setText('Reduced motion');
     view.setProgress(10_000_000, 220_000_000, {playing: true});
     view.setProgress(10_010_000, 220_000_000, {playing: true});
@@ -1234,13 +1556,57 @@ export async function run() {
     });
     await Scripting.sleep(80);
     assert(view._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
-        view._label.visible && !view._panelPanLabel.visible &&
+        !view._label.visible && view._panelPanLabel.visible &&
         !view._panelPanLabel.get_transition('translation-x') &&
-        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
-        !view._panelFadeEffect.enabled,
-    'disabled Shell animations should keep text, panel pan, and progress direct');
-    view._animationsEnabled = viewAnimationPreference;
+        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
+        view._panelWordTimeoutId !== 0 &&
+        !view._panelFadeEffect.enabled &&
+        !view._titleLabel.get_transition('translation-x'),
+    'disabled Shell animations should use timed pages without animated movement');
+    const firstPageX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(1700);
+    assert(view._panelPanLabel.translation_x < firstPageX &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'reduced-motion lyrics must advance to a later page using the playback clock');
+    view._panelHovered = true;
+    view._pausePanelPan();
+    const hoveredPageX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(80);
+    assert(view._panelWordTimeoutId === 0 &&
+        view._panelPanLabel.translation_x === hoveredPageX,
+    'hovering must freeze the reduced-motion page and cancel its boundary timer');
+    view._panelHovered = false;
+    view._resumePanelPan();
+    await Scripting.sleep(80);
+    assert(view._panelWordTimeoutId !== 0,
+        'leaving hover must resume page scheduling from the playback clock');
+    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
+    await Scripting.sleep(80);
+    const finalPageX = view._panelPanLabel.translation_x;
+    assert(finalPageX < hoveredPageX && view._panelWordTimeoutId === 0,
+        'seeking to the line ending must show its last page without a pending timer');
+    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 1000)});
+    await Scripting.sleep(80);
+    assert(view._panelPanLabel.translation_x > finalPageX &&
+        view._panelWordTimeoutId !== 0,
+    'seeking backward must restore the earlier page and its next boundary');
+    view.setProgress(10_010_000, 220_000_000, {playing: false});
+    const pausedPageX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(80);
+    assert(view._panelWordTimeoutId === 0 &&
+        view._panelPanLabel.translation_x === pausedPageX,
+    'pausing must cancel the page boundary timer and keep the page still');
+    view.setProgress(10_010_000, 220_000_000, {playing: true});
+    reducedMotionSettings.uninhibit_animations();
+    await Scripting.sleep(80);
+    assert(view._animationsEnabled() && view._panelWordTimeoutId === 0 &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'restoring native animations must replace the page timer with continuous movement');
+    view.updateMetadataDisplay({title: reducedMotionTitle,
+        artist: view._artistLabel.text, album: view._albumLabel.text});
     view.setText('First');
+    if (reducedMotionProgressWasRunning)
+        instance._startProgressTimer();
 
     settings.set_boolean('hide-when-paused', true);
     assert(!indicator.visible,

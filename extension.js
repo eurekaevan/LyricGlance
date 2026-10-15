@@ -45,12 +45,14 @@ function explicitLineEndMs(line) {
     if (Number.isFinite(line?.endMs) && line.endMs > line.startMs)
         return line.endMs;
 
-    for (let index = (line?.words?.length ?? 0) - 1; index >= 0; index--) {
-        const endMs = line.words[index].endMs;
-        if (Number.isFinite(endMs) && endMs > line.startMs)
-            return endMs;
-    }
-    return null;
+    const lastEndMs = line?.words?.at(-1)?.endMs;
+    if (!Number.isFinite(lastEndMs) || lastEndMs <= line.startMs)
+        return null;
+    // Earlier overlapping words can finish after the final word. An unknown
+    // final end must never be replaced by a preceding word's end.
+    return line.words.reduce((endMs, word) =>
+        Number.isFinite(word.endMs) ? Math.max(endMs, word.endMs) : endMs,
+    lastEndMs);
 }
 
 function playbackTrackIdentity(state) {
@@ -628,6 +630,7 @@ export default class LyricGlanceExtension extends Extension {
             : null;
         let panelContentIsLyric = false;
         let panelContentKey = null;
+        let panelWords = null;
         let currentLine = null;
         let nextLineStartMs = null;
         let lineEndMs = null;
@@ -652,6 +655,8 @@ export default class LyricGlanceExtension extends Extension {
                 panelContent = line;
                 panelContentIsLyric = true;
                 panelContentKey = currentLine.lineId;
+                if (!translated && document.syncLevel === SyncLevel.WORD)
+                    panelWords = currentLine.words;
             }
 
             if (forceText || index !== this._currentLyricIndex) {
@@ -662,7 +667,10 @@ export default class LyricGlanceExtension extends Extension {
             }
             nextLineStartMs = LyricsSynchronizer.nextLineStartMs(
                 document, index);
-            lineEndMs = nextLineStartMs ?? explicitLineEndMs(currentLine);
+            const explicitEndMs = explicitLineEndMs(currentLine);
+            lineEndMs = explicitEndMs === null ? nextLineStartMs
+                : nextLineStartMs === null ? explicitEndMs
+                    : Math.min(explicitEndMs, nextLineStartMs);
             if (lineEndMs === null && currentLine) {
                 const durationMs = Number(
                     this._state.metadata.durationUs) / 1000;
@@ -715,6 +723,7 @@ export default class LyricGlanceExtension extends Extension {
                 scrollable: panelContentIsLyric,
                 timeline: panelTimeline,
                 contentKey: panelContentKey,
+                words: panelWords,
             });
         }
 

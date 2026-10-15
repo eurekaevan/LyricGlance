@@ -2,9 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+- MPRIS playback, pause, previous/next and seek controls in the popup, with capability checks and cancellation when the active track or player changes.
+- Optional LrcAPI fallback with synchronized-over-plain lyric selection, provider-isolated caching and a compact source label.
+- Playback-timed panel lyric scrolling, word focus following, edge fading, hover catch-up and looping popup titles.
+- Overlapping timed lyric pages when Shell animations are disabled, including pause, seek and hover handling.
+
 ### Changed
 
 - Renamed the project and GNOME extension identity to LyricGlance (`lyric-glance@eureka`), including its settings schema, credential namespace, gettext domain, cache/config paths, package, and release artifacts. No migration from the previous identity is provided.
+- Release automation uses date tags (`YYYY-MM-DD`) and uploads the tested ZIP and SHA-256 checksum to GitHub Releases.
+- Line scrolling targets a four-second movement window when the text length permits, with reading time reserved at the ending rather than spreading movement across a long interlude.
+
+### Fixed
+
+- Explicit lyric and final-word endings are no longer overridden by a later next-line timestamp. Unknown final-word ends fall back to line timing, and known overlapping endings are retained.
+- Resynchronizing the same line preserves its visible text and offset until the updated scroll plan starts.
+- Lyrics received while hidden start scrolling when shown; font and viewport changes invalidate stale scroll geometry.
+- Width and icon preference changes restart scrolling even when external panel constraints keep the allocated width unchanged.
+- Scroll geometry uses widths recorded from actual allocations, avoiding transient preferred-width readings during layout invalidation that could leave newly clipped lyrics static.
+- Word-follow coordinates account for the text resource scale on high-resolution displays. Allocation-sensitive scroll changes wait for layout before starting transitions.
+
+Packaged Shell regressions cover these scrolling changes; fresh-session desktop and soak validation for the latest changes remains a separate gate in `docs/EGO-CHECKLIST.md`.
 
 ## [0.9.0] - 2026-08-23
 

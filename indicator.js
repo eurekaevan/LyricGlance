@@ -21,6 +21,7 @@ import {
     normalizePanelTimeline,
     panelPanState,
     panelTimelinesEqual,
+    wordPanState,
 } from './ui-utils.js';
 
 const OFFSET_STEP_MS = 500;
@@ -309,6 +310,12 @@ export class LyricsIndicator {
         this._layoutAnchorSignalId = 0;
         this._layoutAnchorAdjustment = null;
         this._panelPanLaterId = 0;
+        this._panelGeometryLaterId = 0;
+        this._panelNaturalWidth = 0;
+        this._panelFontKey = '';
+        this._panelWordTimeoutId = 0;
+        this._panelWords = null;
+        this._panelWordGeometry = null;
         this._panelPanScrollable = false;
         this._panelPanTimeline = null;
         this._panelPanTimelineAnchorUs = 0;
@@ -317,6 +324,8 @@ export class LyricsIndicator {
         this._panelPanPaused = false;
         this._panelPlaying = false;
         this._panelHovered = false;
+        this._titlePanLaterId = 0;
+        this._titleViewportWidth = 0;
         this._panelViewportWidth = 0;
         this._maxPanelWidth = 500;
         this._showIcon = true;
@@ -371,25 +380,30 @@ export class LyricsIndicator {
         this._panelPanLabel.connect('notify::translation-x', () =>
             this._updatePanelFade());
         this._labelViewport.connect('notify::allocation', () => {
-            const width = Math.round(this._labelViewport.width);
+            const width = this._labelViewport.get_allocation_box().get_width();
             if (width === this._panelViewportWidth)
                 return;
             this._panelViewportWidth = width;
-            // Visibility changes invalidate the hierarchy being allocated.
-            // Defer the entire restart, including cancellation, until idle.
-            if (this._panelPanLaterId)
-                this._laters.remove(this._panelPanLaterId);
-            this._panelPanLaterId = this._laters.add(
-                Meta.LaterType.IDLE,
-                () => {
-                    this._panelPanLaterId = 0;
-                    this._schedulePanelPan();
-                    return GLib.SOURCE_REMOVE;
-                });
+            this._queuePanelPanRestart();
+        });
+        this._panelPanLabel.connect('style-changed', () =>
+            this._queuePanelGeometryCheck());
+        this._panelPanLabel.connect('notify::style', () =>
+            this._queuePanelGeometryCheck());
+        this._label.connect('style-changed', () =>
+            this._queuePanelGeometryCheck());
+        this._panelPanLabel.connect('notify::allocation', () =>
+            this._queuePanelGeometryCheck());
+        this._labelViewport.connect('notify::mapped', () => {
+            if (this._labelViewport.mapped)
+                this._schedulePanelPan();
+            else
+                this._cancelPanelPan();
         });
         this.actor.connect('enter-event', () => {
             this._panelHovered = true;
-            this._pausePanelPan();
+            if (!this.actor.menu.isOpen)
+                this._pausePanelPan();
             return Clutter.EVENT_PROPAGATE;
         });
         this.actor.connect('leave-event', () => {
@@ -432,12 +446,44 @@ export class LyricsIndicator {
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._titleLabel = createMetadataLabel('lyric-glance-title', {
-            multiline: true,
+        this._titleLabel = createMetadataLabel('lyric-glance-title');
+        this._titleViewport = new St.Widget({
+            x_expand: true, clip_to_allocation: true,
+            layout_manager: new PanelLabelLayout(),
+        });
+        this._titleViewport.add_child(this._titleLabel);
+        this._titleLabel.connect('style-changed', () => this._queueTitlePan());
+        let titleAllocatedWidth = 0;
+        this._titleLabel.connect('notify::allocation', () => {
+            const width = Math.round(this._titleLabel.width);
+            if (width === titleAllocatedWidth)
+                return;
+            titleAllocatedWidth = width;
+            this._queueTitlePan();
+        });
+        this._titleViewport.connect('notify::mapped', () => {
+            if (this._titleViewport.mapped)
+                this._queueTitlePan();
+            else
+                this._cancelTitlePan();
+        });
+        this._titleAnimationSettings = St.Settings.get();
+        this._titleAnimationSignalId = this._titleAnimationSettings.connect(
+            'notify::enable-animations', () => {
+                this._cancelTitlePan();
+                this._queueTitlePan();
+                this._schedulePanelPan();
+            });
+        this._titleViewport.connect('notify::allocation', () => {
+            const width = this._titleViewport.get_allocation_box().get_width();
+            if (width === this._titleViewportWidth)
+                return;
+            this._titleViewportWidth = width;
+            this._queueTitlePan();
         });
         this._artistLabel = createMetadataLabel('lyric-glance-artist');
         this._albumLabel = createMetadataLabel('lyric-glance-album');
-        metadataBox.add_child(this._titleLabel);
+        metadataBox.add_child(this._titleViewport);
         metadataBox.add_child(this._artistLabel);
         metadataBox.add_child(this._albumLabel);
         mediaHeader.add_child(metadataBox);
@@ -628,10 +674,16 @@ export class LyricsIndicator {
             });
         });
         this.actor.menu.connect('open-state-changed', (_menu, open) => {
-            if (open)
+            if (open) {
                 this._scheduleScrollToActive({force: true, immediate: true});
-            else
+                this._resumePanelPan();
+                this._queueTitlePan();
+            } else {
                 this._cancelScheduledScroll();
+                this._cancelTitlePan();
+                if (this._panelHovered)
+                    this._pausePanelPan();
+            }
             this._onPopupOpenChanged?.(open);
         });
 
@@ -645,6 +697,7 @@ export class LyricsIndicator {
         scrollable = false,
         timeline = null,
         contentKey = null,
+        words = null,
     } = {}) {
         this._icon.visible = this._showIcon || !text;
         const iconOnly = !text;
@@ -656,17 +709,21 @@ export class LyricsIndicator {
         const normalizedTimeline = normalizePanelTimeline(timeline);
         const timelineChanged = !panelTimelinesEqual(
             this._panelPanTimeline, normalizedTimeline);
+        const wordsChanged = this._panelWords !== words;
+        this._panelWords = words;
+        if (wordsChanged)
+            this._panelWordGeometry = null;
         this._panelPanTimeline = normalizedTimeline;
         this._panelPanTimelineAnchorUs = GLib.get_monotonic_time();
         this._label.clutter_text.set_ellipsize(
-            canScroll && normalizedTimeline && this._animationsEnabled()
+            canScroll && normalizedTimeline
                 ? Pango.EllipsizeMode.NONE
                 : Pango.EllipsizeMode.END);
         if (!this._label ||
             (this._label.text === text &&
                 this._panelPanScrollable === canScroll &&
                 this._panelTextKey === contentKey)) {
-            if (this._label && timelineChanged)
+            if (this._label && (timelineChanged || wordsChanged))
                 this._schedulePanelPan();
             return;
         }
@@ -680,6 +737,7 @@ export class LyricsIndicator {
         this._updatePanelFade();
         if (!this._label.mapped || !this._animationsEnabled()) {
             this._label.opacity = 255;
+            this._schedulePanelPan();
             return;
         }
 
@@ -707,7 +765,12 @@ export class LyricsIndicator {
     }
 
     updateMetadataDisplay(metadata) {
-        this._titleLabel.text = metadata.title ?? '';
+        const title = metadata.title ?? '';
+        if (title !== this._titleLabel.text) {
+            this._cancelTitlePan();
+            this._titleLabel.text = title;
+            this._queueTitlePan();
+        }
         this._artistLabel.text = metadata.artist ?? '';
         const album = metadata.album ?? '';
         this._albumLabel.text = album;
@@ -779,6 +842,9 @@ export class LyricsIndicator {
     }
 
     clearTrack() {
+        this._cancelTitlePan();
+        this._panelWords = null;
+        this._panelWordGeometry = null;
         this._panelPanScrollable = false;
         this._panelPanTimeline = null;
         this._panelPanTimelineAnchorUs = 0;
@@ -952,6 +1018,7 @@ export class LyricsIndicator {
         this._wordStateSignature = '';
         if (!this._wordSyncEnabled && this._activeLyricIndex >= 0)
             this._resetLineText(this._activeLyricIndex);
+        this._schedulePanelPan();
     }
 
     setCurrentWordStates(index, states) {
@@ -1127,8 +1194,10 @@ export class LyricsIndicator {
         this._panelBox.natural_width = preferredWidth;
         this._panelBox.set_style(`max-width: ${this._maxPanelWidth}px;`);
         this._labelViewport.set_style(`max-width: ${labelWidth}px;`);
-        // The viewport allocation signal will restart panning after Clutter
-        // has applied the new style width.
+        // A preference or icon change can leave the allocated width unchanged
+        // under external constraints. Restart after layout even when no width
+        // notification arrives, since the active pan was cancelled above.
+        this._queuePanelPanRestart();
     }
 
     _setPanelPlaying(playing) {
@@ -1147,10 +1216,11 @@ export class LyricsIndicator {
     }
 
     _schedulePanelPan() {
-        this._cancelPanelPan();
+        this._cancelPanelPan({preserveDisplay:
+            this._panelPanLabel.visible && this._panelPanScrollable &&
+            Boolean(this._panelPanTimeline)});
         this._label.clutter_text.set_ellipsize(
-            this._panelPanScrollable && this._panelPanTimeline &&
-                this._animationsEnabled()
+            this._panelPanScrollable && this._panelPanTimeline
                 ? Pango.EllipsizeMode.NONE
                 : Pango.EllipsizeMode.END);
         this._updatePanelFade();
@@ -1158,7 +1228,7 @@ export class LyricsIndicator {
     }
 
     _updatePanelFade() {
-        const width = this._labelViewport.width;
+        const width = this._panelViewportWidth;
         const [, textWidth] = this._panelPanLabel.get_preferred_width(-1);
         const active = this._panelPanScrollable && this._panelPanTimeline &&
             this._animationsEnabled() && width > 0 && textWidth > width + 1;
@@ -1173,7 +1243,7 @@ export class LyricsIndicator {
 
     _queuePanelPan() {
         if (!this._panelPanScrollable || !this._panelPanTimeline ||
-            !this._animationsEnabled() || !this._labelViewport?.mapped)
+            !this._labelViewport?.mapped)
             return;
 
         this._panelPanLaterId = this._laters.add(
@@ -1185,24 +1255,66 @@ export class LyricsIndicator {
             });
     }
 
-    _startPanelPan() {
+    _queuePanelPanRestart() {
         if (!this._panelPanScrollable || !this._panelPanTimeline ||
-            !this._animationsEnabled() || !this._labelViewport?.mapped)
+            !this._labelViewport?.mapped)
+            return;
+        // Style/font and allocation changes must restart outside allocation.
+        if (this._panelPanLaterId)
+            this._laters.remove(this._panelPanLaterId);
+        this._panelPanLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
+            this._panelPanLaterId = 0;
+            this._panelWordGeometry = null;
+            this._schedulePanelPan();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _queuePanelGeometryCheck() {
+        if (this._panelGeometryLaterId || !this._panelPanScrollable ||
+            !this._panelPanTimeline || !this._labelViewport?.mapped)
+            return;
+        this._panelGeometryLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
+            this._panelGeometryLaterId = 0;
+            if (!this._panelPanScrollable || !this._panelPanTimeline ||
+                !this._labelViewport?.mapped)
+                return GLib.SOURCE_REMOVE;
+            this._panelPanLabel.ensure_style();
+            const [, width] = this._panelPanLabel.get_preferred_width(-1);
+            const fontKey = this._panelPanLabel.get_theme_node().get_font().to_string() +
+                '/' + this._panelPanLabel.clutter_text.get_resource_scale();
+            if (Math.abs(width - this._panelNaturalWidth) > 0.5 ||
+                fontKey !== this._panelFontKey) {
+                this._panelWordGeometry = null;
+                this._schedulePanelPan();
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _startPanelPan() {
+        if (this._panelWordTimeoutId) {
+            GLib.source_remove(this._panelWordTimeoutId);
+            this._panelWordTimeoutId = 0;
+        }
+        if (!this._panelPanScrollable || !this._panelPanTimeline ||
+            !this._labelViewport?.mapped)
             return;
 
         const [, naturalWidth] =
             this._panelPanLabel.get_preferred_width(-1);
-        const viewportWidth = this._labelViewport.width;
+        this._panelNaturalWidth = naturalWidth;
+        this._panelFontKey = this._panelPanLabel.get_theme_node().get_font().to_string() +
+            '/' + this._panelPanLabel.clutter_text.get_resource_scale();
+        // Actor.width may report a preferred width while layout is invalid.
+        // Only allocation notifications provide the actual text viewport.
+        const viewportWidth = this._panelViewportWidth;
         const overflow = Math.ceil(naturalWidth - viewportWidth);
-        if (!(viewportWidth > 0) || overflow <= 0)
+        if (!(viewportWidth > 0) || overflow <= 0) {
+            this._cancelPanelPan();
+            this._updatePanelFade();
             return;
-
-        const panState = panelPanState(
-            this._panelPanTimeline, this._panelPanPositionAt(),
-            overflow <= PANEL_PAN_END_PADDING
-                ? overflow : overflow + PANEL_PAN_END_PADDING);
-        if (!panState)
-            return;
+        }
 
         // Changing the custom layout invalidates the actor hierarchy. Let
         // Clutter allocate the full-width pan label before changing visibility
@@ -1218,6 +1330,10 @@ export class LyricsIndicator {
                 });
             return;
         }
+        const panState = this._panelPanState(this._panelPanPositionAt());
+        if (!panState)
+            return;
+        this._panelPanLabel.remove_all_transitions();
         this._panelPanLabel.translation_x = panState.initialX;
         this._panelPanLabel.show();
         this._label.hide();
@@ -1232,8 +1348,144 @@ export class LyricsIndicator {
                 mode: Clutter.AnimationMode.LINEAR,
             });
         }
-        if (this._panelHovered && shouldAnimate)
+        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
+        if (this._panelPlaying && panState.nextMs && !hoverPaused) {
+            this._panelWordTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
+                Math.max(1, Math.ceil((panState.nextMs - this._panelPanPositionAt()) /
+                    this._panelPanTimeline.playbackRate)), () => {
+                    this._panelWordTimeoutId = 0;
+                    this._startPanelPan();
+                    return GLib.SOURCE_REMOVE;
+                });
+        }
+        if (hoverPaused && shouldAnimate)
             this._pausePanelPan();
+        else if (hoverPaused && panState.nextMs)
+            this._panelPanPaused = true;
+    }
+
+    _panelPanState(positionMs) {
+        const [, naturalWidth] = this._panelPanLabel.get_preferred_width(-1);
+        const width = this._panelViewportWidth;
+        const overflow = Math.ceil(naturalWidth - width);
+        const distance = overflow <= PANEL_PAN_END_PADDING
+            ? overflow : overflow + PANEL_PAN_END_PADDING;
+        if (!this._animationsEnabled())
+            return panelPanState(this._panelPanTimeline, positionMs,
+                distance, Math.max(1, width * 0.8));
+        if (overflow > PANEL_PAN_END_PADDING &&
+            this._wordSyncEnabled && this._panelWords?.length) {
+            const layout = this._panelPanLabel.clutter_text.get_layout();
+            const serial = layout.get_serial();
+            const resourceScale = this._panelPanLabel.clutter_text.get_resource_scale();
+            if (this._panelWordGeometry?.serial !== serial ||
+                this._panelWordGeometry.endMs !== this._panelPanTimeline.endMs ||
+                this._panelWordGeometry.scale !== resourceScale) {
+                let byteIndex = 0;
+                let previousEndMs = this._panelPanTimeline.startMs;
+                let previousEndX = 0;
+                const measured = [];
+                const encoder = new TextEncoder();
+                const words = this._panelWords;
+                let valid = words.map(word => word.text).join('') === this._label.text;
+                // Bidirectional runs and split graphemes cannot be followed
+                // reliably with a monotonically moving horizontal focus.
+                let characterByte = 0;
+                let characterX = -Infinity;
+                for (const character of this._label.text) {
+                    const rectangle = layout.index_to_pos(characterByte);
+                    if (rectangle.width < 0 || rectangle.x < characterX)
+                        valid = false;
+                    characterX = rectangle.x;
+                    characterByte += encoder.encode(character).length;
+                }
+                for (let index = 0; valid && index < words.length; index++) {
+                    const word = words[index];
+                    const start = layout.index_to_pos(byteIndex);
+                    byteIndex += encoder.encode(word.text).length;
+                    const end = layout.index_to_pos(byteIndex);
+                    const startX = start.x / Pango.SCALE / resourceScale;
+                    const endX = end.x / Pango.SCALE / resourceScale;
+                    const endMs = word.endMs ?? words[index + 1]?.startMs ??
+                        this._panelPanTimeline.endMs;
+                    valid = Number.isFinite(word.startMs) && Number.isFinite(endMs) &&
+                        word.startMs >= previousEndMs && endMs > word.startMs &&
+                        endMs <= this._panelPanTimeline.endMs && start.width >= 0 &&
+                        startX >= previousEndX && endX > startX;
+                    measured.push({startMs: word.startMs, endMs, startX, endX});
+                    previousEndMs = endMs;
+                    previousEndX = endX;
+                }
+                this._panelWordGeometry = {serial,
+                    scale: resourceScale,
+                    endMs: this._panelPanTimeline.endMs,
+                    words: valid ? measured : null};
+            }
+            const state = wordPanState(this._panelPanTimeline, positionMs,
+                this._panelWordGeometry.words, width, distance);
+            if (state)
+                return state;
+        }
+        return panelPanState(this._panelPanTimeline, positionMs, distance);
+    }
+
+    _queueTitlePan() {
+        if (this._titlePanLaterId)
+            this._laters.remove(this._titlePanLaterId);
+        this._titlePanLaterId = 0;
+        if (!this.actor.menu.isOpen)
+            return;
+        this._titlePanLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
+            this._titlePanLaterId = 0;
+            this._startTitlePan();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _startTitlePan() {
+        this._titleLabel.remove_all_transitions();
+        this._titleLabel.translation_x = 0;
+        const animate = this._animationsEnabled();
+        const wasEllipsized = this._titleLabel.clutter_text.get_ellipsize() !==
+            Pango.EllipsizeMode.NONE;
+        this._titleLabel.clutter_text.set_ellipsize(animate
+            ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
+        if (!animate || !this.actor.menu.isOpen || !this._titleViewport.mapped)
+            return;
+        const [, naturalWidth] = this._titleLabel.get_preferred_width(-1);
+        const overflow = Math.ceil(naturalWidth - this._titleViewportWidth);
+        if (!(this._titleViewportWidth > 0))
+            return;
+        if (overflow <= 0)
+            return;
+        // Wait for the unellipsized title to receive its full allocation.
+        if (this._titleLabel.width < naturalWidth - 0.5) {
+            if (wasEllipsized)
+                this._queueTitlePan();
+            return;
+        }
+        const distance = overflow + 8;
+        this._titleLabel.ease({
+            translation_x: -distance, delay: 1000,
+            duration: Math.max(1000, Math.round(distance / 35 * 1000)),
+            mode: Clutter.AnimationMode.LINEAR,
+            onComplete: () => this._titleLabel.ease({
+                translation_x: 0, delay: 1200,
+                duration: Math.max(600, Math.round(distance / 70 * 1000)),
+                mode: Clutter.AnimationMode.LINEAR,
+                onComplete: () => this._startTitlePan(),
+            }),
+        });
+    }
+
+    _cancelTitlePan() {
+        if (this._titlePanLaterId) {
+            this._laters.remove(this._titlePanLaterId);
+            this._titlePanLaterId = 0;
+        }
+        this._titleLabel?.remove_all_transitions();
+        if (this._titleLabel)
+            this._titleLabel.translation_x = 0;
     }
 
     _panelPanPositionAt(nowUs = GLib.get_monotonic_time()) {
@@ -1248,22 +1500,37 @@ export class LyricsIndicator {
         return Math.min(timeline.endMs, timeline.positionMs + elapsedMs);
     }
 
-    _cancelPanelPan() {
+    _cancelPanelPan({preserveDisplay = false} = {}) {
+        if (this._panelGeometryLaterId) {
+            this._laters.remove(this._panelGeometryLaterId);
+            this._panelGeometryLaterId = 0;
+        }
+        if (this._panelWordTimeoutId) {
+            GLib.source_remove(this._panelWordTimeoutId);
+            this._panelWordTimeoutId = 0;
+        }
         if (this._panelPanLaterId && this._laters) {
             this._laters.remove(this._panelPanLaterId);
             this._panelPanLaterId = 0;
         }
         this._panelPanLabel?.remove_all_transitions();
-        if (this._panelPanLabel) {
+        if (this._panelPanLabel && !preserveDisplay) {
             this._panelPanLabel.translation_x = 0;
             this._panelPanLabel.hide();
         }
-        this._label?.show();
+        if (!preserveDisplay)
+            this._label?.show();
         this._panelPanTargetX = 0;
         this._panelPanPaused = false;
     }
 
     _pausePanelPan() {
+        const hadWordTimer = Boolean(this._panelWordTimeoutId);
+        if (hadWordTimer) {
+            GLib.source_remove(this._panelWordTimeoutId);
+            this._panelWordTimeoutId = 0;
+            this._panelPanPaused = true;
+        }
         const transition =
             this._panelPanLabel?.get_transition('translation-x');
         if (!transition)
@@ -1272,7 +1539,7 @@ export class LyricsIndicator {
         this._panelPanLabel.remove_transition('translation-x');
         this._panelPanLabel.translation_x = currentX;
         this._panelPanPaused =
-            currentX > this._panelPanTargetX;
+            hadWordTimer || currentX > this._panelPanTargetX;
     }
 
     _resumePanelPan() {
@@ -1284,17 +1551,11 @@ export class LyricsIndicator {
             this._schedulePanelPan();
             return;
         }
-        const [, naturalWidth] =
-            this._panelPanLabel.get_preferred_width(-1);
-        const overflow = Math.ceil(naturalWidth - this._labelViewport.width);
         // Catch the timeline where it will be when the transition finishes,
         // rather than chasing a position already in the past.
-        const panState = panelPanState(
-            this._panelPanTimeline,
+        const panState = this._panelPanState(
             this._panelPanPositionAt(GLib.get_monotonic_time() +
-                PANEL_PAN_CATCH_UP_MS * 1000),
-            overflow <= PANEL_PAN_END_PADDING
-                ? overflow : overflow + PANEL_PAN_END_PADDING);
+                PANEL_PAN_CATCH_UP_MS * 1000));
         if (!panState)
             return;
         this._panelPanLabel.ease({
@@ -1505,6 +1766,11 @@ export class LyricsIndicator {
 
     destroy() {
         this._cancelPanelPan();
+        this._cancelTitlePan();
+        if (this._titleAnimationSignalId)
+            this._titleAnimationSettings.disconnect(this._titleAnimationSignalId);
+        this._titleAnimationSignalId = 0;
+        this._titleAnimationSettings = null;
         this._cancelScheduledScroll();
         this._cancelLayoutAnchor();
         this._label?.remove_all_transitions();
@@ -1532,7 +1798,10 @@ export class LyricsIndicator {
         this._panelFadeEffect = null;
         this._labelViewport = null;
         this._panelPanTimeline = null;
+        this._panelWords = null;
+        this._panelWordGeometry = null;
         this._titleLabel = null;
+        this._titleViewport = null;
         this._artistLabel = null;
         this._albumLabel = null;
         this._artworkView = null;

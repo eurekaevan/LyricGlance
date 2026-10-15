@@ -30,6 +30,8 @@ const PANEL_PAN_MAX_LEAD_MS = 600;
 const PANEL_PAN_MAX_END_HOLD_MS = 1000;
 const PANEL_PAN_REFERENCE_SPEED = 240;
 const PANEL_PAN_SMALL_DISTANCE = 8;
+const PANEL_PAN_MIN_END_HOLD_MS = 200;
+const PANEL_PAN_MAX_MOTION_MS = 4000;
 
 export function normalizePanelTimeline(timeline) {
     const startMs = timeline?.startMs;
@@ -59,7 +61,7 @@ export function panelTimelinesEqual(first, second) {
         first.playbackRate === second.playbackRate;
 }
 
-export function panelPanState(timeline, positionMs, overflow) {
+export function panelPanState(timeline, positionMs, overflow, stepWidth = 0) {
     const normalized = normalizePanelTimeline(timeline);
     const position = Number(positionMs);
     const distance = Number(overflow);
@@ -74,19 +76,28 @@ export function panelPanState(timeline, positionMs, overflow) {
     let endHoldMs = Math.min(
         PANEL_PAN_MAX_END_HOLD_MS,
         lineDurationMs * PANEL_PAN_END_HOLD_FRACTION);
+    const minimumEndHoldMs = Math.min(
+        PANEL_PAN_MIN_END_HOLD_MS * normalized.playbackRate, lineDurationMs * 0.25);
     if (distance <= PANEL_PAN_SMALL_DISTANCE) {
-        // Spread a tiny overflow across the whole line instead of adding a
-        // noticeable start/stop to an otherwise almost stationary label.
+        // Move gently without an initial hold, but reveal even a tiny clipped
+        // ending within the same reading window as larger overflows.
         leadMs = 0;
-        endHoldMs = 0;
+        endHoldMs = Math.max(minimumEndHoldMs,
+            lineDurationMs - PANEL_PAN_MAX_MOTION_MS * normalized.playbackRate);
     } else {
         const holdMs = leadMs + endHoldMs;
         const requiredMotionMs = distance * normalized.playbackRate /
             PANEL_PAN_REFERENCE_SPEED * 1000;
-        const availableHoldMs = Math.max(0, lineDurationMs - requiredMotionMs);
-        const holdScale = holdMs > 0 ? Math.min(1, availableHoldMs / holdMs) : 1;
-        leadMs *= holdScale;
-        endHoldMs *= holdScale;
+        const motionMs = Math.min(lineDurationMs - minimumEndHoldMs,
+            Math.max(requiredMotionMs, Math.min(lineDurationMs - holdMs,
+                PANEL_PAN_MAX_MOTION_MS * normalized.playbackRate)));
+        const availableHoldMs = lineDurationMs - motionMs;
+        leadMs = Math.min(leadMs, holdMs > 0 ? availableHoldMs * leadMs / holdMs : 0);
+        endHoldMs = availableHoldMs - leadMs;
+        if (endHoldMs < minimumEndHoldMs) {
+            endHoldMs = minimumEndHoldMs;
+            leadMs = availableHoldMs - endHoldMs;
+        }
     }
     const motionStartMs = normalized.startMs + leadMs;
     const motionEndMs = Math.max(
@@ -94,6 +105,17 @@ export function panelPanState(timeline, positionMs, overflow) {
     const motionDurationMs = Math.max(1, motionEndMs - motionStartMs);
     const progress = Math.min(1, Math.max(0,
         (position - motionStartMs) / motionDurationMs));
+    if (Number.isFinite(stepWidth) && stepWidth > 0) {
+        // Overlap pages so the reader can keep their place, without any
+        // animated movement. Give the last page its own reading interval.
+        const steps = Math.ceil(distance / stepWidth);
+        const page = Math.min(steps, Math.floor(progress * (steps + 1)));
+        const initialX = -distance * page / steps;
+        return {initialX, targetX: initialX, shouldAnimate: false,
+            nextMs: page < steps
+                ? motionStartMs + motionDurationMs * (page + 1) / (steps + 1)
+                : null};
+    }
     const initialX = -distance * progress;
     const targetX = -distance;
     const delayMs = Math.max(0, Math.round(
@@ -111,6 +133,50 @@ export function panelPanState(timeline, positionMs, overflow) {
         speedPxPerSecond: remainingDistance / durationMs * 1000,
         shouldAnimate: position < motionEndMs && remainingDistance > 0,
     };
+}
+
+// Geometry is measured once from the panel's Pango layout. Follow the current
+// word linearly, stopping when its focus reaches either edge of the viewport.
+export function wordPanState(timeline, positionMs, words, viewportWidth, distance) {
+    const normalized = normalizePanelTimeline(timeline);
+    if (!normalized || !Number.isFinite(positionMs) || !words?.length ||
+        viewportWidth < 20 || !(distance > 0))
+        return null;
+    const focus = viewportWidth * 0.6;
+    const minimumEndHoldMs = Math.min(
+        PANEL_PAN_MIN_END_HOLD_MS * normalized.playbackRate,
+        (normalized.endMs - normalized.startMs) * 0.25);
+    const lastEndMs = Math.min(words.at(-1).endMs, normalized.endMs - minimumEndHoldMs);
+    if (lastEndMs <= words.at(-1).startMs)
+        return null;
+    const offset = x => -Math.min(distance, Math.max(0, x - focus));
+    for (const word of words) {
+        const endMs = word === words.at(-1) ? lastEndMs : word.endMs;
+        if (positionMs >= endMs)
+            continue;
+        if (positionMs < word.startMs) {
+            return {initialX: offset(word.startX), targetX: offset(word.startX),
+                shouldAnimate: false, nextMs: word.startMs};
+        }
+        const spanMs = endMs - word.startMs;
+        const width = word.endX - word.startX;
+        const initialX = offset(word.startX + width *
+            (positionMs - word.startMs) / spanMs);
+        const motionStartMs = word.startMs + Math.max(0,
+            (focus - word.startX) / width) * spanMs;
+        const motionEndMs = Math.min(endMs, word.startMs +
+            (focus + distance - word.startX) / width * spanMs);
+        const targetX = offset(word.endX);
+        return {initialX, targetX,
+            delayMs: Math.max(0, Math.round(
+                (motionStartMs - positionMs) / normalized.playbackRate)),
+            durationMs: Math.max(1, Math.round(
+                (motionEndMs - Math.max(positionMs, motionStartMs)) /
+                    normalized.playbackRate)),
+            shouldAnimate: targetX < initialX,
+            nextMs: endMs};
+    }
+    return {initialX: -distance, targetX: -distance, shouldAnimate: false};
 }
 
 const LINE_VISUAL_LEVELS = Object.freeze({

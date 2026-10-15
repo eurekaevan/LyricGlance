@@ -1,6 +1,30 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-09-23
+Last updated: 2026-10-15
+
+The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
+
+## Incremental scrolling verification — 2026-10-15
+
+- [x] `make check`: schema, translations, pure logic, packaged contents and runtime imports
+- [x] `make integration`: isolated D-Bus and local HTTP/storage contracts
+- [x] packaged GNOME Shell 50.5 regression: explicit line/final-word ends, next-line overlap cap and track-end fallback
+- [x] unknown final-word end does not borrow an earlier word's end; overlapping known endings retain the latest end
+- [x] same-line resynchronization preserves the visible text and offset before deferred restart
+- [x] font changes cancel/restart overflow correctly; lyrics received while hidden start after mapping
+- [x] external panel compression uses the allocated text viewport for scroll endpoints; changing width/icon preferences with unchanged allocation restarts scrolling
+- [x] a previously fitting paused lyric reveals its ending after external compression and becomes static again when space is released
+- [x] title looping, close/reopen cleanup and panel hover catch-up regressions
+- [x] native Shell animation inhibition/restoration; timed pages advance, pause, hover and handle forward/backward seeks
+- [x] final package installed locally; all 29 packaged files byte-match, with the expected compiled schema
+- [x] source diff has no whitespace errors
+- [ ] fresh desktop session confirmed to load the final 2026-10-15 package
+- [ ] real desktop check of short/long repeated lyrics, title looping, font/display scaling and physical hover/seek gestures
+- [ ] new 30–60 minute live soak and post-login journal review for recurring allocation warnings
+
+The automated Shell run is isolated and uses controlled playback data. It does not establish the physical desktop or live provider behavior. Earlier real Spotify tests used cached lyrics and did not fully reproduce the reported desktop clipping. The owner's positive practical-use feedback preceded the latest timing/paging patch, so it does not close the remaining boxes above.
+
+For the desktop check, log out/in after installing JavaScript, then compare short and long occurrences of the same lyric, pause/resume, seek both directions, hover/leave, close/reopen the popup, and change the configured width or font. With animations disabled, verify that panel lyrics change pages without sliding and that the title remains static. Inspect the journal from that login and distinguish LyricGlance messages from allocation warnings belonging to other actors; an unnamed actor hierarchy alone does not establish ownership.
 
 ## Deterministic and repository gates
 

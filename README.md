@@ -14,6 +14,7 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 - 顶栏歌词、原生 popup、封面、播放/暂停、上一首/下一首、可交互播放进度、播放器选择和每首歌曲时间偏移。
 - 原文、双语或仅译文显示；原歌词和 timing 始终是唯一事实来源。
 - 逐字高亮只作用于原文，不为译文伪造 karaoke timing。
+- 超宽同步歌词按播放时间滚动；超宽弹窗标题往返循环，关闭系统动画时同步歌词改为分段显示。
 - 有界的歌词、封面、翻译和歌曲偏移缓存。
 - GTK4/Libadwaita Preferences；英文和简体中文界面。
 
@@ -22,7 +23,7 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 ## 兼容性
 
 - Fedora Linux
-- GNOME Shell 50（当前实际测试为 50.4）
+- GNOME Shell 50（已在 50.4 测试，近期滚动回归使用 50.5）
 - Wayland
 - GJS ES Modules
 
@@ -100,7 +101,7 @@ MPRIS signals
 ```
 
 播放器发现使用 `NameOwnerChanged`，状态更新使用 `PropertiesChanged`，跳转使用 `Seeked`。
-歌词只为下一行或下一字边界安排一次性 timer；popup 打开时每 500 ms 从现有 monotonic
+歌词只为下一行、下一字或分段显示边界安排一次性 timer；popup 打开时每 500 ms 从现有 monotonic
 clock 刷新纯 UI 进度，关闭后立即移除，不额外读取 D-Bus Position。
 
 popup 中的媒体按钮控制当前选中的播放器，按 MPRIS 能力禁用不支持的操作。
@@ -117,7 +118,52 @@ popup 使用 Shell 原生滑块和主题。
 和 Meta later source、断开 signal、停止 transition、销毁 actor 并释放引用。异步结果再
 通过 request generation 或当前 owner identity 防止旧请求覆盖新歌曲。
 
-主要模块：
+### 歌词与标题滚动
+
+仅超出实际文字视口的同步歌词需要滚动。视口宽度来自布局分配，音乐图标及其间距不计入
+可用文字宽度；窗口缩放、字体或布局变化后会重新测量。纯文本歌词仍在弹窗中查看，
+不为其生成虚假的播放时间轴。
+
+设置项 `max-panel-width` 是上限；当前控件首选宽度为 320 px，低于此值时按设置收窄。
+其他顶栏控件占用空间时，实际宽度可以更小。滚动距离、逐字焦点、分页和渐隐均按实际
+文字视口计算；修改宽度或图标设置后，即使受挤压而实际宽度未变，也会重新调度滚动。
+
+逐行歌词先短暂停留行首，再线性移动，最后停留在句尾。正常移动阶段尽量在四秒内完成，
+避免间奏或尾奏把滚动拉得过慢；特别长的文字会参考 240 px/s 延长移动阶段，但仍受
+本行时长约束，因此这不是硬性速度上限。句尾至少预留 200 ms 阅读时间，极短行改为行长
+的 25%；这些时间会按播放速率换算。正常滚动按溢出情况使用边缘渐隐；溢出超过 8 px
+时增加 8 px 句尾留白，小幅溢出只移动实际溢出的距离。
+
+暂停会冻结滚动，恢复和跳转按当前播放位置重新定位。同行重新同步会保留正在显示的文字，
+不先切回行首。鼠标悬停顶栏时暂停滚动，离开后用约 200 ms 追赶当前进度再继续；
+弹窗打开期间顶栏继续跟随播放。隐藏期间收到歌词时，重新显示后也会启动滚动。
+
+开启逐字同步且原文词时间、文字和布局都适合跟随时，使用实际字形位置，让当前词经过
+视口约 60% 的阅读位置。双向文字、拆分字形、重叠词时间或不匹配的文本退回逐行滚动。
+译文始终使用原行时间轴，不复用原文的逐字位置。高分屏的字形测量会换算为逻辑像素。
+
+关闭 GNOME Shell 动画后，超宽同步歌词按时间切换有重叠的文字片段，不做连续滑动；
+暂停、跳转和悬停仍然生效，重新打开动画会恢复连续滚动。超宽弹窗标题在此模式下保留
+静态省略显示；正常动画模式下停留行首后向左移动，在末尾停留并返回，关闭弹窗即停止循环。
+短标题和放得下的歌词保持静止。
+
+### 时间轴与结束时间
+
+`extension.js` 为顶栏生成 `startMs`、`endMs`、`positionMs` 和 `playbackRate`。
+`positionMs` 来自播放器时钟加全局及单曲偏移，与歌词时间戳使用同一坐标；媒体进度条和
+`SetPosition` 使用不带歌词偏移的播放器时间。跳转、偏移及播放状态变化后重新同步。
+
+行结束时间优先取明确的 `endMs`，否则采用末词已知结束时间，并保留更晚结束的重叠词；
+末词没有结束时间时，不借用前词的结束时间。已知结束时间以次行开始时间为上限。
+没有明确结束时间时用次行开始时间，最后一行再回退到带歌词偏移的曲目结尾。
+普通 LRC 解析后的 `endMs` 为 `null`；不按字数猜测演唱时长，以免误判慢歌和长音。
+
+滚动完成不会自行清空这一行；歌词选择仍由下一行时间戳决定，歌词中的空白行可表示间奏。
+因此，四秒阅读窗口只影响文字如何移动，不提前切换歌词，也不改写源时间戳。
+逐行和分段位置计算在 `ui-utils.js`，显示、字形测量、重排和计时器清理在 `indicator.js`，
+当前行与字边界选择在 `lyrics-synchronizer.js`。
+
+### 主要模块
 
 - `extension.js`：扩展生命周期和 MPRIS → lyrics → UI 协调。
 - `mpris.js`：D-Bus discovery、signal-driven playback clock 和 player policy。
@@ -169,6 +215,22 @@ make integration
 `make check` 验证 schema、gettext、纯逻辑测试、打包、zip 内容和所有相对 runtime imports；
 `make integration` 使用隔离 D-Bus 和本地 HTTP server 验证 MPRIS 事件、网络错误/429/大小
 限制/取消、cache 和 storage，不访问 Spotify、LRCLIB 或真实翻译 API。
+
+滚动涉及实际 Shell 布局和生命周期，还需使用已打包的当前代码运行隔离 Shell 回归：
+
+```sh
+make pack
+cp lyric-glance@eureka.shell-extension.zip /tmp/lyric-glance@eureka.shell-extension.zip
+dbus-run-session -- env XDG_RUNTIME_DIR=/tmp/lyricglance-media-runtime \
+  GIO_USE_VFS=local GSETTINGS_BACKEND=memory \
+  gnome-shell-test-tool --headless \
+  --extension /tmp/lyric-glance@eureka.shell-extension.zip tests/shell-extension.js
+```
+
+需要本机已安装 GNOME Shell 测试工具及相关运行库。每次重建后必须覆盖 `/tmp` 中的包，
+否则可能测试到旧代码。该测试覆盖结束时间选择、同行重同步、字体和视口变化、隐藏后显示、
+标题循环，以及原生动画开关下的分页、暂停、悬停和跳转；它不证明当前桌面已加载新版，
+也不替代真实播放器、物理鼠标操作、高分屏视觉检查和长时间日志观察。
 
 打包：
 
