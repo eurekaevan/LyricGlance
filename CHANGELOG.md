@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- Blank-only plain text and timestamp-only LRC/Lyricsfile no longer suppress fallback lookup; enabled fallback also retries legacy negative cache entries.
+- Unrelated MPRIS capability/volume notifications no longer suppress control reconciliation. Snapshot/query ordering preserves newer clock feedback, capability changes and artwork metadata without polling.
 - Explicit lyric and final-word endings are no longer overridden by a later next-line timestamp. Unknown final-word ends fall back to line timing, and known overlapping endings are retained.
 - Resynchronizing the same line preserves its visible text and offset until the updated scroll plan starts.
 - Lyrics received while hidden start scrolling when shown; font and viewport changes invalidate stale scroll geometry.

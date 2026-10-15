@@ -26,7 +26,7 @@ function nullableTimestamp(value) {
 }
 
 export function plainTextLines(plain) {
-    if (typeof plain !== 'string' || !plain)
+    if (typeof plain !== 'string' || !plain.trim())
         return [];
 
     const text = plain.replace(/\r\n?/g, '\n');

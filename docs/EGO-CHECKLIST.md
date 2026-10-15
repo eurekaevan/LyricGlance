@@ -16,6 +16,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] a previously fitting paused lyric reveals its ending after external compression and becomes static again when space is released
 - [x] title looping, close/reopen cleanup and panel hover catch-up regressions
 - [x] native Shell animation inhibition/restoration; timed pages advance, pause, hover and handle forward/backward seeks
+- [x] source recheck and failing-then-passing regressions for blank lyrics/legacy negative cache and unrelated MPRIS notifications during control reconciliation
 - [x] final package installed locally; all 29 packaged files byte-match, with the expected compiled schema
 - [x] source diff has no whitespace errors
 - [ ] fresh desktop session confirmed to load the final 2026-10-15 package

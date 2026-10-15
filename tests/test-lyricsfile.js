@@ -99,5 +99,15 @@ const plain = normalizeLyricsPayload({
 assert(plain.syncLevel === SyncLevel.NONE && plain.lines.length === 3 &&
     plain.lines[2].text === 'آخر',
 'plain lyrics should remain static, preserve blank lines, and support RTL text');
+assert(normalizeLyricsPayload({plainLyrics: ' \n\t '}) === null,
+    'whitespace-only plain text must not count as usable lyrics');
+assert(normalizeLyricsPayload({syncedLyrics: '[00:01] \n[00:02]\t'}) === null,
+    'timestamps without any lyric text must not block a fallback lookup');
+assert(normalizeLyricsPayload({lyricsfile:
+    "version: '1.0'\nmetadata:\n  title: Blank\n  artist: Test\nlines: []\nplain: '   '\n"}) === null,
+    'whitespace-only Lyricsfile plain text must not count as usable lyrics');
+assert(normalizeLyricsPayload({lyricsfile:
+    "version: '1.0'\nmetadata:\n  title: Blank\n  artist: Test\nlines:\n- text: ' '\n  start_ms: 1000\n"}) === null,
+    'a timed Lyricsfile with only blank lines must not block a fallback lookup');
 
 print('Lyricsfile, LRC, fallback, Unicode, plain and instrumental tests passed');

@@ -29,7 +29,8 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
                 providerMetadata: metadata,
             });
             if (lyricsfileDocument.instrumental ||
-                lyricsfileDocument.syncLevel !== SyncLevel.NONE)
+                (lyricsfileDocument.syncLevel !== SyncLevel.NONE &&
+                    lyricsfileDocument.lines.some(line => line.text.trim())))
                 return lyricsfileDocument;
         } catch (error) {
             onLyricsfileError?.(error);
@@ -50,10 +51,11 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
         sourceId,
         metadata,
     });
-    if (syncedDocument.syncLevel === SyncLevel.LINE)
+    if (syncedDocument.syncLevel === SyncLevel.LINE &&
+        syncedDocument.lines.some(line => line.text.trim()))
         return syncedDocument;
 
-    if (typeof payload.plainLyrics === 'string' && payload.plainLyrics) {
+    if (typeof payload.plainLyrics === 'string' && payload.plainLyrics.trim()) {
         return createPlainLyricsDocument(payload.plainLyrics, {
             source: `${provider}-plain`,
             sourceId,
@@ -61,7 +63,7 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
         });
     }
 
-    if (lyricsfileDocument?.lines.length)
+    if (lyricsfileDocument?.lines.some(line => line.text.trim()))
         return lyricsfileDocument;
 
     return null;

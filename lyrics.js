@@ -299,7 +299,9 @@ export class LyricsProvider {
         if (serial !== this._requestSerial)
             return;
 
-        if (result.hit && result.payload === null) {
+        // Legacy negative entries cannot establish that the fallback has no
+        // lyrics. Enabled fallback lookups must remain retryable.
+        if (result.hit && result.payload === null && !this._lrcApiUrl) {
             this._remember(key, null);
             this._complete(serial, null);
             return;

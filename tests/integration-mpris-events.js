@@ -92,6 +92,11 @@ let canSeek = true;
 let failNext = false;
 let holdNext = false;
 let nextInvocation = null;
+let holdPlay = false;
+let playInvocation = null;
+let holdSeek = false;
+let seekInvocation = null;
+let onPositionGet = null;
 const commands = [];
 
 const implementation = {
@@ -101,10 +106,15 @@ const implementation = {
     get CanGoNext() { return true; },
     get CanGoPrevious() { return true; },
     get CanSeek() { return canSeek; },
-    Play() {
+    PlayAsync(_parameters, invocation) {
         commands.push('Play');
         playbackStatus = 'Playing';
+        if (holdPlay) {
+            playInvocation = invocation;
+            return;
+        }
         propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus)});
+        invocation.return_value(new GLib.Variant('()', []));
     },
     Pause() {
         commands.push('Pause');
@@ -122,9 +132,14 @@ const implementation = {
             invocation.return_value(new GLib.Variant('()', []));
     },
     Previous() { commands.push('Previous'); },
-    SetPosition(trackId, position) {
+    SetPositionAsync([trackId, position], invocation) {
         commands.push([trackId, position]);
+        if (holdSeek) {
+            seekInvocation = invocation;
+            return;
+        }
         seeked(position);
+        invocation.return_value(new GLib.Variant('()', []));
     },
     get Identity() {
         return 'Event Test Player';
@@ -150,7 +165,9 @@ const implementation = {
 
     get Position() {
         positionGets++;
-        return positionUs;
+        const snapshot = positionUs;
+        onPositionGet?.();
+        return snapshot;
     },
 };
 
@@ -187,7 +204,7 @@ function releaseName() {
         null);
 }
 
-function propertiesChanged(changed) {
+function propertiesChanged(changed, invalidated = []) {
     connection.emit_signal(
         null,
         MPRIS_PATH,
@@ -196,7 +213,7 @@ function propertiesChanged(changed) {
         new GLib.Variant('(sa{sv}as)', [
             PLAYER_INTERFACE,
             changed,
-            [],
+            invalidated,
         ]));
 }
 
@@ -339,6 +356,80 @@ async function run() {
     await sleep(100);
     assert(positionGets === settledSeekGets,
         'a completed control seek started Position polling');
+    holdSeek = true;
+    const beforeHeldSeekGets = positionGets;
+    const heldSeek = manager.control('SetPosition', target, 65_000_000);
+    await waitUntil(() => seekInvocation !== null, 'delayed seek was not dispatched');
+    canSeek = false;
+    propertiesChanged({CanSeek: new GLib.Variant('b', false)});
+    await waitUntil(() => !state.capabilities.CanSeek,
+        'capability notification during seek was not received');
+    propertiesChanged({Position: new GLib.Variant('x', 65_000_000)});
+    await waitUntil(() => manager.getPositionUs() === 65_000_000,
+        'explicit position feedback during the pending seek was not received');
+    propertiesChanged({}, ['Position', 'CanSeek']);
+    await waitUntil(() => positionGets === beforeHeldSeekGets + 1,
+        'capability invalidation did not refresh while the seek was pending');
+    await sleep(30);
+    assert(manager.getPositionUs() === 55_000_000,
+        'the pending seek fixture must still expose the old position before completion');
+    onPositionGet = () => {
+        onPositionGet = null;
+        canSeek = true;
+        propertiesChanged({CanSeek: new GLib.Variant('b', true),
+            Volume: new GLib.Variant('d', 0.5)});
+    };
+    positionUs = 65_000_000;
+    seekInvocation.return_value(new GLib.Variant('()', []));
+    seekInvocation = null;
+    assert(await heldSeek, 'a seek accepted before capabilities changed must complete');
+    await waitUntil(() => manager.getPositionUs() === 65_000_000,
+        'unrelated notifications suppressed seek reconciliation or discarded its Position reply');
+    await sleep(100);
+    assert(positionGets === beforeHeldSeekGets + 2 && state.capabilities.CanSeek,
+        'a silent seek must reconcile once after completion despite an earlier refresh');
+    holdSeek = false;
+
+    holdPlay = true;
+    const heldPlay = manager.control('Play', target);
+    await waitUntil(() => playInvocation !== null, 'delayed play was not dispatched');
+    canSeek = false;
+    propertiesChanged({CanSeek: new GLib.Variant('b', false)});
+    await waitUntil(() => !state.capabilities.CanSeek,
+        'capability notification during play was not received');
+    propertiesChanged({PlaybackStatus: new GLib.Variant('s', 'Paused')});
+    await waitUntil(() => state.playbackStatus === 'Paused',
+        'opposite status notification during Play was not received');
+    onPositionGet = () => {
+        onPositionGet = null;
+        canSeek = true;
+        propertiesChanged({CanSeek: new GLib.Variant('b', true),
+            Volume: new GLib.Variant('d', 0.6)});
+    };
+    playInvocation.return_value(new GLib.Variant('()', []));
+    playInvocation = null;
+    assert(await heldPlay, 'silent Play was rejected');
+    await waitUntil(() => state.playbackStatus === 'Playing',
+        'an unrelated capability notification suppressed silent Play reconciliation');
+    assert(state.capabilities.CanSeek,
+        'an older full snapshot overwrote a newer capability notification');
+    holdPlay = false;
+    assert(await manager.control('Pause', target), 'pause after silent Play failed');
+    await waitUntil(() => state.playbackStatus === 'Paused', 'pause feedback missing');
+    canSeek = true;
+    propertiesChanged({CanSeek: new GLib.Variant('b', true)});
+    await waitUntil(() => state.capabilities.CanSeek, 'seek capability restoration failed');
+
+    onPositionGet = () => {
+        onPositionGet = null;
+        seeked(75_000_000);
+    };
+    propertiesChanged({PlaybackStatus: new GLib.Variant('s', 'Paused')});
+    await waitUntil(() => manager.getPositionUs() === 75_000_000,
+        'new Seeked feedback did not supersede the older pending Position reply');
+    await sleep(100);
+    assert(manager.getPositionUs() === 75_000_000,
+        'an older Position reply overwrote a newer Seeked anchor');
     assert(await manager.control('SetPosition', target, -1),
         'negative progress must clamp to the beginning');
     assert(commands.at(-1)[1] === 0, 'progress was not clamped to zero');

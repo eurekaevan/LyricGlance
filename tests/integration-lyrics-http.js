@@ -35,6 +35,7 @@ let rateLimitAttempts = 0;
 let fallbackRateAttempts = 0;
 let plainUpgradeReady = false;
 let instrumentalReady = false;
+let whitespaceUpgradeReady = false;
 server.add_handler(null, (currentServer, message) => {
     const query = decodeURIComponent(message.get_uri().get_query() ?? '');
     const path = message.get_uri().get_path();
@@ -47,7 +48,9 @@ server.add_handler(null, (currentServer, message) => {
     if (path.startsWith('/lrcapi')) {
         const requestedTitle = decodeURIComponent(
             (message.get_uri().get_query() ?? '').match(/(?:^|&)title=([^&]*)/)?.[1] ?? '');
-        if (query.includes('Fallback Error') || (query.includes('Fallback Raw') &&
+        if (query.includes('Fallback Whitespace Retry') && !whitespaceUpgradeReady) {
+            response(message, 200, '[]');
+        } else if (query.includes('Fallback Error') || (query.includes('Fallback Raw') &&
             !query.includes('Fallback Raw Success'))) {
             response(message, 500);
         } else if (query.includes('Fallback Empty')) {
@@ -97,6 +100,8 @@ server.add_handler(null, (currentServer, message) => {
                 response(message, 200, body);
             }
         }
+    } else if (query.includes('Fallback Whitespace Retry') && path.endsWith('/api/get')) {
+        response(message, 200, JSON.stringify({plainLyrics: ' \n\t '}));
     } else if (query.includes('Plain Priority') && path.endsWith('/api/get')) {
         response(message, 200, instrumentalReady && query.includes('To Instrumental')
             ? '{"instrumental":true}' : '{"plainLyrics":"plain from primary"}');
@@ -332,6 +337,22 @@ async function run() {
     let fallback = new LyricsProvider(options);
     const fallbackFetch = title => new Promise(resolve =>
         fallback.fetch({...baseTrack, title}, resolve));
+    assert(await fallbackFetch('Fallback Whitespace Retry') === null,
+        'whitespace-only primary lyrics must not masquerade as usable plain text');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    assert(!(await fallback._diskCache.get({...baseTrack, title: 'Fallback Whitespace Retry'})).hit,
+        'a blank primary and empty fallback must not persist a negative cache');
+    // Simulate an entry written by the old whitespace handling. It must not
+    // block an enabled fallback after upgrading the extension.
+    await fallback._diskCache.put({...baseTrack, title: 'Fallback Whitespace Retry'},
+        {plainLyrics: ' \n\t '});
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    whitespaceUpgradeReady = true;
+    const beforeWhitespaceRetry = receivedRequests.length;
+    assert((await fallbackFetch('Fallback Whitespace Retry'))?.source === 'lrcapi-synced' &&
+        receivedRequests.length > beforeWhitespaceRetry,
+    'recreating the provider must retry and upgrade even with a legacy negative cache');
     assert((await fallbackFetch('Search Quality'))?.sourceId === 202,
         'credible synchronized search candidates must outrank higher-scoring plain candidates');
     assert((await fallbackFetch('Fallback Quality'))?.lines[0].text === 'fallback line',
