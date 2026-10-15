@@ -1635,8 +1635,9 @@ export async function run() {
     instance._lyricsLoaded = true;
     view.setLyrics(null);
     instance._updateIndicatorAndSchedule(true);
-    assert(indicator.visible && view._label.text === 'Offset Test — Paused Artist',
-        'fallback track information should remain visible by default');
+    assert(indicator.visible && view._label.text === 'Offset Test' &&
+        view._panelPanLooping && !view._panelPanTimeline,
+        'no-lyrics fallback should show the title in loop mode without fake lyric timing');
     settings.set_boolean('fallback-track-info', false);
     assert(indicator.visible && !view._label.text && view._icon.visible &&
         !view._labelViewport.visible,
@@ -1648,6 +1649,101 @@ export async function run() {
     settings.set_boolean('fallback-track-info', true);
     assert(indicator.visible,
         're-enabling fallback information should restore the indicator');
+
+    await Scripting.waitTestWindows();
+    await Scripting.sleep(150);
+    const panelTitleMeasure = view._panelPanLabel.clutter_text.get_layout().copy();
+    panelTitleMeasure.set_ellipsize(Pango.EllipsizeMode.NONE);
+    panelTitleMeasure.set_width(-1);
+    let panelLoopTitle = 'Loop title ';
+    do {
+        panelLoopTitle += 'i';
+        panelTitleMeasure.set_text(panelLoopTitle, -1);
+    } while (panelTitleMeasure.get_pixel_size()[0] /
+        view._panelPanLabel.clutter_text.get_resource_scale() <= view._panelViewportWidth);
+    instance._state = {playbackStatus: 'Playing',
+        metadata: {...offsetMetadata, title: panelLoopTitle}};
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
+    instance._updateIndicatorAndSchedule(true);
+    await Scripting.sleep(2300);
+    const panelTitleDistance = Math.ceil(
+        view._panelPanLabel.get_preferred_width(-1)[1] - view._panelViewportWidth) + 8;
+    assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
+        !view._panelPanTimeline && view._panelWordTimeoutId === 0 &&
+        Math.abs(view._panelPanLabel.translation_x + panelTitleDistance) < 1,
+    'a missing-lyrics title should expose its full ending without a lyric boundary timer');
+
+    const instrumentalDocument = {source: 'test-instrumental', sourceId: null,
+        instrumental: true, metadata: {}, syncLevel: 'none', lines: []};
+    instance._lyricsDocument = instrumentalDocument;
+    view.setLyrics(instrumentalDocument);
+    instance._updateIndicatorAndSchedule(true);
+    assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
+        view._messageLabel.text === uiText('Instrumental', '纯音乐'),
+    'an instrumental provider flag must loop the track title while retaining the popup explanation');
+    assert(view._panelPanTargetX === 0,
+        'the title loop must schedule a return to its beginning after exposing the ending');
+    instance._state.playbackStatus = 'Paused';
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
+    const pausedTitleX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(80);
+    assert(view._panelPanPaused && view._panelPanLabel.translation_x === pausedTitleX &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'pause must freeze a title even during its return leg or end hold');
+    instance._state.playbackStatus = 'Playing';
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
+    assert(view._panelPanLabel.translation_x === pausedTitleX,
+        'resuming a title loop must not jump back to its beginning');
+    await Scripting.sleep(700);
+    assert(Math.abs(view._panelPanLabel.translation_x) < 0.5,
+        'a resumed title must finish returning to its beginning');
+    await Scripting.sleep(1400);
+    assert(view._panelPanLabel.translation_x < 0 &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'the no-lyrics title must start another loop rather than stop after one pass');
+    const panelLoopPopupWasOpen = indicator.menu.isOpen;
+    indicator.menu.close();
+    view._panelHovered = true;
+    view._pausePanelPan();
+    const hoveredTitleX = view._panelPanLabel.translation_x;
+    await Scripting.sleep(80);
+    assert(view._panelPanLabel.translation_x === hoveredTitleX && view._panelPanPaused,
+        'hover must freeze a panel title loop');
+    view._panelHovered = false;
+    view._resumePanelPan();
+    assert(view._panelPanLabel.translation_x === hoveredTitleX &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'leaving hover must resume the panel title without resetting its position');
+    if (panelLoopPopupWasOpen)
+        indicator.menu.open();
+
+    settings.set_int('max-panel-width', 200);
+    await Scripting.sleep(150);
+    assert(view._panelPanLooping && view._panelViewportWidth <= 178 &&
+        view._panelPanLabel.get_transition('translation-x'),
+    'title loops must restart using the new allocated text viewport');
+    St.Settings.get().inhibit_animations();
+    await Scripting.sleep(80);
+    assert(view._label.visible && !view._panelPanLabel.visible &&
+        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'a no-lyrics title must remain statically ellipsized when animations are disabled');
+    St.Settings.get().uninhibit_animations();
+    settings.set_int('max-panel-width', 500);
+    await Scripting.sleep(100);
+    assert(view._panelPanLabel.get_transition('translation-x'),
+        'restoring animations must restart the panel title loop');
+    view.clearTrack();
+    assert(!view._panelPanLooping && view._panelPanLaterId === 0 &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'clearing a track must cancel both loop state and pending title motion');
+    instance._state = {playbackStatus: 'Paused', metadata: offsetMetadata};
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
+    instance._lyricsDocument = offsetDocument;
+    view.setLyrics(offsetDocument);
+    instance._updateIndicatorAndSchedule(true);
+    assert(!view._panelPanLooping && view._label.text === 'First',
+        'returning to synchronized lyrics must cancel the old title loop');
 
     const plainDocument = {
         source: 'test-plain',

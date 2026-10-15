@@ -629,6 +629,7 @@ export default class LyricGlanceExtension extends Extension {
             ? trackInfo(this._state.metadata)
             : null;
         let panelContentIsLyric = false;
+        let panelTitleLoop = false;
         let panelContentKey = null;
         let panelWords = null;
         let currentLine = null;
@@ -638,7 +639,8 @@ export default class LyricGlanceExtension extends Extension {
         const effectivePositionMs = this._effectivePositionMs();
 
         if (document?.instrumental) {
-            panelContent = _('Instrumental');
+            panelContent = this._state.metadata.title;
+            panelTitleLoop = true;
             this._currentLyricIndex = -1;
             this._indicator.setCurrentLyricIndex(-1);
         } else if (document && document.syncLevel !== SyncLevel.NONE) {
@@ -687,6 +689,10 @@ export default class LyricGlanceExtension extends Extension {
             this._currentLyricIndex = -1;
             this._indicator.setCurrentLyricIndex(-1);
         } else {
+            if (this._lyricsLoaded && fallbackEnabled) {
+                panelContent = this._state.metadata.title;
+                panelTitleLoop = true;
+            }
             this._currentLyricIndex = -1;
             this._indicator.setCurrentLyricIndex(-1);
         }
@@ -724,6 +730,7 @@ export default class LyricGlanceExtension extends Extension {
                 timeline: panelTimeline,
                 contentKey: panelContentKey,
                 words: panelWords,
+                loop: panelTitleLoop,
             });
         }
 

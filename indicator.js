@@ -317,6 +317,7 @@ export class LyricsIndicator {
         this._panelWords = null;
         this._panelWordGeometry = null;
         this._panelPanScrollable = false;
+        this._panelPanLooping = false;
         this._panelPanTimeline = null;
         this._panelPanTimelineAnchorUs = 0;
         this._panelTextKey = null;
@@ -698,6 +699,7 @@ export class LyricsIndicator {
         timeline = null,
         contentKey = null,
         words = null,
+        loop = false,
     } = {}) {
         this._icon.visible = this._showIcon || !text;
         const iconOnly = !text;
@@ -705,8 +707,9 @@ export class LyricsIndicator {
             this._labelViewport.visible = !iconOnly;
             this._applyPanelWidth();
         }
-        const canScroll = Boolean(scrollable);
-        const normalizedTimeline = normalizePanelTimeline(timeline);
+        const looping = Boolean(loop);
+        const canScroll = Boolean(scrollable || looping);
+        const normalizedTimeline = looping ? null : normalizePanelTimeline(timeline);
         const timelineChanged = !panelTimelinesEqual(
             this._panelPanTimeline, normalizedTimeline);
         const wordsChanged = this._panelWords !== words;
@@ -716,12 +719,13 @@ export class LyricsIndicator {
         this._panelPanTimeline = normalizedTimeline;
         this._panelPanTimelineAnchorUs = GLib.get_monotonic_time();
         this._label.clutter_text.set_ellipsize(
-            canScroll && normalizedTimeline
+            canScroll && (normalizedTimeline || (looping && this._animationsEnabled()))
                 ? Pango.EllipsizeMode.NONE
                 : Pango.EllipsizeMode.END);
         if (!this._label ||
             (this._label.text === text &&
                 this._panelPanScrollable === canScroll &&
+                this._panelPanLooping === looping &&
                 this._panelTextKey === contentKey)) {
             if (this._label && (timelineChanged || wordsChanged))
                 this._schedulePanelPan();
@@ -730,6 +734,7 @@ export class LyricsIndicator {
 
         this._cancelPanelPan();
         this._panelPanScrollable = canScroll;
+        this._panelPanLooping = looping;
         this._panelTextKey = contentKey;
         this._label.remove_all_transitions();
         this._label.text = text;
@@ -846,9 +851,11 @@ export class LyricsIndicator {
         this._panelWords = null;
         this._panelWordGeometry = null;
         this._panelPanScrollable = false;
+        this._panelPanLooping = false;
         this._panelPanTimeline = null;
         this._panelPanTimelineAnchorUs = 0;
         this._panelTextKey = null;
+        this._cancelPanelPan();
         this._setPanelPlaying(false);
         this._titleLabel.text = '';
         this._artistLabel.text = '';
@@ -1212,15 +1219,23 @@ export class LyricsIndicator {
             this._panelPanTimelineAnchorUs = nowUs;
         }
         this._panelPlaying = playing;
+        if (this._panelPanLooping) {
+            if (playing)
+                this._resumePanelPan();
+            else
+                this._pausePanelPan();
+            return;
+        }
         this._schedulePanelPan();
     }
 
     _schedulePanelPan() {
         this._cancelPanelPan({preserveDisplay:
             this._panelPanLabel.visible && this._panelPanScrollable &&
-            Boolean(this._panelPanTimeline)});
+            Boolean(this._panelPanTimeline || this._panelPanLooping)});
         this._label.clutter_text.set_ellipsize(
-            this._panelPanScrollable && this._panelPanTimeline
+            this._panelPanScrollable && (this._panelPanTimeline ||
+                (this._panelPanLooping && this._animationsEnabled()))
                 ? Pango.EllipsizeMode.NONE
                 : Pango.EllipsizeMode.END);
         this._updatePanelFade();
@@ -1230,7 +1245,8 @@ export class LyricsIndicator {
     _updatePanelFade() {
         const width = this._panelViewportWidth;
         const [, textWidth] = this._panelPanLabel.get_preferred_width(-1);
-        const active = this._panelPanScrollable && this._panelPanTimeline &&
+        const active = this._panelPanScrollable &&
+            (this._panelPanTimeline || this._panelPanLooping) &&
             this._animationsEnabled() && width > 0 && textWidth > width + 1;
         this._panelFadeEffect.enabled = Boolean(active);
         if (active) {
@@ -1242,7 +1258,8 @@ export class LyricsIndicator {
     }
 
     _queuePanelPan() {
-        if (!this._panelPanScrollable || !this._panelPanTimeline ||
+        if (!this._panelPanScrollable ||
+            (!this._panelPanTimeline && !this._panelPanLooping) ||
             !this._labelViewport?.mapped)
             return;
 
@@ -1256,7 +1273,8 @@ export class LyricsIndicator {
     }
 
     _queuePanelPanRestart() {
-        if (!this._panelPanScrollable || !this._panelPanTimeline ||
+        if (!this._panelPanScrollable ||
+            (!this._panelPanTimeline && !this._panelPanLooping) ||
             !this._labelViewport?.mapped)
             return;
         // Style/font and allocation changes must restart outside allocation.
@@ -1272,11 +1290,13 @@ export class LyricsIndicator {
 
     _queuePanelGeometryCheck() {
         if (this._panelGeometryLaterId || !this._panelPanScrollable ||
-            !this._panelPanTimeline || !this._labelViewport?.mapped)
+            (!this._panelPanTimeline && !this._panelPanLooping) ||
+            !this._labelViewport?.mapped)
             return;
         this._panelGeometryLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
             this._panelGeometryLaterId = 0;
-            if (!this._panelPanScrollable || !this._panelPanTimeline ||
+            if (!this._panelPanScrollable ||
+                (!this._panelPanTimeline && !this._panelPanLooping) ||
                 !this._labelViewport?.mapped)
                 return GLib.SOURCE_REMOVE;
             this._panelPanLabel.ensure_style();
@@ -1297,9 +1317,14 @@ export class LyricsIndicator {
             GLib.source_remove(this._panelWordTimeoutId);
             this._panelWordTimeoutId = 0;
         }
-        if (!this._panelPanScrollable || !this._panelPanTimeline ||
+        if (!this._panelPanScrollable ||
+            (!this._panelPanTimeline && !this._panelPanLooping) ||
             !this._labelViewport?.mapped)
             return;
+        if (this._panelPanLooping && !this._animationsEnabled()) {
+            this._cancelPanelPan();
+            return;
+        }
 
         const [, naturalWidth] =
             this._panelPanLabel.get_preferred_width(-1);
@@ -1328,6 +1353,16 @@ export class LyricsIndicator {
                     this._startPanelPan();
                     return GLib.SOURCE_REMOVE;
                 });
+            return;
+        }
+        if (this._panelPanLooping) {
+            this._panelPanLabel.remove_all_transitions();
+            this._panelPanLabel.translation_x = 0;
+            this._panelPanLabel.show();
+            this._label.hide();
+            this._updatePanelFade();
+            this._panelPanTargetX = -(overflow + PANEL_PAN_END_PADDING);
+            this._continuePanelTitlePan(1000);
             return;
         }
         const panState = this._panelPanState(this._panelPanPositionAt());
@@ -1427,6 +1462,31 @@ export class LyricsIndicator {
                 return state;
         }
         return panelPanState(this._panelPanTimeline, positionMs, distance);
+    }
+
+    _continuePanelTitlePan(delayMs = 0) {
+        if (!this._panelPanLooping || !this._panelPanLabel.visible ||
+            !this._labelViewport.mapped || !this._animationsEnabled())
+            return;
+        if (!this._panelPlaying || (this._panelHovered && !this.actor.menu.isOpen)) {
+            this._panelPanPaused = true;
+            return;
+        }
+        const outward = this._panelPanTargetX < 0;
+        const distance = Math.abs(this._panelPanTargetX - this._panelPanLabel.translation_x);
+        this._panelPanLabel.ease({
+            translation_x: this._panelPanTargetX,
+            delay: delayMs,
+            duration: Math.max(outward ? 1000 : 600,
+                Math.round(distance / (outward ? 35 : 70) * 1000)),
+            mode: Clutter.AnimationMode.LINEAR,
+            onComplete: () => {
+                this._panelPanTargetX = outward ? 0 :
+                    -(Math.ceil(this._panelNaturalWidth - this._panelViewportWidth) +
+                        PANEL_PAN_END_PADDING);
+                this._continuePanelTitlePan(outward ? 1200 : 1000);
+            },
+        });
     }
 
     _queueTitlePan() {
@@ -1539,7 +1599,7 @@ export class LyricsIndicator {
         this._panelPanLabel.remove_transition('translation-x');
         this._panelPanLabel.translation_x = currentX;
         this._panelPanPaused =
-            hadWordTimer || currentX > this._panelPanTargetX;
+            this._panelPanLooping || hadWordTimer || currentX > this._panelPanTargetX;
     }
 
     _resumePanelPan() {
@@ -1549,6 +1609,10 @@ export class LyricsIndicator {
         this._panelPanPaused = false;
         if (!this._animationsEnabled()) {
             this._schedulePanelPan();
+            return;
+        }
+        if (this._panelPanLooping) {
+            this._continuePanelTitlePan();
             return;
         }
         // Catch the timeline where it will be when the transition finishes,

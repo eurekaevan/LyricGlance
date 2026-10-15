@@ -15,6 +15,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] external panel compression uses the allocated text viewport for scroll endpoints; changing width/icon preferences with unchanged allocation restarts scrolling
 - [x] a previously fitting paused lyric reveals its ending after external compression and becomes static again when space is released
 - [x] title looping, close/reopen cleanup and panel hover catch-up regressions
+- [x] no-lyrics/instrumental panel title loops: ending, return, repeated cycle, pause/hover, width change, reduced motion, clearing the track and returning to synchronized lyrics
 - [x] native Shell animation inhibition/restoration; timed pages advance, pause, hover and handle forward/backward seeks
 - [x] source recheck and failing-then-passing regressions for blank lyrics/legacy negative cache and unrelated MPRIS notifications during control reconciliation
 - [x] final package installed locally; all 29 packaged files byte-match, with the expected compiled schema

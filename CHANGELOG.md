@@ -4,6 +4,7 @@
 
 ### Added
 
+- Overflowing panel titles loop for tracks without lyrics and provider-marked instrumental tracks. Instrumental explanations remain in the popup; pause, hover and reduced motion are respected.
 - MPRIS playback, pause, previous/next and seek controls in the popup, with capability checks and cancellation when the active track or player changes.
 - Optional LrcAPI fallback with synchronized-over-plain lyric selection, provider-isolated caching and a compact source label.
 - Playback-timed panel lyric scrolling, word focus following, edge fading, hover catch-up and looping popup titles.
