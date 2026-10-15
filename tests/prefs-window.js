@@ -67,7 +67,9 @@ const directory = Gio.File.new_for_path(extensionPath);
 const effectiveLocale = GLib.getenv('LC_ALL') ??
     GLib.getenv('LANGUAGE') ?? GLib.getenv('LANG') ?? '';
 const simplifiedChinese = effectiveLocale.startsWith('zh_CN');
-const uiText = (english, chinese) => simplifiedChinese ? chinese : english;
+const traditionalChinese = effectiveLocale.startsWith('zh_TW');
+const uiText = (english, chinese, traditional = chinese) =>
+    traditionalChinese ? traditional : simplifiedChinese ? chinese : english;
 
 const application = new Adw.Application({
     application_id: 'org.gnome.Shell.Extensions.LyricGlancePrefsTest',
@@ -100,15 +102,15 @@ application.connect('activate', async app => {
                     'the preferences window did not provide a visible page');
                 const widgets = descendants(window);
                 const visibleTitle = window.get_visible_page().title;
-                assert(visibleTitle === uiText('General', '常规'),
+                assert(visibleTitle === uiText('General', '常规', '一般'),
                     `preferences page title was ${JSON.stringify(visibleTitle)}`);
                 assert(widgets.some(widget =>
                     widget instanceof Adw.PreferencesGroup &&
-                    widget.title === uiText('Panel', '顶栏')),
+                    widget.title === uiText('Panel', '顶栏', '頂欄')),
                 'preferences should translate group titles');
                 assert(widgets.some(widget =>
                     widget instanceof Adw.SwitchRow &&
-                    widget.title === uiText('Enable translation', '启用翻译')),
+                    widget.title === uiText('Enable translation', '启用翻译', '啟用翻譯')),
                 'preferences should translate setting rows');
                 assert(widgets.filter(widget => widget instanceof Adw.SwitchRow)
                     .length === 7,
@@ -123,9 +125,10 @@ application.connect('activate', async app => {
                     .length === 4,
                 'preferences should expose translation and fallback endpoint entries');
                 const lrcApiSwitch = widgets.find(widget => widget instanceof Adw.SwitchRow &&
-                    widget.title === uiText('Use LrcAPI as a fallback', '使用 LrcAPI 作为备用歌词源'));
+                    widget.title === uiText('Use LrcAPI as a fallback',
+                        '使用 LrcAPI 作为备用歌词源', '使用 LrcAPI 作為備用歌詞來源'));
                 const lrcApiEndpoint = widgets.find(widget => widget instanceof Adw.EntryRow &&
-                    widget.title === uiText('LrcAPI endpoint', 'LrcAPI 服务地址'));
+                    widget.title === uiText('LrcAPI endpoint', 'LrcAPI 服务地址', 'LrcAPI 服務位址'));
                 assert(lrcApiSwitch && lrcApiEndpoint && !lrcApiSwitch.active &&
                     !lrcApiEndpoint.sensitive, 'LrcAPI must default to disabled');
                 lrcApiSwitch.active = true;
@@ -142,13 +145,13 @@ application.connect('activate', async app => {
                 const endpointRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText(
-                        'Responses API endpoint', 'Responses API 端点'));
+                        'Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
                 const modelRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText('Model', '模型'));
                 const applyButton = widgets.find(widget =>
                     widget instanceof Gtk.Button &&
-                    widget.label === uiText('Apply', '应用'));
+                    widget.label === uiText('Apply', '应用', '套用'));
                 assert(endpointRow && modelRow && applyButton,
                 'preferences should expose the configurable translation backend');
                 if (screenshotPath)

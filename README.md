@@ -76,6 +76,13 @@ gnome-extensions prefs lyric-glance@eureka
 设置通过 GSettings 即时生效。`preferred-player` 保存稳定的 DesktopEntry/Identity，
 不保存临时 MPRIS bus name。
 
+## 界面语言
+
+扩展弹窗和设置窗口支持英文、简体中文（`zh_CN`）、繁体中文（`zh_TW`），
+自动跟随 GNOME 会话的语言；没有对应翻译时回退到英文，无需在扩展中另选语言。
+按钮、无障碍名称、歌词来源及错误/重试提示都使用
+同一套 gettext 翻译。界面语言不会改变歌曲标题、歌手、原始歌词或歌词翻译的目标语言。
+
 ## 翻译设置
 
 翻译默认关闭。Preferences 可配置完整的 OpenAI-compatible Responses API 端点、模型和
@@ -237,6 +244,26 @@ LRCLIB 和 LrcAPI 的 HTTP 429、503 都会触发有限重试，每个查询阶�
 切歌、播放器更换及扩展关闭会取消旧请求和重试，旧结果不能覆盖新歌。
 
 ## 开发与测试
+
+### 维护界面翻译
+
+界面源码使用 `_('…')`，带数量的消息使用 `ngettext()`；保留 `%s`、`%d` 等占位符。
+待提取的源码统一列在 `po/POTFILES.in`，新增包含界面文本的文件时也需登记。
+
+```sh
+make translations-update
+```
+
+此命令重新提取 POT 模板，并更新所有 `po/*.po`，保留已有翻译，不自动接受近似匹配。
+补齐新词条后运行 `make check`：它会检查模板是否遗漏当前源码中的词条、每种语言是否
+有缺失/未翻译/模糊词条，以及格式占位符是否有效。打包检查还会核对每个 PO 都有对应的
+编译后 MO 文件，避免新增语言只留在源码中。
+
+添加语言时，先更新模板，再用 `msginit --input=po/lyric-glance@eureka.pot
+--locale=语言代码 --output-file=po/语言代码.po` 创建翻译文件，填写翻译并将语言代码加入
+`po/LINGUAS`。`make pack` 会编译并打包翻译，无需改动运行时的语言列表。
+
+### 验证
 
 确定性发布检查：
 

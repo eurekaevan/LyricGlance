@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/lyric-glance/issues\n"
-"POT-Creation-Date: 2026-09-13 15:22+0800\n"
+"POT-Creation-Date: 2026-10-15 15:45+0800\n"
 "PO-Revision-Date: 2026-08-23 20:10+0800\n"
 "Last-Translator: LyricGlance contributors\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -16,465 +16,492 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: extension.js:618 indicator.js:665
-msgid "Instrumental"
-msgstr "纯音乐"
+#: indicator.js:203
+msgid "Playback position"
+msgstr "播放进度"
 
-#: indicator.js:456 indicator.js:736
+#: indicator.js:498
+msgid "Previous track"
+msgstr "上一首"
+
+#: indicator.js:499 indicator.js:805
+msgid "Play"
+msgstr "播放"
+
+#: indicator.js:500
+msgid "Next track"
+msgstr "下一首"
+
+#: indicator.js:524
+msgid "Could not control playback"
+msgstr "无法控制播放"
+
+#: indicator.js:575 indicator.js:962
 msgid "Translation available on request"
 msgstr "可按需翻译"
 
-#: indicator.js:462 indicator.js:736
+#: indicator.js:581 indicator.js:962
 msgid "Translate"
 msgstr "翻译"
 
-#: indicator.js:486
+#: indicator.js:605
 msgid "Lyrics timing"
 msgstr "歌词时间偏移"
 
-#: indicator.js:493
+#: indicator.js:612
 msgid "Reset"
 msgstr "重置"
 
-#: indicator.js:495
+#: indicator.js:614
 msgid "Reset lyrics offset"
 msgstr "重置歌词时间偏移"
 
-#: indicator.js:508
-msgid "Decrease lyrics offset by 0.5 seconds"
-msgstr "将歌词时间偏移减少 0.5 秒"
-
-#: indicator.js:520
-msgid "Increase lyrics offset by 0.5 seconds"
-msgstr "将歌词时间偏移增加 0.5 秒"
-
-#: indicator.js:528
-msgid "Global +0.0 s  ·  Effective +0.0 s"
-msgstr "全局 +0.0 秒  ·  实际 +0.0 秒"
-
-#: indicator.js:537 indicator.js:895 indicator.js:907 prefs.js:323
-msgid "Player"
-msgstr "播放器"
-
-#: indicator.js:569 indicator.js:669
-msgid "No lyrics found"
-msgstr "未找到歌词"
-
-#: indicator.js:618
-msgid "Loading lyrics…"
-msgstr "正在加载歌词…"
-
-msgid "Retrying lyrics…"
-msgstr "正在重试歌词…"
-
-msgid "Lyrics service temporarily unavailable"
-msgstr "歌词服务暂不可用"
-
-#: indicator.js:737
-msgid "Loading translation…"
-msgstr "正在加载翻译…"
-
-#: indicator.js:737
-msgid "Loading…"
-msgstr "正在加载…"
-
-#: indicator.js:740
-msgid "Translation loaded from cache"
-msgstr "已从缓存加载翻译"
-
-#: indicator.js:741
-msgid "Translation available"
-msgstr "翻译可用"
-
-#: indicator.js:742
-msgid "Refresh"
-msgstr "刷新"
-
-#: indicator.js:745
-msgid "Translation API key is not configured"
-msgstr "尚未配置翻译 API 密钥"
-
-#: indicator.js:746
-msgid "Translation provider unavailable"
-msgstr "翻译服务不可用"
-
-#: indicator.js:746 indicator.js:747 indicator.js:748 indicator.js:749
-#: indicator.js:750 indicator.js:751 indicator.js:752
-msgid "Retry"
-msgstr "重试"
-
-#: indicator.js:747
-msgid "Translation network error"
-msgstr "翻译网络错误"
-
-#: indicator.js:748
-msgid "Translation provider error"
-msgstr "翻译服务错误"
-
-#: indicator.js:749
-msgid "Translation API key was rejected"
-msgstr "翻译 API 密钥被拒绝"
-
-#: indicator.js:750
-msgid "Translation rate limited"
-msgstr "翻译请求过于频繁"
-
-#: indicator.js:751
-msgid "Translation response was invalid"
-msgstr "翻译响应无效"
-
-#: indicator.js:752
-msgid "Translation canceled"
-msgstr "翻译已取消"
-
-#: indicator.js:753
-msgid "Original language matches target language"
-msgstr "原文语言与目标语言相同"
-
-#: indicator.js:760
-#, javascript-format
-msgid "Lyrics translation action: %s"
-msgstr "歌词翻译操作：%s"
-
-#: indicator.js:761
-msgid "Lyrics translation"
-msgstr "歌词翻译"
-
-#: indicator.js:845
+#: indicator.js:625 indicator.js:631 indicator.js:637 indicator.js:1072
 #, javascript-format
 msgid "%s s"
 msgstr "%s 秒"
 
-#: indicator.js:848
+#: indicator.js:627
+msgid "Decrease lyrics offset by 0.5 seconds"
+msgstr "将歌词时间偏移减少 0.5 秒"
+
+#: indicator.js:639
+msgid "Increase lyrics offset by 0.5 seconds"
+msgstr "将歌词时间偏移增加 0.5 秒"
+
+#: indicator.js:647
+msgid "Global +0.0 s  ·  Effective +0.0 s"
+msgstr "全局 +0.0 秒  ·  实际 +0.0 秒"
+
+#: indicator.js:656 indicator.js:1122 indicator.js:1134 prefs.js:352
+msgid "Player"
+msgstr "播放器"
+
+#: indicator.js:694 indicator.js:895
+msgid "No lyrics found"
+msgstr "未找到歌词"
+
+#: indicator.js:764
+msgid "Loading lyrics…"
+msgstr "正在加载歌词…"
+
+#: indicator.js:805
+msgid "Pause"
+msgstr "暂停"
+
+#: indicator.js:884
+#, javascript-format
+msgid "Lyrics source: %s"
+msgstr "歌词来源：%s"
+
+#: indicator.js:887
+msgid "Instrumental"
+msgstr "纯音乐"
+
+#: indicator.js:892
+msgid "Retrying lyrics…"
+msgstr "正在重试歌词…"
+
+#: indicator.js:894
+msgid "Lyrics service temporarily unavailable"
+msgstr "歌词服务暂不可用"
+
+#: indicator.js:963
+msgid "Loading translation…"
+msgstr "正在加载翻译…"
+
+#: indicator.js:963
+msgid "Loading…"
+msgstr "正在加载…"
+
+#: indicator.js:966
+msgid "Translation loaded from cache"
+msgstr "已从缓存加载翻译"
+
+#: indicator.js:967
+msgid "Translation available"
+msgstr "翻译可用"
+
+#: indicator.js:968
+msgid "Refresh"
+msgstr "刷新"
+
+#: indicator.js:971
+msgid "Translation API key is not configured"
+msgstr "尚未配置翻译 API 密钥"
+
+#: indicator.js:972
+msgid "Translation provider unavailable"
+msgstr "翻译服务不可用"
+
+#: indicator.js:972 indicator.js:973 indicator.js:974 indicator.js:975
+#: indicator.js:976 indicator.js:977 indicator.js:978
+msgid "Retry"
+msgstr "重试"
+
+#: indicator.js:973
+msgid "Translation network error"
+msgstr "翻译网络错误"
+
+#: indicator.js:974
+msgid "Translation provider error"
+msgstr "翻译服务错误"
+
+#: indicator.js:975
+msgid "Translation API key was rejected"
+msgstr "翻译 API 密钥被拒绝"
+
+#: indicator.js:976
+msgid "Translation rate limited"
+msgstr "翻译请求过于频繁"
+
+#: indicator.js:977
+msgid "Translation response was invalid"
+msgstr "翻译响应无效"
+
+#: indicator.js:978
+msgid "Translation canceled"
+msgstr "翻译已取消"
+
+#: indicator.js:979
+msgid "Original language matches target language"
+msgstr "原文语言与目标语言相同"
+
+#: indicator.js:986
+#, javascript-format
+msgid "Lyrics translation action: %s"
+msgstr "歌词翻译操作：%s"
+
+#: indicator.js:987
+msgid "Lyrics translation"
+msgstr "歌词翻译"
+
+#: indicator.js:1075
 #, javascript-format
 msgid "Global %s  ·  Effective %s"
 msgstr "全局 %s  ·  实际 %s"
 
-#: indicator.js:873 prefs.js:330 prefs.js:337
+#: indicator.js:1100 prefs.js:359 prefs.js:366
 msgid "Auto"
 msgstr "自动"
 
-#: indicator.js:902
+#: indicator.js:1129
 #, javascript-format
 msgid "Player: %s"
 msgstr "播放器：%s"
 
-#: prefs.js:54
+#: prefs.js:55
 msgid "General"
 msgstr "常规"
 
-#: prefs.js:59
+#: prefs.js:60
 msgid "Panel"
 msgstr "顶栏"
 
-#: prefs.js:62
+#: prefs.js:63
 msgid "Show music note icon"
 msgstr "显示音符图标"
 
-#: prefs.js:66
+#: prefs.js:67
 msgid "Panel position"
 msgstr "顶栏位置"
 
-#: prefs.js:68
+#: prefs.js:69
 msgid "Left"
 msgstr "左侧"
 
-#: prefs.js:69
+#: prefs.js:70
 msgid "Right"
 msgstr "右侧"
 
-#: prefs.js:70
+#: prefs.js:71
 msgid "Center"
 msgstr "居中"
 
-#: prefs.js:71
+#: prefs.js:72
 msgid "Far left"
 msgstr "最左侧"
 
-#: prefs.js:72
+#: prefs.js:73
 msgid "Far right"
 msgstr "最右侧"
 
-#: prefs.js:75
+#: prefs.js:76
 msgid "Left and Right stay near the center; Far positions use the outer edge"
 msgstr "左侧和右侧靠近中间；最左侧和最右侧位于顶栏边缘"
 
-#: prefs.js:79
+#: prefs.js:80
 msgid "Maximum panel width"
 msgstr "顶栏最大宽度"
 
-#: prefs.js:80
+#: prefs.js:81
 msgid "Maximum width of lyrics in the top bar"
 msgstr "顶栏歌词的最大宽度"
 
-#: prefs.js:103
+#: prefs.js:104
 msgid "Hide lyrics when paused"
 msgstr "暂停时隐藏歌词"
 
-#: prefs.js:104
+#: prefs.js:105
 msgid "Keep the popup state while hiding the panel item"
 msgstr "隐藏顶栏项目时保留弹出菜单状态"
 
-#: prefs.js:106
+#: prefs.js:107
 msgid "Lyrics"
 msgstr "歌词"
 
-#: prefs.js:111
+#: prefs.js:112
 msgid "Show title when lyrics are unavailable"
 msgstr "歌词不可用时显示歌曲标题"
 
-#: prefs.js:115
+#: prefs.js:116
 msgid "Word-synced highlighting"
 msgstr "逐字同步高亮"
 
-#: prefs.js:116
+#: prefs.js:117
 msgid "Highlight the current word when timing is available"
 msgstr "有逐字时间信息时高亮当前字词"
 
-#: prefs.js:119
+#: prefs.js:120
+msgid "Use LrcAPI as a fallback"
+msgstr "使用 LrcAPI 作为备用歌词源"
+
+#: prefs.js:121
+msgid ""
+"When LRCLIB has no synchronized lyrics, send the song title, artist and "
+"album to LrcAPI"
+msgstr "LRCLIB 没有同步歌词时，将歌名、歌手和专辑发送至 LrcAPI"
+
+#: prefs.js:123
+msgid "LrcAPI endpoint"
+msgstr "LrcAPI 服务地址"
+
+#: prefs.js:135 prefs.js:245
+msgid "Use HTTPS, or HTTP only for a local loopback endpoint"
+msgstr "请使用 HTTPS；只有本机回环端点可以使用 HTTP"
+
+#: prefs.js:148
 msgid "Global lyrics offset"
 msgstr "全局歌词时间偏移"
 
-#: prefs.js:120
+#: prefs.js:149
 msgid "Added to each track-specific offset"
 msgstr "与每首歌曲的单独偏移相加"
 
-#: prefs.js:142 prefs.js:187
+#: prefs.js:171 prefs.js:216
 msgid "Translation"
 msgstr "翻译"
 
-#: prefs.js:143
+#: prefs.js:172
 msgid ""
 "Uses an OpenAI-compatible Responses API. Translations never change original "
 "timing."
 msgstr "使用兼容 OpenAI 的 Responses API。翻译不会改变原始时间。"
 
-#: prefs.js:149
+#: prefs.js:178
 msgid "Enable translation"
 msgstr "启用翻译"
 
-#: prefs.js:150
+#: prefs.js:179
 msgid "Original lyrics remain available if translation fails"
 msgstr "翻译失败时仍保留原歌词"
 
-#: prefs.js:154
+#: prefs.js:183
 msgid "Translate automatically"
 msgstr "自动翻译"
 
-#: prefs.js:155
+#: prefs.js:184
 msgid "Use a cached translation first; otherwise contact the provider"
 msgstr "优先使用缓存的翻译，否则请求翻译服务"
 
-#: prefs.js:158
+#: prefs.js:187
 msgid "Target language"
 msgstr "目标语言"
 
-#: prefs.js:162
+#: prefs.js:191
 msgid "e.g. zh-CN, en, ja"
 msgstr "例如 zh-CN、en、ja"
 
-#: prefs.js:175
+#: prefs.js:204
 msgid "Popup display"
 msgstr "弹出菜单显示"
 
-#: prefs.js:177
+#: prefs.js:206
 msgid "Original + Translation"
 msgstr "原文 + 翻译"
 
-#: prefs.js:178
+#: prefs.js:207
 msgid "Original only"
 msgstr "仅原文"
 
-#: prefs.js:179
+#: prefs.js:208
 msgid "Translation only"
 msgstr "仅翻译"
 
-#: prefs.js:184
+#: prefs.js:213
 msgid "Panel lyrics"
 msgstr "顶栏歌词"
 
-#: prefs.js:186
+#: prefs.js:215
 msgid "Original"
 msgstr "原文"
 
-#: prefs.js:190
+#: prefs.js:219
 msgid "Responses API endpoint"
 msgstr "Responses API 端点"
 
-#: prefs.js:196
+#: prefs.js:225
 msgid "Model"
 msgstr "模型"
 
-#: prefs.js:202
+#: prefs.js:231
 msgid "Translation backend"
 msgstr "翻译后端"
 
-#: prefs.js:203
+#: prefs.js:232
 msgid "Endpoint and model changes are applied together"
 msgstr "端点与模型的更改会一并应用"
 
-#: prefs.js:206
+#: prefs.js:235
 msgid "Apply"
 msgstr "应用"
 
-#: prefs.js:216
-msgid "Use HTTPS, or HTTP only for a local loopback endpoint"
-msgstr "请使用 HTTPS；只有本机回环端点可以使用 HTTP"
-
-#: prefs.js:220
+#: prefs.js:249
 msgid "Model cannot be empty"
 msgstr "模型不能为空"
 
-#: prefs.js:228
+#: prefs.js:257
 msgid "Translation backend updated"
 msgstr "翻译后端已更新"
 
-#: prefs.js:233
+#: prefs.js:262
 msgid "Translation API key"
 msgstr "翻译 API 密钥"
 
-#: prefs.js:234
+#: prefs.js:263
 msgid "Checking Secret Service…"
 msgstr "正在检查 Secret Service…"
 
-#: prefs.js:237
+#: prefs.js:266
 msgid "Configure"
 msgstr "配置"
 
-#: prefs.js:250
+#: prefs.js:279
 msgid "Configured in GNOME Secret Service"
 msgstr "已保存在 GNOME Secret Service 中"
 
-#: prefs.js:251
+#: prefs.js:280
 msgid "Not configured"
 msgstr "未配置"
 
-#: prefs.js:255
+#: prefs.js:284
 msgid "Secret Service unavailable"
 msgstr "Secret Service 不可用"
 
-#: prefs.js:265
+#: prefs.js:294
 msgid "API key"
 msgstr "API 密钥"
 
-#: prefs.js:269
+#: prefs.js:298
 msgid "Translation credential"
 msgstr "翻译凭据"
 
-#: prefs.js:271
+#: prefs.js:300
 msgid "Enter a new key to replace the saved credential."
 msgstr "输入新密钥以替换已保存的凭据。"
 
-#: prefs.js:272
+#: prefs.js:301
 msgid ""
 "The key will be stored in GNOME Secret Service and sent only to the "
 "configured endpoint."
 msgstr "密钥将保存在 GNOME Secret Service 中，且只发送到已配置的端点。"
 
-#: prefs.js:277
+#: prefs.js:306
 msgid "Cancel"
 msgstr "取消"
 
-#: prefs.js:279
+#: prefs.js:308
 msgid "Remove"
 msgstr "移除"
 
-#: prefs.js:283
+#: prefs.js:312
 msgid "Save"
 msgstr "保存"
 
-#: prefs.js:304
+#: prefs.js:333
 msgid "Could not update credential in Secret Service"
 msgstr "无法更新 Secret Service 中的凭据"
 
-#: prefs.js:316
+#: prefs.js:345
 msgid "Could not open credential configuration"
 msgstr "无法打开凭据配置"
 
-#: prefs.js:324
+#: prefs.js:353
 msgid "Choose among currently available players from the extension popup."
 msgstr "请在扩展的弹出菜单中选择当前可用的播放器。"
 
-#: prefs.js:328
+#: prefs.js:357
 msgid "Preferred player"
 msgstr "首选播放器"
 
-#: prefs.js:342
+#: prefs.js:371
 msgid "Storage"
 msgstr "存储"
 
-#: prefs.js:343
+#: prefs.js:372
 msgid "Cached lyrics are stored locally and expire automatically."
 msgstr "歌词缓存在本地，并会自动过期。"
 
-#: prefs.js:347
+#: prefs.js:376
 msgid "Lyrics cache"
 msgstr "歌词缓存"
 
-#: prefs.js:348
+#: prefs.js:377
 msgid "Positive results: 30 days; unavailable lyrics: 24 hours"
 msgstr "有效结果：30 天；无歌词结果：24 小时"
 
-#: prefs.js:351
+#: prefs.js:380
 msgid "Clear Lyrics Cache"
 msgstr "清除歌词缓存"
 
-#: prefs.js:364
+#: prefs.js:393
 msgid "Lyrics cache cleared"
 msgstr "歌词缓存已清除"
 
-#: prefs.js:367
+#: prefs.js:396
 #, javascript-format
 msgid "Could not clear cache: %s"
 msgstr "无法清除缓存：%s"
 
-#: prefs.js:377
+#: prefs.js:406
 msgid "Translation cache"
 msgstr "翻译缓存"
 
-#: prefs.js:378
+#: prefs.js:407
 msgid "Checking cached translations…"
 msgstr "正在检查翻译缓存…"
 
-#: prefs.js:381
+#: prefs.js:410
 msgid "Clear Translation Cache"
 msgstr "清除翻译缓存"
 
-#: prefs.js:393
+#: prefs.js:422
 #, javascript-format
 msgid "%d cached song"
 msgid_plural "%d cached songs"
 msgstr[0] "已缓存 %d 首歌曲"
 
-#: prefs.js:396
+#: prefs.js:425
 msgid "Could not inspect cache"
 msgstr "无法检查缓存"
 
-#: prefs.js:408
+#: prefs.js:437
 msgid "Translation cache cleared"
 msgstr "翻译缓存已清除"
 
-#: prefs.js:412
+#: prefs.js:441
 msgid "Could not clear translation cache"
 msgstr "无法清除翻译缓存"
-
-msgid "Previous track"
-msgstr "上一首"
-
-msgid "Play"
-msgstr "播放"
-
-msgid "Pause"
-msgstr "暂停"
-
-msgid "Next track"
-msgstr "下一首"
-
-msgid "Playback position"
-msgstr "播放进度"
-
-msgid "Could not control playback"
-msgstr "无法控制播放"
 
 #~ msgid ""
 #~ "Translations are aligned by lyric line and never change original timing."
@@ -482,16 +509,3 @@ msgstr "无法控制播放"
 
 #~ msgid "Provider"
 #~ msgstr "服务商"
-
-msgid "Use LrcAPI as a fallback"
-msgstr "使用 LrcAPI 作为备用歌词源"
-
-msgid "When LRCLIB has no synchronized lyrics, send the song title, artist and album to LrcAPI"
-msgstr "LRCLIB 没有同步歌词时，将歌名、歌手和专辑发送至 LrcAPI"
-
-msgid "LrcAPI endpoint"
-msgstr "LrcAPI 服务地址"
-
-#, javascript-format
-msgid "Lyrics source: %s"
-msgstr "歌词来源：%s"

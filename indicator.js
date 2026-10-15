@@ -622,19 +622,19 @@ export class LyricsIndicator {
         });
         this._decreaseButton = new St.Button({
             style_class: 'button flat lyric-glance-offset-button',
-            label: '−0.5 s',
+            label: _('%s s').format('−0.5'),
             can_focus: true,
             accessible_name: _('Decrease lyrics offset by 0.5 seconds'),
         });
         this._offsetLabel = new St.Label({
             style_class: 'lyric-glance-offset-label',
-            text: '+0.0 s',
+            text: _('%s s').format('+0.0'),
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._increaseButton = new St.Button({
             style_class: 'button flat lyric-glance-offset-button',
-            label: '+0.5 s',
+            label: _('%s s').format('+0.5'),
             can_focus: true,
             accessible_name: _('Increase lyrics offset by 0.5 seconds'),
         });

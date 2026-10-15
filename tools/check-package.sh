@@ -14,7 +14,6 @@ readonly REQUIRED_FILES=(
     prefs.js
     stylesheet.css
     schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
-    locale/zh_CN/LC_MESSAGES/lyric-glance@eureka.mo
     js-yaml.mjs
     LICENSE.js-yaml
     README.js-yaml.md
@@ -24,6 +23,14 @@ readonly REQUIRED_FILES=(
 for file in "${REQUIRED_FILES[@]}"; do
     if [[ ! -f "${TMP_DIR}/${file}" ]]; then
         printf 'Missing required package file: %s\n' "${file}" >&2
+        exit 1
+    fi
+done
+
+for catalog in "$(dirname "${BASH_SOURCE[0]}")/../po/"*.po; do
+    language=$(basename "${catalog}" .po)
+    if [[ ! -f "${TMP_DIR}/locale/${language}/LC_MESSAGES/lyric-glance@eureka.mo" ]]; then
+        printf 'Missing compiled translation: %s\n' "${language}" >&2
         exit 1
     fi
 done

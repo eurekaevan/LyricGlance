@@ -4,7 +4,8 @@ PACKAGE := $(UUID).shell-extension.zip
 USER_DATA_DIR ?= $(HOME)/.local/share
 EXTENSION_DIR := $(USER_DATA_DIR)/gnome-shell/extensions/$(UUID)
 SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
-POT_SOURCES := extension.js indicator.js prefs.js
+POT_FILE := po/$(GETTEXT_DOMAIN).pot
+PO_FILES := $(wildcard po/*.po)
 RUNTIME_SOURCES := indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics.js lyrics-document.js lyrics-matcher.js lyrics-normalizer.js \
 	lyrics-parser.js lyrics-synchronizer.js lyricsfile-parser.js mpris.js \
@@ -14,7 +15,7 @@ RUNTIME_SOURCES := indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 PACK_SOURCE_ARGS := $(foreach source,$(RUNTIME_SOURCES),--extra-source=$(source))
 
 .PHONY: check unit-check schema-check translations-check package-check \
-	integration integration-secret install enable disable reload pack pot clean
+	integration integration-secret install enable disable reload pack pot translations-update clean
 
 check: schema-check translations-check unit-check pack package-check
 
@@ -22,7 +23,15 @@ schema-check:
 	glib-compile-schemas --strict --dry-run schemas
 
 translations-check:
-	msgfmt --check --check-header --output-file=/dev/null po/zh_CN.po
+	@set -eu; template=$$(mktemp); trap 'rm -f "$$template"' EXIT; \
+	xgettext --from-code=UTF-8 --language=JavaScript \
+		--keyword=_ --keyword=ngettext:1,2 --add-comments=Translators \
+		--files-from=po/POTFILES.in --output="$$template"; \
+	msgcmp --use-untranslated $(POT_FILE) "$$template"; \
+	for catalog in $(PO_FILES); do \
+		msgfmt --check --check-header --output-file=/dev/null "$$catalog"; \
+		msgcmp "$$catalog" "$$template"; \
+	done
 
 unit-check:
 	gjs -m tests/test-lrc.js
@@ -71,10 +80,15 @@ pack:
 
 pot:
 	xgettext --from-code=UTF-8 --language=JavaScript \
-		--keyword=_ --keyword=ngettext:1,2 \
+		--keyword=_ --keyword=ngettext:1,2 --add-comments=Translators \
 		--package-name="LyricGlance" --package-version=0.9.0 \
 		--msgid-bugs-address="https://github.com/eurekaevan/lyric-glance/issues" \
-		--output=po/$(GETTEXT_DOMAIN).pot $(POT_SOURCES)
+		--output=$(POT_FILE) --files-from=po/POTFILES.in
+
+translations-update: pot
+	@set -eu; for catalog in $(PO_FILES); do \
+		msgmerge --update --backup=none --no-fuzzy-matching "$$catalog" $(POT_FILE); \
+	done
 
 clean:
 	rm -f "$(PACKAGE)"

@@ -14,7 +14,9 @@ const UUID = 'lyric-glance@eureka';
 const EFFECTIVE_LOCALE = GLib.getenv('LC_ALL') ??
     GLib.getenv('LANGUAGE') ?? GLib.getenv('LANG') ?? '';
 const SIMPLIFIED_CHINESE = EFFECTIVE_LOCALE.startsWith('zh_CN');
-const uiText = (english, chinese) => SIMPLIFIED_CHINESE ? chinese : english;
+const TRADITIONAL_CHINESE = EFFECTIVE_LOCALE.startsWith('zh_TW');
+const uiText = (english, chinese, traditional = chinese) =>
+    TRADITIONAL_CHINESE ? traditional : SIMPLIFIED_CHINESE ? chinese : english;
 
 function assert(condition, message) {
     if (!condition)
@@ -89,6 +91,10 @@ export async function run() {
     assert(view?.actor === indicator,
         'the extension should own the registered panel indicator');
     const settings = instance._settings;
+    assert(view._decreaseButton.label === uiText('−0.5 s', '−0.5 秒') &&
+        view._increaseButton.label === uiText('+0.5 s', '+0.5 秒') &&
+        view._offsetLabel.text === uiText('+0.0 s', '+0.0 秒'),
+    'offset buttons and the current offset must use the same translated unit');
     assert(settings.get_boolean('show-icon') &&
         settings.get_string('panel-position') === 'center' &&
         settings.get_int('max-panel-width') === 500 &&
@@ -158,7 +164,7 @@ export async function run() {
         durationUs: 220_000_000,
     }, 'shell-track-a');
     assert(view._messageLabel.text ===
-        uiText('Loading lyrics…', '正在加载歌词…'),
+        uiText('Loading lyrics…', '正在加载歌词…', '正在載入歌詞…'),
         'a track change should show the restrained loading state');
     const lines = Array.from({length: 30}, (_unused, index) => ({
         lineId: `line-${index}`,
@@ -182,7 +188,7 @@ export async function run() {
     ]) {
         view.setLyrics({...lineDocument, source});
         assert(view._lyricsSourceItem.visible && view._lyricsSourceLabel.text ===
-            uiText(`Lyrics source: ${provider}`, `歌词来源：${provider}`),
+            uiText(`Lyrics source: ${provider}`, `歌词来源：${provider}`, `歌詞來源：${provider}`),
         `the source label must show the actual provider for ${source}`);
     }
     view.setLyrics(null);
@@ -834,7 +840,7 @@ export async function run() {
         'translation arrival must not rebuild lyric rows');
     view.setTranslationState('network_error');
     assert(view._translationStatusLabel.text ===
-        uiText('Translation network error', '翻译网络错误'),
+        uiText('Translation network error', '翻译网络错误', '翻譯網路錯誤'),
         'translation failure should remain a compact secondary state');
     view.setTranslationState('available');
     view.setTranslationDisplayMode('translated');
@@ -1343,13 +1349,13 @@ export async function run() {
     });
     instance._onPlayerStateChanged(delayedState('Retry A'));
     delayedLookups[0].onStatus({status: 'retrying', document: null});
-    assert(view._messageLabel.text === uiText('Retrying lyrics…', '正在重试歌词…') &&
+    assert(view._messageLabel.text === uiText('Retrying lyrics…', '正在重试歌词…', '正在重試歌詞…') &&
         view._panelPanLooping,
     'a retry must show a retry message and keep the panel title available');
     instance._onPlayerStateChanged(delayedState('Retry B'));
     delayedLookups[1].callback(null, 'unavailable');
     assert(view._messageLabel.text === uiText(
-        'Lyrics service temporarily unavailable', '歌词服务暂不可用'),
+        'Lyrics service temporarily unavailable', '歌词服务暂不可用', '歌詞服務暫時無法使用'),
     'an exhausted lookup must not be presented as confirmed missing lyrics');
     instance._onPlayerStateChanged(delayedState('Retry C'));
     fakePositionUs = 23_500_000;
@@ -1364,11 +1370,11 @@ export async function run() {
         'old-song retry and completion callbacks must not replace the current lyrics');
     instance._onPlayerStateChanged(delayedState('Retry D'));
     delayedLookups[3].callback(null, 'complete');
-    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词'),
+    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         'a successful empty lookup must retain the confirmed-missing message');
     instance._lyricsProvider = immediateLyricsProvider;
     delayedLookups[3].onStatus({status: 'retrying', document: null});
-    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词'),
+    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         'replacing the provider must invalidate its status callbacks');
     fakePositionUs = 1_750_000;
 
@@ -1519,7 +1525,7 @@ export async function run() {
     assert(instance._globalOffsetMs === 500 &&
         instance._currentLyricIndex === 1 &&
         view._effectiveOffsetLabel.text.includes(
-            uiText('Effective +0.5 s', '实际 +0.5 秒')),
+            uiText('Effective +0.5 s', '实际 +0.5 秒', '實際 +0.5 秒')),
     'a GSettings global offset change should immediately resynchronize');
     settings.set_int('global-offset-ms', 0);
 
@@ -1722,7 +1728,7 @@ export async function run() {
     view.setLyrics(instrumentalDocument);
     instance._updateIndicatorAndSchedule(true);
     assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
-        view._messageLabel.text === uiText('Instrumental', '纯音乐'),
+        view._messageLabel.text === uiText('Instrumental', '纯音乐', '純音樂'),
     'an instrumental provider flag must loop the track title while retaining the popup explanation');
     assert(view._panelPanTargetX === 0,
         'the title loop must schedule a return to its beginning after exposing the ending');
@@ -1820,7 +1826,7 @@ export async function run() {
         syncLevel: 'none',
         lines: [],
     });
-    assert(view._messageLabel.text === uiText('Instrumental', '纯音乐'),
+    assert(view._messageLabel.text === uiText('Instrumental', '纯音乐', '純音樂'),
         'instrumental should use one restrained centered line');
 
     view.setTrack({
@@ -1832,7 +1838,7 @@ export async function run() {
     }, 'no-artwork-track');
     view.setLyrics(null);
     assert(view._lyricRows.length === 0 &&
-        view._messageLabel.text === uiText('No lyrics found', '未找到歌词'),
+        view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         'the popup should show the no-lyrics result');
     assert(!view._albumLabel.visible && view._albumLabel.text === '',
         'an absent album should stay hidden without artificial fallback text');

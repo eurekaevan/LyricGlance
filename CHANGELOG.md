@@ -4,6 +4,7 @@
 
 ### Added
 
+- Traditional Chinese (`zh_TW`) interface translations for the Shell popup and Preferences.
 - Overflowing panel titles loop for tracks without lyrics and provider-marked instrumental tracks. Instrumental explanations remain in the popup; pause, hover and reduced motion are respected.
 - MPRIS playback, pause, previous/next and seek controls in the popup, with capability checks and cancellation when the active track or player changes.
 - Optional LrcAPI fallback with synchronized-over-plain lyric selection, provider-isolated caching and a compact source label.
@@ -18,6 +19,7 @@
 
 ### Fixed
 
+- Lyrics timing buttons now use the translated seconds unit consistently. Translation checks compare current source strings against the template and every language catalog, and packaging verifies all compiled catalogs.
 - Rapid song changes debounce uncached lookups; 429/503 retries honor service-wide cooldowns across tracks, preserve plain lyrics and align delayed results with the current clock. Temporary failures are distinguished from missing lyrics and are not negatively cached.
 - Blank-only plain text and timestamp-only LRC/Lyricsfile no longer suppress fallback lookup; enabled fallback also retries legacy negative cache entries.
 - Unrelated MPRIS capability/volume notifications no longer suppress control reconciliation. Snapshot/query ordering preserves newer clock feedback, capability changes and artwork metadata without polling.
