@@ -1329,6 +1329,49 @@ export async function run() {
         view._lyricRows.some((row, index) => row !== stableRows[index]),
     'changed track metadata must refetch lyrics when Firefox reuses TrackId');
 
+    const immediateLyricsProvider = instance._lyricsProvider;
+    const delayedLookups = [];
+    instance._lyricsProvider = {
+        cancelPending() {},
+        fetch(_metadata, callback, onStatus) {
+            delayedLookups.push({callback, onStatus});
+        },
+    };
+    const delayedState = title => ({
+        busName: 'org.mpris.MediaPlayer2.test', playbackStatus: 'Playing', positionUs: 0,
+        metadata: {...stableMetadata, title},
+    });
+    instance._onPlayerStateChanged(delayedState('Retry A'));
+    delayedLookups[0].onStatus({status: 'retrying', document: null});
+    assert(view._messageLabel.text === uiText('Retrying lyrics…', '正在重试歌词…') &&
+        view._panelPanLooping,
+    'a retry must show a retry message and keep the panel title available');
+    instance._onPlayerStateChanged(delayedState('Retry B'));
+    delayedLookups[1].callback(null, 'unavailable');
+    assert(view._messageLabel.text === uiText(
+        'Lyrics service temporarily unavailable', '歌词服务暂不可用'),
+    'an exhausted lookup must not be presented as confirmed missing lyrics');
+    instance._onPlayerStateChanged(delayedState('Retry C'));
+    fakePositionUs = 23_500_000;
+    delayedLookups[2].callback(lineDocument, 'complete');
+    assert(instance._currentLyricIndex === 23 &&
+        view._label.text === lineDocument.lines[23].text &&
+        view._panelPanTimeline.positionMs === 23_500,
+    'late lyrics must align the row and panel timeline with the current playback clock');
+    delayedLookups[0].onStatus({status: 'retrying', document: null});
+    delayedLookups[0].callback(null, 'unavailable');
+    assert(instance._lyricsDocument === lineDocument && instance._currentLyricIndex === 23,
+        'old-song retry and completion callbacks must not replace the current lyrics');
+    instance._onPlayerStateChanged(delayedState('Retry D'));
+    delayedLookups[3].callback(null, 'complete');
+    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词'),
+        'a successful empty lookup must retain the confirmed-missing message');
+    instance._lyricsProvider = immediateLyricsProvider;
+    delayedLookups[3].onStatus({status: 'retrying', document: null});
+    assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词'),
+        'replacing the provider must invalidate its status callbacks');
+    fakePositionUs = 1_750_000;
+
     const offsetMetadata = {
         title: 'Offset Test',
         artist: 'Paused Artist',

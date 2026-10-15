@@ -389,7 +389,7 @@ export default class LyricGlanceExtension extends Extension {
             const requestedKey = key;
             const requestedIdentity = identity;
             const provider = this._lyricsProvider;
-            provider.fetch(state.metadata, document => {
+            const updateLyrics = (document, status = 'complete') => {
                 if (this._lyricsProvider !== provider ||
                     requestedKey !== this._currentTrackKey ||
                     requestedIdentity !== this._currentTrackIdentity)
@@ -397,10 +397,13 @@ export default class LyricGlanceExtension extends Extension {
 
                 this._lyricsDocument = document;
                 this._lyricsLoaded = true;
-                this._indicator.setLyrics(document);
+                this._indicator.setLyrics(document, status);
                 this._updateIndicatorAndSchedule(true);
-                this._requestTranslation();
-            });
+                if (status !== 'retrying')
+                    this._requestTranslation();
+            };
+            provider.fetch(state.metadata, updateLyrics,
+                ({document, status}) => updateLyrics(document, status));
         } else {
             const previousMetadata = previousState?.metadata;
             if (!previousMetadata ||

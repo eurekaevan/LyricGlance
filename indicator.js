@@ -870,7 +870,7 @@ export class LyricsIndicator {
         this._updateTranslationControlVisibility();
     }
 
-    setLyrics(document) {
+    setLyrics(document, status = 'complete') {
         this._document = document ?? null;
         this._translationDocument = null;
         const source = typeof document?.source === 'string' ? document.source : '';
@@ -888,7 +888,11 @@ export class LyricsIndicator {
             return;
         }
         if (!document?.lines?.length) {
-            this._showLyricsMessage(_('No lyrics found'));
+            this._showLyricsMessage(status === 'retrying'
+                ? _('Retrying lyrics…')
+                : status === 'unavailable'
+                    ? _('Lyrics service temporarily unavailable')
+                    : _('No lyrics found'));
             return;
         }
 

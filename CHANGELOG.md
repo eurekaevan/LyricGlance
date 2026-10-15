@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- Rapid song changes debounce uncached lookups; 429/503 retries honor service-wide cooldowns across tracks, preserve plain lyrics and align delayed results with the current clock. Temporary failures are distinguished from missing lyrics and are not negatively cached.
 - Blank-only plain text and timestamp-only LRC/Lyricsfile no longer suppress fallback lookup; enabled fallback also retries legacy negative cache entries.
 - Unrelated MPRIS capability/volume notifications no longer suppress control reconciliation. Snapshot/query ordering preserves newer clock feedback, capability changes and artwork metadata without polling.
 - Explicit lyric and final-word endings are no longer overridden by a later next-line timestamp. Unknown final-word ends fall back to line timing, and known overlapping endings are retained.

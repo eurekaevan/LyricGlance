@@ -64,6 +64,12 @@ msgstr "未找到歌词"
 msgid "Loading lyrics…"
 msgstr "正在加载歌词…"
 
+msgid "Retrying lyrics…"
+msgstr "正在重试歌词…"
+
+msgid "Lyrics service temporarily unavailable"
+msgstr "歌词服务暂不可用"
+
 #: indicator.js:737
 msgid "Loading translation…"
 msgstr "正在加载翻译…"

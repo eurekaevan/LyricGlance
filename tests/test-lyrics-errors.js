@@ -38,9 +38,13 @@ const invalidProvider = new LyricsProvider({
     persistentCache: false,
 });
 let invalidCallbacks = 0;
-invalidProvider.fetch(track, lines => {
-    invalidCallbacks++;
-    assert(lines === null, 'an invalid URI should return no lyrics');
+waitForCallback(loop => {
+    invalidProvider.fetch(track, (lines, status) => {
+        invalidCallbacks++;
+        assert(lines === null && status === 'unavailable',
+            'an invalid URI should report unavailable, not confirmed missing');
+        loop.quit();
+    });
 });
 invalidProvider.destroy();
 assert(invalidCallbacks === 1,
@@ -54,9 +58,10 @@ const failedProvider = new LyricsProvider({
 });
 let failureCallbacks = 0;
 waitForCallback(loop => {
-    failedProvider.fetch(track, lines => {
+    failedProvider.fetch(track, (lines, status) => {
         failureCallbacks++;
-        assert(lines === null, 'a network failure should return no lyrics');
+        assert(lines === null && status === 'unavailable',
+            'a network failure should report unavailable, not confirmed missing');
         loop.quit();
     });
 });

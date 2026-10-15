@@ -16,6 +16,8 @@ const SEARCH_API_URL = 'https://lrclib.net/api/search';
 export const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const REQUEST_SPACING_MS = 300;
+const TRACK_DEBOUNCE_MS = 600;
+const MAX_RETRIES = 4;
 const MAX_CACHE_ENTRIES = 100;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
@@ -130,18 +132,20 @@ function bestLyricsCandidate(track, candidates) {
     return accepted.find(item => item.document.syncLevel !== 'none') ?? accepted[0];
 }
 
-export function retryAfterDelayMs(value, now = Date.now()) {
+export function retryAfterDelayMs(value, now = Date.now(), fallbackMs = 5000) {
     if (typeof value !== 'string' || !value.trim())
-        return 5000;
+        return fallbackMs;
 
     const seconds = Number(value);
-    if (Number.isFinite(seconds) && seconds >= 0)
-        return Math.max(1000, Math.ceil(seconds * 1000));
+    if (Number.isFinite(seconds))
+        return seconds >= 0
+            ? Math.max(1000, Math.ceil(Math.min(seconds * 1000, Number.MAX_SAFE_INTEGER)))
+            : fallbackMs;
 
     const date = Date.parse(value);
     if (Number.isFinite(date))
         return Math.max(1000, date - now);
-    return 5000;
+    return fallbackMs;
 }
 
 export class LyricsProvider {
@@ -190,13 +194,16 @@ export class LyricsProvider {
         this._delayTimerId = 0;
         this._requestSerial = 0;
         this._lastRequestUs = 0;
+        this._retryAfterUs = new Map();
+        this._pendingNotBeforeUs = 0;
+        this._pendingStatus = null;
         this._pendingKey = null;
         this._pendingCallbacks = [];
         this._pendingRawPayload = null;
         this._pendingPlainLyrics = null;
     }
 
-    fetch(track, callback) {
+    fetch(track, callback, onStatus = null) {
         if (!track.title || !track.artist) {
             this.cancelPending();
             callback(null);
@@ -205,13 +212,21 @@ export class LyricsProvider {
 
         const key = trackKey(track);
         if (key === this._pendingKey) {
-            this._pendingCallbacks.push(callback);
+            this._pendingCallbacks.push({callback, onStatus});
+            if (this._pendingStatus) {
+                try {
+                    onStatus?.(this._pendingStatus);
+                } catch (error) {
+                    logError(error, 'LyricGlance status callback failed');
+                }
+            }
             return;
         }
 
         this.cancelPending();
         this._pendingKey = key;
-        this._pendingCallbacks = [callback];
+        this._pendingCallbacks = [{callback, onStatus}];
+        this._pendingNotBeforeUs = GLib.get_monotonic_time() + TRACK_DEBOUNCE_MS * 1000;
         const serial = this._requestSerial;
 
         if (this._cache.has(key)) {
@@ -255,6 +270,8 @@ export class LyricsProvider {
         this._pendingCallbacks = [];
         this._pendingRawPayload = null;
         this._pendingPlainLyrics = null;
+        this._pendingStatus = null;
+        this._pendingNotBeforeUs = 0;
 
         if (this._delayTimerId) {
             GLib.source_remove(this._delayTimerId);
@@ -266,6 +283,7 @@ export class LyricsProvider {
         this.cancelPending();
         this._session.abort();
         this._session = null;
+        this._retryAfterUs.clear();
         this._cache.clear();
         this._diskCache?.destroy();
         this._diskCache = null;
@@ -329,6 +347,29 @@ export class LyricsProvider {
         if (serial !== this._requestSerial)
             return;
 
+        const nowUs = GLib.get_monotonic_time();
+        const service = stage === 'lrcapi' ? 'lrcapi' : 'lrclib';
+        const cooldownMs = ((this._retryAfterUs.get(service) ?? 0) - nowUs) / 1000;
+        delayMs = Math.max(delayMs, this._spacingDelayMs(), cooldownMs,
+            (this._pendingNotBeforeUs - nowUs) / 1000);
+        if (cooldownMs > 0) {
+            const document = this._pendingPlainLyrics?.document ?? null;
+            if (!this._pendingStatus || this._pendingStatus.document !== document) {
+                this._pendingStatus = {status: 'retrying', document};
+                for (const {onStatus} of [...this._pendingCallbacks]) {
+                    if (serial !== this._requestSerial)
+                        return;
+                    try {
+                        onStatus?.(this._pendingStatus);
+                    } catch (error) {
+                        logError(error, 'LyricGlance status callback failed');
+                    }
+                }
+            }
+        }
+        if (serial !== this._requestSerial)
+            return;
+
         if (delayMs <= 0) {
             this._sendRequest(track, key, serial, stage, attempt);
             return;
@@ -336,7 +377,7 @@ export class LyricsProvider {
 
         this._delayTimerId = GLib.timeout_add(
             GLib.PRIORITY_DEFAULT,
-            Math.max(1, Math.ceil(delayMs)),
+            Math.min(2_147_483_647, Math.max(1, Math.ceil(delayMs))),
             () => {
                 this._delayTimerId = 0;
                 if (serial === this._requestSerial)
@@ -350,6 +391,15 @@ export class LyricsProvider {
     _sendRequest(track, key, serial, stage, attempt) {
         if (serial !== this._requestSerial)
             return;
+
+        // Recheck at dispatch: a previous response can extend the service's
+        // cooldown while this track is already waiting. Song changes must not
+        // reset a server deadline, and very long deadlines use bounded timers.
+        const service = stage === 'lrcapi' ? 'lrcapi' : 'lrclib';
+        if ((this._retryAfterUs.get(service) ?? 0) > GLib.get_monotonic_time()) {
+            this._scheduleStage(track, key, serial, stage, 0, attempt);
+            return;
+        }
 
         const providerName = stage === 'lrcapi' ? 'LrcAPI' : 'LRCLIB';
         let message;
@@ -369,7 +419,7 @@ export class LyricsProvider {
                 message.set_flags(Soup.MessageFlags.NO_REDIRECT);
         } catch (error) {
             console.warn(`LyricGlance: invalid ${providerName} request: ${error.message}`);
-            this._complete(serial, null);
+            this._complete(serial, null, 'unavailable');
             return;
         }
 
@@ -382,20 +432,34 @@ export class LyricsProvider {
                 if (this._cancellable === cancellable)
                     this._cancellable = null;
 
-                if (serial !== this._requestSerial)
+                if (!this._session)
                     return;
 
                 // Soup.Status in the Fedora typelib predates HTTP 429. Reading
                 // the enum-returning get_status() throws for that valid code;
                 // the numeric property remains forward-compatible.
                 const status = message.status_code;
-                if (status === 429 && attempt === 0) {
+                if (status === 429 || status === 503) {
                     const retryValue = message.get_response_headers()
                         .get_one('Retry-After');
-                    this._scheduleStage(track, key, serial, stage,
-                        retryAfterDelayMs(retryValue), attempt + 1);
+                    const delayMs = retryAfterDelayMs(
+                        retryValue, Date.now(), 1000 * 2 ** attempt);
+                    this._retryAfterUs.set(service, Math.max(
+                        this._retryAfterUs.get(service) ?? 0,
+                        GLib.get_monotonic_time() + delayMs * 1000));
+                    if (serial !== this._requestSerial)
+                        return;
+                    if (attempt < MAX_RETRIES) {
+                        this._scheduleStage(track, key, serial, stage, 0, attempt + 1);
+                    } else {
+                        console.warn(`LyricGlance: ${providerName} returned HTTP ${status}; retries exhausted`);
+                        this._complete(serial, null, 'unavailable');
+                    }
                     return;
                 }
+
+                if (serial !== this._requestSerial)
+                    return;
 
                 if (status === 404 && stage === 'get') {
                     this._scheduleStage(track, key, serial, 'search',
@@ -413,7 +477,7 @@ export class LyricsProvider {
 
                 if (status !== 200) {
                     console.warn(`LyricGlance: ${providerName} returned HTTP ${status}`);
-                    this._complete(serial, null);
+                    this._complete(serial, null, 'unavailable');
                     return;
                 }
 
@@ -422,14 +486,14 @@ export class LyricsProvider {
                     json = JSON.parse(new TextDecoder().decode(bytes.get_data()));
                 } catch (error) {
                     console.warn(`LyricGlance: invalid ${providerName} response: ${error.message}`);
-                    this._complete(serial, null);
+                    this._complete(serial, null, 'unavailable');
                     return;
                 }
 
                 if (stage === 'lrcapi') {
                     if (!Array.isArray(json)) {
                         console.warn('LyricGlance: LrcAPI response is not a candidate array');
-                        this._complete(serial, null);
+                        this._complete(serial, null, 'unavailable');
                         return;
                     }
                     const candidates = json.slice(0, 20)
@@ -513,7 +577,7 @@ export class LyricsProvider {
                 } else {
                     console.warn(`LyricGlance: ${providerName} request failed: ${error.message}`);
                 }
-                this._complete(serial, null);
+                this._complete(serial, null, 'unavailable');
             });
     }
 
@@ -539,7 +603,7 @@ export class LyricsProvider {
         this._complete(serial, null);
     }
 
-    _complete(serial, value) {
+    _complete(serial, value, status = 'complete') {
         if (serial !== this._requestSerial)
             return;
 
@@ -557,12 +621,15 @@ export class LyricsProvider {
             this._persist(track, payload);
         }
         this._pendingRawPayload = null;
+        this._pendingStatus = null;
         const callbacks = this._pendingCallbacks;
         this._pendingCallbacks = [];
         this._pendingKey = null;
-        for (const callback of callbacks) {
+        for (const {callback} of callbacks) {
+            if (serial !== this._requestSerial)
+                return;
             try {
-                callback(value);
+                callback(value, value ? 'complete' : status);
             } catch (error) {
                 logError(error, 'LyricGlance callback failed');
             }

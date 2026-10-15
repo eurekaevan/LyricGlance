@@ -18,6 +18,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] no-lyrics/instrumental panel title loops: ending, return, repeated cycle, pause/hover, width change, reduced motion, clearing the track and returning to synchronized lyrics
 - [x] native Shell animation inhibition/restoration; timed pages advance, pause, hover and handle forward/backward seeks
 - [x] source recheck and failing-then-passing regressions for blank lyrics/legacy negative cache and unrelated MPRIS notifications during control reconciliation
+- [x] local HTTP and packaged Shell regressions for song-change debounce, cross-track 429/503 cooldowns, bounded retries, unavailable versus missing status, retained plain lyrics and current-clock alignment of late results
 - [x] final package installed locally; all 29 packaged files byte-match, with the expected compiled schema
 - [x] source diff has no whitespace errors
 - [ ] fresh desktop session confirmed to load the final 2026-10-15 package

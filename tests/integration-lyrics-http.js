@@ -2,7 +2,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
-import {LyricsProvider, normalizeLrcApiEndpoint} from '../lyrics.js';
+import {LyricsProvider, normalizeLrcApiEndpoint, retryAfterDelayMs} from '../lyrics.js';
 import {removeTree} from '../storage.js';
 
 function assert(condition, message) {
@@ -36,6 +36,8 @@ let fallbackRateAttempts = 0;
 let plainUpgradeReady = false;
 let instrumentalReady = false;
 let whitespaceUpgradeReady = false;
+const transientAttempts = new Map();
+let busyRecovered = false;
 server.add_handler(null, (currentServer, message) => {
     const query = decodeURIComponent(message.get_uri().get_query() ?? '');
     const path = message.get_uri().get_path();
@@ -43,7 +45,34 @@ server.add_handler(null, (currentServer, message) => {
         path,
         query,
         userAgent: message.get_request_headers().get_one('User-Agent'),
+        timeUs: GLib.get_monotonic_time(),
     });
+
+    const scenario = ['Recovery Sequence', 'Busy Forever', 'Cooldown Seed',
+        'Backoff Missing', 'Destroy Cooldown', 'Plain Priority Fallback Busy',
+        'Plain Priority Fallback Exhausted'].find(name => query.includes(name));
+    if (scenario && (!scenario.startsWith('Plain Priority') || path.startsWith('/lrcapi'))) {
+        const attempt = transientAttempts.get(scenario) ?? 0;
+        transientAttempts.set(scenario, attempt + 1);
+        const busy = scenario === 'Busy Forever' ? !busyRecovered :
+            scenario === 'Plain Priority Fallback Exhausted' || scenario === 'Destroy Cooldown' ||
+            attempt < (scenario === 'Recovery Sequence' || scenario === 'Backoff Missing' ? 2 : 1);
+        if (busy) {
+            if (scenario !== 'Backoff Missing') {
+                message.get_response_headers().append('Retry-After',
+                    scenario === 'Recovery Sequence' && attempt === 1
+                        ? new Date(Date.now() + 2000).toUTCString() : '1');
+            }
+            response(message, attempt % 2 === 0 ? 429 : 503);
+        } else if (path.startsWith('/lrcapi')) {
+            response(message, 200, JSON.stringify([{
+                title: scenario, artist: 'LyricGlance', lyrics: '[00:01]recovered fallback',
+            }]));
+        } else {
+            response(message, 200, '{"syncedLyrics":"[00:01]recovered"}');
+        }
+        return;
+    }
 
     if (path.startsWith('/lrcapi')) {
         const requestedTitle = decodeURIComponent(
@@ -210,10 +239,20 @@ const loop = new GLib.MainLoop(null, false);
 let scenarioError = null;
 
 async function run() {
+    const now = Date.UTC(2026, 9, 15, 0, 0, 0);
+    assert(retryAfterDelayMs('2', now) === 2000 &&
+        retryAfterDelayMs(new Date(now + 4000).toUTCString(), now) === 4000 &&
+        retryAfterDelayMs(new Date(now - 4000).toUTCString(), now) === 1000 &&
+        retryAfterDelayMs('0', now) === 1000 &&
+        [null, '', '-1', 'invalid'].every(value => retryAfterDelayMs(value, now, 2000) === 2000),
+    'Retry-After must support seconds/dates, protect against immediate loops and use backoff for invalid headers');
+    const initialStartUs = GLib.get_monotonic_time();
     const valid = await fetch('Valid Lyrics');
     assert(valid?.syncLevel === 'line' && valid.lines[0].text === 'current',
         'a valid syncedLyrics response should normalize to a document');
     const validRequest = receivedRequests.at(-1);
+    assert(validRequest.timeUs - initialStartUs >= 550_000,
+        'a network lookup should wait for the track to stabilize');
     const validQuery = validRequest.query;
     assert(validQuery.includes('track_name=Valid Lyrics') &&
         validQuery.includes('artist_name=LyricGlance') &&
@@ -227,6 +266,17 @@ async function run() {
     assert(cachedValid?.lines?.[0]?.text === 'current' &&
         receivedRequests.length === afterFirstValid,
         'a successful result should be served from the session cache');
+
+    const beforeSkipped = receivedRequests.length;
+    let skippedCallbacks = 0;
+    provider.fetch({...baseTrack, title: 'Skipped A'}, () => skippedCallbacks++);
+    await sleep(150);
+    provider.fetch({...baseTrack, title: 'Skipped B'}, () => skippedCallbacks++);
+    await sleep(150);
+    assert((await fetch('Stable C'))?.lines?.length &&
+        receivedRequests.length === beforeSkipped + 1 && skippedCallbacks === 0 &&
+        receivedRequests.at(-1).query.includes('Stable C'),
+    'rapid track changes must debounce to one request for the latest song');
     assert(await fetch('Invalid JSON') === null,
         'invalid JSON should safely return no lyrics');
     assert(await fetch('HTTP Error') === null,
@@ -299,7 +349,81 @@ async function run() {
         (GLib.get_monotonic_time() - rateLimitStartUs) / 1000;
     assert(rateLimited?.lines?.[0]?.text === 'current' &&
         rateLimitAttempts === 2 && rateLimitDelayMs >= 900,
-    '429 handling should honor Retry-After before one bounded retry');
+    '429 handling should honor Retry-After before retrying');
+
+    const recoveryStates = [];
+    let retryStarted;
+    const retrySignal = new Promise(resolve => (retryStarted = resolve));
+    const recoveryTrack = {...baseTrack, title: 'Recovery Sequence'};
+    const recovering = new Promise(resolve => provider.fetch(
+        recoveryTrack,
+        (document, status) => resolve({document, status}),
+        state => {
+            recoveryStates.push(state);
+            retryStarted();
+        }));
+    await retrySignal;
+    const joinedRecovery = new Promise(resolve => provider.fetch(
+        recoveryTrack, resolve, state => recoveryStates.push(state)));
+    const [recovery, joined] = await Promise.all([recovering, joinedRecovery]);
+    const recoveryRequests = receivedRequests.filter(item => item.query.includes('Recovery Sequence'));
+    assert(recovery.document?.lines?.[0]?.text === 'recovered' && recovery.status === 'complete' &&
+        recoveryRequests.length === 3 && joined === recovery.document &&
+        recoveryStates.length === 2 && recoveryStates.every(state => state.status === 'retrying') &&
+        recoveryRequests.slice(1).every((item, i) => item.timeUs - recoveryRequests[i].timeUs >= 900_000),
+    '429 then 503 must recover, respecting both numeric and HTTP-date Retry-After headers');
+
+    const backoff = await fetch('Backoff Missing');
+    const backoffRequests = receivedRequests.filter(item => item.query.includes('Backoff Missing'));
+    assert(backoff?.lines?.[0]?.text === 'recovered' && backoffRequests.length === 3 &&
+        backoffRequests[1].timeUs - backoffRequests[0].timeUs >= 900_000 &&
+        backoffRequests[2].timeUs - backoffRequests[1].timeUs >= 1_900_000,
+    'missing Retry-After must use increasing backoff rather than immediate repeated requests');
+
+    let staleRetryCallbacks = 0;
+    await new Promise(resolve => provider.fetch(
+        {...baseTrack, title: 'Cooldown Seed'}, () => staleRetryCallbacks++, resolve));
+    const seedRequest = receivedRequests.at(-1);
+    const beforeCooldownCache = receivedRequests.length;
+    const cachedStartUs = GLib.get_monotonic_time();
+    assert((await fetch('Valid Lyrics'))?.lines?.length &&
+        receivedRequests.length === beforeCooldownCache &&
+        GLib.get_monotonic_time() - cachedStartUs < 300_000,
+    'cached lyrics must remain immediately available during a service cooldown');
+    await provider.clearCaches();
+    provider.fetch({...baseTrack, title: 'Cooldown Skipped'}, () => staleRetryCallbacks++);
+    await sleep(100);
+    assert((await fetch('Cooldown Fresh'))?.lines?.length && staleRetryCallbacks === 0 &&
+        receivedRequests.at(-1).timeUs - seedRequest.timeUs >= 900_000 &&
+        !receivedRequests.some(item => item.query.includes('Cooldown Skipped')) &&
+        transientAttempts.get('Cooldown Seed') === 1,
+    'song changes and cache clearing must retain the service cooldown and discard older retries');
+
+    const exhausted = await new Promise(resolve => provider.fetch(
+        {...baseTrack, title: 'Busy Forever'},
+        (document, status) => resolve({document, status})));
+    assert(exhausted.document === null && exhausted.status === 'unavailable' &&
+        transientAttempts.get('Busy Forever') === 5,
+    'persistent 429/503 must stop after four retries and report unavailable, not missing');
+    const afterExhaustion = receivedRequests.length;
+    await sleep(1200);
+    assert(receivedRequests.length === afterExhaustion,
+        'exhausted retries must not leave a background polling loop');
+    busyRecovered = true;
+    assert((await fetch('Busy Forever'))?.lines?.[0]?.text === 'recovered',
+        'temporary failures must not create a negative session cache entry');
+
+    const pendingCooldownProvider = new LyricsProvider({
+        apiUrl: `${baseUri}/api/get`, persistentCache: false,
+    });
+    let destroyedRetryCallbacks = 0;
+    await new Promise(resolve => pendingCooldownProvider.fetch(
+        {...baseTrack, title: 'Destroy Cooldown'}, () => destroyedRetryCallbacks++, resolve));
+    pendingCooldownProvider.destroy();
+    const afterCooldownDestroy = receivedRequests.length;
+    await sleep(1200);
+    assert(receivedRequests.length === afterCooldownDestroy && destroyedRetryCallbacks === 0,
+        'destroy must cancel the pending cooldown without requests or completion callbacks');
 
     const beforeCoalesced = receivedRequests.length;
     const coalescedTrack = {...baseTrack, title: 'Coalesced Slow Request'};
@@ -315,7 +439,7 @@ async function run() {
     provider.fetch(
         {...baseTrack, title: 'Slow Request'},
         () => staleCallbacks++);
-    await sleep(50);
+    await sleep(700);
     const current = await fetch('Current Request');
     assert(current?.lines?.[0]?.text === 'current',
         'the replacement request should return current lyrics');
@@ -337,6 +461,27 @@ async function run() {
     let fallback = new LyricsProvider(options);
     const fallbackFetch = title => new Promise(resolve =>
         fallback.fetch({...baseTrack, title}, resolve));
+    const plainStates = [];
+    const upgraded = await new Promise(resolve => fallback.fetch(
+        {...baseTrack, title: 'Plain Priority Fallback Busy'}, resolve,
+        state => plainStates.push(state)));
+    assert(plainStates.length === 1 && plainStates[0].document?.source === 'lrclib-plain' &&
+        plainStates[0].document.lines[0].text === 'plain from primary' &&
+        upgraded?.source === 'lrcapi-synced',
+    'fallback retries must expose existing primary plain lyrics and later upgrade to timed lyrics');
+    const retained = await new Promise(resolve => fallback.fetch(
+        {...baseTrack, title: 'Plain Priority Fallback Exhausted'},
+        (document, status) => resolve({document, status})));
+    assert(retained.document?.source === 'lrclib-plain' && retained.status === 'complete',
+        'exhausting fallback retries must retain primary plain lyrics');
+    const failedDisk = await new Promise(resolve => fallback.fetch(
+        {...baseTrack, title: 'Destroy Cooldown'},
+        (document, status) => resolve({document, status})));
+    assert(failedDisk.document === null && failedDisk.status === 'unavailable',
+        'a failed persistent-cache lookup must remain distinguishable from a missing song');
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    assert(!(await fallback._diskCache.get({...baseTrack, title: 'Destroy Cooldown'})).hit,
+        'temporary failure must not write a negative disk cache');
     assert(await fallbackFetch('Fallback Whitespace Retry') === null,
         'whitespace-only primary lyrics must not masquerade as usable plain text');
     await Promise.all([...fallback._diskCache._pendingWrites]);
@@ -472,7 +617,7 @@ async function run() {
     const rateStart = GLib.get_monotonic_time();
     assert((await fallbackFetch('Fallback Rate'))?.source === 'lrcapi-synced' &&
         fallbackRateAttempts === 2 && GLib.get_monotonic_time() - rateStart >= 900_000,
-    'fallback rate limiting must honor Retry-After with one bounded retry');
+    'fallback rate limiting must honor Retry-After before retrying');
     const beforeCoalescedFallback = receivedRequests.length;
     const sharedTrack = {...baseTrack, title: 'Fallback Slow Shared'};
     const shared = await Promise.all([
@@ -484,13 +629,13 @@ async function run() {
     'coalesced fallback lookups must share one HTTP chain');
     let staleFallbackCallbacks = 0;
     fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Cancel'}, () => staleFallbackCallbacks++);
-    await sleep(80);
+    await sleep(700);
     assert((await fallbackFetch('Fallback Current'))?.source === 'lrcapi-synced',
         'replacement fallback lookup failed');
     await sleep(550);
     assert(staleFallbackCallbacks === 0, 'switching tracks must suppress old fallback callbacks');
     fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Destroy'}, () => staleFallbackCallbacks++);
-    await sleep(80);
+    await sleep(700);
     fallback.destroy();
     await sleep(550);
     assert(staleFallbackCallbacks === 0, 'destroy must suppress in-flight fallback callbacks');
@@ -505,7 +650,7 @@ async function run() {
     provider.fetch(
         {...baseTrack, title: 'Slow Request'},
         () => destroyedCallbacks++);
-    await sleep(50);
+    await sleep(700);
     provider.destroy();
     provider = null;
     await sleep(650);
@@ -524,4 +669,4 @@ server.disconnect();
 if (scenarioError)
     throw scenarioError;
 
-print('LRCLIB and LrcAPI matching, isolation, errors, 429, cache and cancellation tests passed');
+print('LRCLIB and LrcAPI matching, debounce, 429/503 recovery, cache and cancellation tests passed');

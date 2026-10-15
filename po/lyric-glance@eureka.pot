@@ -62,6 +62,12 @@ msgstr ""
 msgid "No lyrics found"
 msgstr ""
 
+msgid "Retrying lyrics…"
+msgstr ""
+
+msgid "Lyrics service temporarily unavailable"
+msgstr ""
+
 #: indicator.js:618
 msgid "Loading lyrics…"
 msgstr ""
