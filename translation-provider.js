@@ -241,7 +241,6 @@ export class OpenAITranslationProvider {
         maxResponseBytes = MAX_RESPONSE_BYTES,
     } = {}) {
         this.id = OPENAI_PROVIDER_ID;
-        this.displayName = 'OpenAI-compatible Responses API';
         this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
         this._endpoint = normalizeTranslationEndpoint(endpoint);
@@ -356,7 +355,6 @@ export class MockTranslationProvider {
         delayMs = 0,
     } = {}) {
         this.id = id;
-        this.displayName = 'Mock';
         this.model = model;
         this.configurationId = configurationId;
         this.requiresCredential = false;

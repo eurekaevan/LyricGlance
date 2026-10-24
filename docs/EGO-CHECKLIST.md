@@ -1,10 +1,28 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-10-15
+Last updated: 2026-10-24
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
 
-## Incremental scrolling verification — 2026-10-15
+## Repository cleanup verification — 2026-10-24
+
+- [x] removed unreferenced helpers, re-exports, state, build variables and one unused fixture; LRC boundary checks now exercise the runtime document/synchronizer chain
+- [x] `make check`, `make integration` and the full packaged Shell regression pass; no `needs an allocation` warning in the normal Shell run
+- [x] local Markdown links, relative module imports, retained fixture references, shell script syntax and `git diff --check` verified
+
+This cleanup preserves runtime behavior and the preceding scrolling fixes. It adds no dependencies or new files. Real-player, public-service, physical-input and post-login soak tests were not repeated; their existing evidence boundaries below remain open.
+
+## Text measurement verification — 2026-10-24
+
+- [x] independent unconstrained Pango reference checks for fixed/minimum CSS widths, padding/borders, italic overhang, CJK, combining characters, emoji and RTL text; full drawing allocations and title-copy spacing are checked separately
+- [x] packaged virtual-monitor checks at 100%, 125% and 200%, plus moving the indicator between 100%/125% monitors and across their boundary; fractional scaling uses the actor's actual resource scale
+- [x] `make check`, `make integration` and the full packaged Shell regression; the normal Shell run emitted no `needs an allocation` warnings
+- [x] installed locally; all 30 packaged files and the generated compiled schema match, extension reports enabled/active (this does not prove a fresh JavaScript import)
+- [ ] fresh physical desktop login, display-scale changes and journal review for this package
+
+The virtual-monitor probe verifies text geometry rather than physical display rendering. Monitor reconfiguration/reparenting emitted generic `ClutterActor` allocation warnings; the normal packaged regression is checked separately for extension actor warnings.
+
+## Incremental runtime verification — through 2026-10-24
 
 - [x] `make check`: schema, translations, pure logic, packaged contents and runtime imports
 - [x] `make integration`: isolated D-Bus and local HTTP/storage contracts
@@ -15,7 +33,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] external panel compression uses the allocated text viewport for scroll endpoints; changing width/icon preferences with unchanged allocation restarts scrolling
 - [x] a previously fitting paused lyric reveals its ending after external compression and becomes static again when space is released
 - [x] title looping, close/reopen cleanup and panel hover catch-up regressions
-- [x] no-lyrics/instrumental panel title loops: ending, return, repeated cycle, pause/hover, width change, reduced motion, clearing the track and returning to synchronized lyrics
+- [x] single-direction seamless panel/popup title loops: matching copies, wrap continuity, pause/hover, font/width changes, reduced motion, clearing the track and returning to synchronized lyrics
 - [x] native Shell animation inhibition/restoration; timed pages advance, pause, hover and handle forward/backward seeks
 - [x] source recheck and failing-then-passing regressions for blank lyrics/legacy negative cache and unrelated MPRIS notifications during control reconciliation
 - [x] local HTTP and packaged Shell regressions for song-change debounce, cross-track 429/503 cooldowns, bounded retries, unavailable versus missing status, retained plain lyrics and current-clock alignment of late results
@@ -23,7 +41,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] Traditional Chinese packaged Shell/GTK preferences tests and English fallback for an unsupported interface locale
 - [x] final package installed locally; all 30 packaged files byte-match, including the Traditional Chinese catalog and the expected compiled schema
 - [x] source diff has no whitespace errors
-- [ ] fresh desktop session confirmed to load the final 2026-10-15 package
+- [ ] fresh desktop session confirmed to load the latest installed package
 - [ ] real desktop check of short/long repeated lyrics, title looping, font/display scaling and physical hover/seek gestures
 - [ ] new 30–60 minute live soak and post-login journal review for recurring allocation warnings
 

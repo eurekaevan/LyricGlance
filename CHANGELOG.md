@@ -13,12 +13,15 @@
 
 ### Changed
 
+- Removed unused internal LRC lookup helpers/re-exports, artwork state, provider labels, build variables and an unreferenced fixture. Parser tests now exercise the document/synchronizer path used at runtime; maintenance docs distinguish deterministic checks from live tests.
+- Overflowing panel and popup titles now scroll continuously left with matching copies and a fixed gap, replacing the reverse return leg. Popup-title hover pauses without resetting its position.
 - Renamed the project and GNOME extension identity to LyricGlance (`lyric-glance@eureka`), including its settings schema, credential namespace, gettext domain, cache/config paths, package, and release artifacts. No migration from the previous identity is provided.
 - Release automation uses date tags (`YYYY-MM-DD`) and uploads the tested ZIP and SHA-256 checksum to GitHub Releases.
 - Line scrolling targets a four-second movement window when the text length permits, with reading time reserved at the ending rather than spreading movement across a long interlude.
 
 ### Fixed
 
+- Full-text scroll measurement uses unconstrained Pango logical/ink bounds rather than CSS-dependent preferred sizes. Drawing allocations include glyph overhang, padding and borders; resource-scale changes invalidate geometry.
 - Lyrics timing buttons now use the translated seconds unit consistently. Translation checks compare current source strings against the template and every language catalog, and packaging verifies all compiled catalogs.
 - Rapid song changes debounce uncached lookups; 429/503 retries honor service-wide cooldowns across tracks, preserve plain lyrics and align delayed results with the current clock. Temporary failures are distinguished from missing lyrics and are not negatively cached.
 - Blank-only plain text and timestamp-only LRC/Lyricsfile no longer suppress fallback lookup; enabled fallback also retries legacy negative cache entries.

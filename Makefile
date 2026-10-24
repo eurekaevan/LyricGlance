@@ -1,8 +1,6 @@
 UUID := lyric-glance@eureka
 GETTEXT_DOMAIN := $(UUID)
 PACKAGE := $(UUID).shell-extension.zip
-USER_DATA_DIR ?= $(HOME)/.local/share
-EXTENSION_DIR := $(USER_DATA_DIR)/gnome-shell/extensions/$(UUID)
 SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
 POT_FILE := po/$(GETTEXT_DOMAIN).pot
 PO_FILES := $(wildcard po/*.po)

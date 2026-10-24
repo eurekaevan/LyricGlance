@@ -187,7 +187,6 @@ async function run() {
 
     const partialProvider = {
         id: 'partial',
-        displayName: 'Partial',
         model: 'partial-v1',
         requiresCredential: false,
         async translate(_document, request) {

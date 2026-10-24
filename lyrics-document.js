@@ -169,7 +169,3 @@ export function createLyricsDocument({
 export function createPlainLyricsDocument(plain, options = {}) {
     return createLyricsDocument({...options, plain});
 }
-
-export function hasDisplayableLyrics(document) {
-    return Boolean(document?.instrumental || document?.lines?.length);
-}

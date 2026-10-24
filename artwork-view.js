@@ -36,7 +36,6 @@ export class ArtworkView {
         this._pendingTextureActor = null;
         this._outgoingTextureActor = null;
         this._displayedTrackKey = null;
-        this._displayedFile = null;
         this._contentSignalId = 0;
         this._decodeTimeoutId = 0;
 
@@ -140,7 +139,7 @@ export class ArtworkView {
                 texture !== this._pendingTextureActor)
                 return;
             this._cancelDecodeWait();
-            this._promoteTexture(texture, file, requestTrackKey);
+            this._promoteTexture(texture, requestTrackKey);
         };
 
         if (texture.content) {
@@ -186,12 +185,11 @@ export class ArtworkView {
         this._cancelCrossfade();
     }
 
-    _promoteTexture(texture, file, trackKey) {
+    _promoteTexture(texture, trackKey) {
         this._pendingTextureActor = null;
         const previous = this._textureActor;
         this._textureActor = texture;
         this._displayedTrackKey = trackKey;
-        this._displayedFile = file;
         this._fallback.hide();
         texture.show();
 
@@ -245,7 +243,6 @@ export class ArtworkView {
         this._textureActor?.destroy();
         this._textureActor = null;
         this._displayedTrackKey = null;
-        this._displayedFile = null;
     }
 
     _cancelCrossfade() {

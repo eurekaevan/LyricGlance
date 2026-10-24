@@ -14,10 +14,10 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 - 顶栏歌词、原生 popup、封面、播放/暂停、上一首/下一首、可交互播放进度、播放器选择和每首歌曲时间偏移。
 - 原文、双语或仅译文显示；原歌词和 timing 始终是唯一事实来源。
 - 逐字高亮只作用于原文，不为译文伪造 karaoke timing。
-- 超宽同步歌词按播放时间滚动；超宽弹窗标题往返循环，关闭系统动画时同步歌词改为分段显示。
-- 无歌词时可在顶栏往返循环曲目标题；歌词库标记为纯音乐的曲目也显示标题，弹窗保留纯音乐说明。
+- 超宽同步歌词按播放时间滚动；超宽弹窗标题向左无缝循环，关闭系统动画时同步歌词改为分段显示。
+- 无歌词时可在顶栏向左循环曲目标题；歌词库标记为纯音乐的曲目也显示标题，弹窗保留纯音乐说明。
 - 有界的歌词、封面、翻译和歌曲偏移缓存。
-- GTK4/Libadwaita Preferences；英文和简体中文界面。
+- GTK4/Libadwaita Preferences；英文、简体中文和繁体中文界面。
 
 更多发布截图见 [`docs/screenshots/`](docs/screenshots/)。
 
@@ -36,8 +36,7 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 
 LyricGlance 使用新的 `lyric-glance@eureka` UUID、GSettings schema、gettext domain
 和 XDG 数据目录。旧版设置、翻译密钥和缓存不会自动迁移；安装新版时，GNOME 可能同时
-保留旧 UUID 的扩展，因此请按需从 Extensions 中禁用或移除旧版。仓库链接已改为
-`eurekaevan/lyric-glance`；GitHub 远端仓库也需改用该 slug，链接才能生效。
+保留旧 UUID 的扩展，因此请按需从 Extensions 中禁用或移除旧版。
 
 ### Release 用户
 
@@ -140,10 +139,18 @@ popup 使用 Shell 原生滑块和主题。
 其他顶栏控件占用空间时，实际宽度可以更小。滚动距离、逐字焦点、分页和渐隐均按实际
 文字视口计算；修改宽度或图标设置后，即使受挤压而实际宽度未变，也会重新调度滚动。
 
-确认没有歌词后，若开启“歌词不可用时显示歌曲标题”，顶栏显示曲目标题并在溢出时往返循环；
+完整文字宽度由当前字体的无宽度限制 Pango 排版测量，合并逻辑边界和实际字形边界，
+再换算为逻辑像素并加上内边距及边框。它不使用标签的首选宽度，避免主题的固定宽度、
+最小宽度或斜体外伸影响滚动距离。绘制区域同时容纳完整字形；隐藏标签等待显示后再布局，
+跨不同缩放显示器时重新测量，逐字位置也包含文字在绘制区域内的实际起点。
+
+确认没有歌词后，若开启“歌词不可用时显示歌曲标题”，顶栏显示曲目标题并在溢出时向左循环；
 关闭该开关仍只显示图标入口。歌词库明确标记为纯音乐时，顶栏原来的 `Instrumental` 改为
 曲目标题并使用相同循环，弹窗继续显示“纯音乐”。标题循环不依赖歌词时间轴，也不增加轮询。
-暂停或悬停时冻结，恢复时沿当前方向继续；短标题静止，关闭系统动画时静态省略。
+顶栏和弹窗都用两份相同标题首尾衔接，中间留 32 px 空隙；初次停留约 1 秒后，以
+35 px/s 持续向左移动，不在末尾反向或停顿。副本不改变视口的布局宽度，也不重复供
+屏幕阅读器朗读。顶栏暂停播放或悬停时冻结，弹窗标题悬停时冻结，恢复后从原位置继续；
+短标题静止，关闭系统动画时静态省略。
 加载中的回退信息和只有纯文本歌词的入口保持原有行为。
 
 逐行歌词先短暂停留行首，再线性移动，最后停留在句尾。正常移动阶段尽量在四秒内完成，
@@ -162,7 +169,7 @@ popup 使用 Shell 原生滑块和主题。
 
 关闭 GNOME Shell 动画后，超宽同步歌词按时间切换有重叠的文字片段，不做连续滑动；
 暂停、跳转和悬停仍然生效，重新打开动画会恢复连续滚动。超宽弹窗标题在此模式下保留
-静态省略显示；正常动画模式下停留行首后向左移动，在末尾停留并返回，关闭弹窗即停止循环。
+静态省略显示；正常动画模式下向左无缝循环，关闭弹窗即停止循环并隐藏副本。
 短标题和放得下的歌词保持静止。
 
 ### 时间轴与结束时间
@@ -185,7 +192,9 @@ popup 使用 Shell 原生滑块和主题。
 
 - `extension.js`：扩展生命周期和 MPRIS → lyrics → UI 协调。
 - `mpris.js`：D-Bus discovery、signal-driven playback clock 和 player policy。
-- `lyrics.js`、`lyrics-*`：LRCLIB、解析、匹配、统一文档与同步。
+- `lyrics.js`：LRCLIB/LrcAPI 查询、重试和缓存协调。
+- `lyrics-parser.js`、`lyricsfile-parser.js`：解析；`lyrics-normalizer.js`、`lyrics-matcher.js`：归一化与候选匹配。
+- `lyrics-document.js`、`lyrics-synchronizer.js`：统一歌词文档和行/字时间定位；定位不再由解析器负责。
 - `translation-*`、`credentials.js`：独立翻译文档、provider、cache 和 Secret Service。
 - `indicator.js`、`artwork-*`、`ui-utils.js`：Shell UI、封面和纯 UI 计算。
 - `storage.js`：有界缓存和歌曲偏移持久化。
@@ -283,6 +292,8 @@ make integration
 ```sh
 make pack
 cp lyric-glance@eureka.shell-extension.zip /tmp/lyric-glance@eureka.shell-extension.zip
+mkdir -p /tmp/lyricglance-media-runtime
+chmod 700 /tmp/lyricglance-media-runtime
 dbus-run-session -- env XDG_RUNTIME_DIR=/tmp/lyricglance-media-runtime \
   GIO_USE_VFS=local GSETTINGS_BACKEND=memory \
   gnome-shell-test-tool --headless \
@@ -321,8 +332,24 @@ git push origin 2026-10-09
 make integration-secret
 ```
 
-真实播放器或网络测试位于 `tests/integration-live-*.js`。部分测试会控制播放状态或切歌，
-运行前请阅读文件和命令说明。发布验证详情见 [`docs/EGO-CHECKLIST.md`](docs/EGO-CHECKLIST.md)。
+需要桌面或外部服务的测试不包含在 `make integration` 中，入口如下：
+
+| 测试入口 | 环境及作用 |
+|---|---|
+| `tests/shell-extension.js` | 上述隔离 Shell 回归；使用受控播放数据 |
+| `tests/prefs-window.js` | GTK/Libadwaita 设置窗口；需要图形会话及 Shell 扩展 Preferences 运行库 |
+| `tests/integration-current-player.js` | 读取当前真实播放器并查询歌词；可能写入扩展缓存 |
+| `tests/integration-playback-sync.js` | 对真实播放器执行暂停、播放和跳转，结束时尝试恢复原状态 |
+| `tests/integration-track-cache.js` | 真实播放器 A → B → A 切歌与缓存验证，结束时尝试恢复原状态 |
+| `tests/integration-live-player-policy.js` | 真实 Firefox 与测试播放器共同验证选择和消失回退 |
+| `tests/integration-live-lyricsfile.js` | 访问公共 LRCLIB，验证已知记录的逐字、纯文本和纯音乐结果 |
+| `make integration-secret` | 真实 Secret Service 中写入、读取并删除独立测试密钥 |
+
+运行真实播放器测试前阅读对应文件；这些入口不会自动随发布检查运行，也不应放入隔离 D-Bus
+后声称已验证当前桌面的播放器。发布验证详情和剩余手工检查见
+[`docs/EGO-CHECKLIST.md`](docs/EGO-CHECKLIST.md)，兼容边界见
+[`docs/compatibility.md`](docs/compatibility.md)。历史审查记录保存在
+[`docs/EGO-AUDIT.md`](docs/EGO-AUDIT.md)，不代表新版本自动通过了当时的检查。
 
 ## 已知限制
 
@@ -352,8 +379,9 @@ make integration-secret
 
 扩展不读取 Spotify account token，不使用 Spotify OAuth，不读取浏览器 cookie，不扫描
 浏览器或 Spotify 文件系统，不上传播放历史。AI 翻译默认关闭。网络响应有大小上限，
-请求可取消；429 最多重试一次并尊重 `Retry-After`。Authorization header 和 API key
-不会写入 journal。
+请求可取消。歌词查询的 429/503 每阶段最多额外重试 4 次，详见“快速切歌、限流与重试”；
+翻译请求遇到 429 最多额外重试 1 次。两者均尊重 `Retry-After`。
+Authorization header 和 API key 不会写入 journal。
 
 持久数据只写入扩展自己的 namespace：
 

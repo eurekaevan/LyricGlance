@@ -44,32 +44,6 @@ export class LrcParser {
         return deduplicated;
     }
 
-    static currentLine(lines, positionUs) {
-        const index = this.currentIndex(lines, positionUs);
-        return index >= 0 ? lines[index].text : null;
-    }
-
-    static currentIndex(lines, positionUs) {
-        if (!Array.isArray(lines) || lines.length === 0)
-            return -1;
-
-        let low = 0;
-        let high = lines.length - 1;
-        let found = -1;
-
-        while (low <= high) {
-            const middle = Math.floor((low + high) / 2);
-            if (lines[middle].timeUs <= positionUs) {
-                found = middle;
-                low = middle + 1;
-            } else {
-                high = middle - 1;
-            }
-        }
-
-        return found;
-    }
-
     static parseDocument(lrc, {
         source = 'lrclib-synced',
         sourceId = null,

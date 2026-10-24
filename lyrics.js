@@ -7,10 +7,6 @@ import {LrcParser} from './lyrics-parser.js';
 import {normalizeLyricsPayload} from './lyrics-normalizer.js';
 import {LyricsDiskCache, trackKey} from './storage.js';
 
-export {LrcParser};
-export {scoreLyricsCandidate} from './lyrics-matcher.js';
-export {normalizeLyricsPayload} from './lyrics-normalizer.js';
-
 const API_URL = 'https://lrclib.net/api/get';
 const SEARCH_API_URL = 'https://lrclib.net/api/search';
 export const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';

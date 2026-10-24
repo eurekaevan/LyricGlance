@@ -10,7 +10,7 @@ Sources checked:
 - [GNOME Extension Anatomy](https://gjs.guide/extensions/overview/anatomy.html)
 - [GNOME Shell 50 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-50.html)
 
-This document records the source and package audit. “PASS” means deterministic evidence exists in this checkout. The final live desktop gates are recorded separately in `EGO-CHECKLIST.md`, including owner acceptance based on practical use where a new instrumented run was not captured.
+This document retains dated source and package audits. “PASS” refers to the recorded checkout and date, not automatic verification of later changes. Current automated results and remaining live desktop gates are tracked in [EGO-CHECKLIST.md](EGO-CHECKLIST.md); runtime behavior and test entry points are documented in the [README](../README.md).
 
 ## Source and behavior recheck — 2026-10-15
 

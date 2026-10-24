@@ -23,6 +23,145 @@ function assert(condition, message) {
         throw new Error(message);
 }
 
+function referenceTextBounds(label) {
+    const native = label.clutter_text.get_layout();
+    const layout = Pango.Layout.new(native.get_context());
+    layout.set_font_description(native.get_font_description());
+    layout.set_attributes(native.get_attributes());
+    layout.set_single_paragraph_mode(true);
+    layout.set_text(label.text, -1);
+    const [ink, logical] = layout.get_extents();
+    const units = Pango.SCALE * label.clutter_text.get_resource_scale();
+    const left = Math.min(ink.x, logical.x) / units;
+    const right = Math.max(ink.x + ink.width, logical.x + logical.width) / units;
+    return {left, right, width: right - left};
+}
+
+function referenceLabelWidth(label) {
+    const bounds = referenceTextBounds(label);
+    const scale = label.clutter_text.get_resource_scale();
+    const node = label.get_theme_node();
+    return (Math.ceil(bounds.right * scale) - Math.floor(bounds.left * scale)) / scale +
+        node.get_horizontal_padding() + node.get_border_width(St.Side.LEFT) +
+        node.get_border_width(St.Side.RIGHT);
+}
+
+function assertTextAllocation(label) {
+    const text = label.clutter_text;
+    const [ink, logical] = text.get_layout().get_extents();
+    const units = Pango.SCALE * text.get_resource_scale();
+    const origin = text.get_allocation_box().x1;
+    const left = Math.min(ink.x, logical.x) / units + origin;
+    const right = Math.max(ink.x + ink.width, logical.x + logical.width) / units +
+        origin;
+    const box = label.get_allocation_box();
+    box.set_origin(0, 0);
+    const content = label.get_theme_node().get_content_box(box);
+    assert(left >= content.x1 - 0.01 && right <= content.x2 + 0.01,
+        `complete shaped text must fit its drawing allocation (${left}, ${right}, ` +
+            `${content.x1}..${content.x2})`);
+}
+
+// Also called by the isolated virtual-monitor harness at different scales.
+export async function checkTextGeometry(view) {
+    const panelStyle = view._panelPanLabel.get_style();
+    const titleStyle = view._titleLabel.get_style();
+    const metadata = {title: view._titleLabel.text, artist: view._artistLabel.text,
+        album: view._albumLabel.text};
+    const wasOpen = view.actor.menu.isOpen;
+    const text = 'jf 中文 e\u0301 👩‍🚀 complete glyph bounds '.repeat(4);
+    const baselineStyle = 'font-size: 20px; padding: 0; border-width: 0;';
+    view.setVisible(true);
+    view.setProgress(0, 60_000_000, {playing: false});
+    view.actor.menu.open();
+    try {
+        for (const [name, style, insets, sample = text] of [
+            ['plain', '', 0], ['fixed', 'width: 80px;', 0],
+            ['minimum', 'min-width: 1800px;', 0],
+            ['padding', 'width: 80px; padding: 0 20px; border: 2px solid red;', 44],
+            ['italic', 'font-family: serif; font-style: italic;', 0],
+            ['rtl', '', 0, 'مرحبا بالعالم هذه أغنية طويلة '.repeat(6)],
+        ]) {
+            view._panelPanLabel.set_style(baselineStyle + style);
+            view._titleLabel.set_style(baselineStyle + style);
+            view.setText(sample, {loop: true});
+            view.updateMetadataDisplay({...metadata, title: sample});
+            await Scripting.sleep(200);
+            for (const [label, copy, measured] of [
+                [view._panelPanLabel, view._panelTitleCopy, view._panelNaturalWidth],
+                [view._titleLabel, view._titleCopy, view._titlePanPeriod - 32],
+            ]) {
+                const expected = referenceTextBounds(label).width + insets;
+                const rounding = 2 / label.clutter_text.get_resource_scale();
+                assert(measured >= expected - 0.01 && measured <= expected + rounding,
+                    `${name}: measured text must match a fresh unconstrained Pango layout ` +
+                        `(${measured} versus ${expected})`);
+                assert(copy.visible && label.get_allocation_box().get_width() >= measured &&
+                    Math.abs(copy.get_allocation_box().x1 - measured - 32) < 0.01,
+                `${name}: both copies must receive full text allocations and matching spacing ` +
+                    `(${label.get_style_class_name()}, visible=${copy.visible}, ` +
+                    `allocated=${label.get_allocation_box().get_width()}, measured=${measured}, ` +
+                    `repeat=${copy.get_allocation_box().x1})`);
+                assertTextAllocation(label);
+                assertTextAllocation(copy);
+            }
+            print(`textGeometry=${name},scale:${view._panelPanLabel.clutter_text.get_resource_scale()},` +
+                `preferred:${view._panelPanLabel.get_preferred_width(-1)[1]},` +
+                `measured:${view._panelNaturalWidth},viewport:${view._panelViewportWidth}`);
+        }
+        // A CSS minimum must not invent overflow for a genuinely short string.
+        view._panelPanLabel.set_style(baselineStyle + 'min-width: 1800px;');
+        view._titleLabel.set_style(baselineStyle + 'min-width: 1800px;');
+        view.setText('Short', {loop: true});
+        view.updateMetadataDisplay({...metadata, title: 'Short'});
+        await Scripting.sleep(200);
+        assert(view._label.visible && !view._panelTitleCopy.visible &&
+            !view._titleCopy.visible && view._titlePanPeriod === 0,
+        'a minimum actor width must not make fitting text scroll');
+    } finally {
+        view._panelPanLabel.set_style(panelStyle);
+        view._titleLabel.set_style(titleStyle);
+        view.updateMetadataDisplay(metadata);
+        view.setText('', {loop: false});
+        if (!wasOpen)
+            view.actor.menu.close();
+        await Scripting.sleep(150);
+    }
+}
+
+async function checkTitleWrap(label, copy, period, resume) {
+    assert(copy.visible && copy.text === label.text &&
+        Math.abs(copy.get_allocation_box().x1 - period) < 0.5,
+    'the matching title copy must be allocated one full title plus a gap after the first');
+    label.remove_all_transitions();
+    label.translation_x = -(period - 4);
+    assert(copy.translation_x === label.translation_x,
+        'both title copies must move together');
+    let wraps = 0;
+    let previousX = label.translation_x;
+    const signal = label.connect('notify::translation-x', () => {
+        const x = label.translation_x;
+        if (x > previousX + period / 2) {
+            assert(Math.abs(previousX + period) < 0.5 && Math.abs(x) < 0.5,
+                'a loop may reset only when the second copy exactly replaces the first');
+            wraps++;
+        }
+        previousX = x;
+    });
+    try {
+        resume();
+        await Scripting.sleep(350);
+        assert(wraps === 1 && label.translation_x < 0 && label.translation_x > -20,
+            'a title must wrap seamlessly and immediately continue left');
+        const x = label.translation_x;
+        await Scripting.sleep(120);
+        assert(label.translation_x < x && copy.translation_x === label.translation_x,
+            'the next title cycle must keep moving left at the same offset');
+    } finally {
+        label.disconnect(signal);
+    }
+}
+
 async function takeScreenshot(path) {
     const file = Gio.File.new_for_path(path);
     const stream = await new Promise((resolve, reject) => {
@@ -269,6 +408,7 @@ export async function run() {
         positionMs,
         playbackRate,
     });
+    await checkTextGeometry(view);
     view.setVisible(false);
     view.setText(panningText, {
         scrollable: true,
@@ -304,8 +444,7 @@ export async function run() {
     });
     await Scripting.sleep(950);
     const firstPanX = view._panelPanLabel.translation_x;
-    const [, panNaturalWidth] =
-        view._panelPanLabel.get_preferred_width(-1);
+    const panNaturalWidth = referenceLabelWidth(view._panelPanLabel);
     print(`panelPanWidths=natural:${panNaturalWidth.toFixed(1)},` +
         `actor:${view._panelPanLabel.width.toFixed(1)},` +
         `viewport:${view._labelViewport.width.toFixed(1)}`);
@@ -386,7 +525,7 @@ export async function run() {
         'external panel constraints should reallocate and restart an active pan');
         const actualWidth = view._labelViewport.width;
         const actualOverflow = Math.ceil(
-            view._panelPanLabel.get_preferred_width(-1)[1] - actualWidth);
+            referenceLabelWidth(view._panelPanLabel) - actualWidth);
         assert(view._panelPanTargetX === -(actualOverflow + 8),
             'external compression must set the endpoint from allocated text width');
         print(`externalPanelWidth=setting:${settings.get_int('max-panel-width')},` +
@@ -424,7 +563,7 @@ export async function run() {
     view.setText('A lyric that fits before compression', {scrollable: true,
         timeline: panelTimeline(8000, 8000), contentKey: 'compression-fit-boundary'});
     await Scripting.sleep(150);
-    const fitNaturalWidth = view._panelPanLabel.get_preferred_width(-1)[1];
+    const fitNaturalWidth = referenceLabelWidth(view._panelPanLabel);
     assert(fitNaturalWidth < view._labelViewport.width &&
         !view._panelPanLabel.visible && !view._panelFadeEffect.enabled,
     'a lyric that fits its allocated viewport must remain static');
@@ -496,7 +635,7 @@ export async function run() {
     while (tinyNaturalWidth <= view._labelViewport.width) {
         tinyText += 'i';
         view._panelPanLabel.text = tinyText;
-        [, tinyNaturalWidth] = view._panelPanLabel.get_preferred_width(-1);
+        tinyNaturalWidth = referenceLabelWidth(view._panelPanLabel);
     }
     const tinyOverflow = Math.ceil(tinyNaturalWidth - view._labelViewport.width);
     assert(tinyOverflow > 0 && tinyOverflow <= 8,
@@ -700,30 +839,40 @@ export async function run() {
         'the title loop regression should use a short overflow with a bounded cycle');
     view.updateMetadataDisplay({...titleMetadata, title: loopTitle + 'i'});
     await Scripting.sleep(2300);
-    const titleDistance = Math.ceil(view._titleLabel.get_preferred_width(-1)[1] -
-        view._titleViewport.width) + 8;
+    const titlePeriod = referenceLabelWidth(view._titleLabel) + 32;
     print(`titlePan=viewport:${view._titleViewport.width},` +
         `natural:${view._titleLabel.get_preferred_width(-1)[1]},` +
         `actor:${view._titleLabel.width},offset:${view._titleLabel.translation_x},` +
         `mapped:${view._titleViewport.mapped},open:${indicator.menu.isOpen}`);
     assert(view._titleLabel.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
-        Math.abs(view._titleLabel.translation_x + titleDistance) < 1,
-    'an overflowing title should expose its complete ending without an ellipsis');
-    await Scripting.sleep(1800);
-    assert(Math.abs(view._titleLabel.translation_x) < 0.5,
-        'the title loop should return to its beginning and hold there');
-    await Scripting.sleep(1000);
-    assert(view._titleLabel.translation_x < 0,
-        'a long title should begin scrolling again on its next loop');
+        view._titleLabel.translation_x < 0 && view._titleCopy.visible,
+    'an overflowing title must move left without an ellipsis');
+    view._titleViewport.set_hover(true);
+    const hoveredPopupX = view._titleLabel.translation_x;
+    await Scripting.sleep(80);
+    assert(view._titleLabel.translation_x === hoveredPopupX &&
+        !view._titleLabel.get_transition('translation-x'),
+    `hovering the popup title must freeze both copies (${hoveredPopupX} -> ` +
+        `${view._titleLabel.translation_x}, hover=${view._titleViewport.hover})`);
+    view._titleViewport.set_hover(false);
+    assert(view._titleLabel.translation_x === hoveredPopupX,
+        'leaving the popup title must resume without a jump');
+    await checkTitleWrap(view._titleLabel, view._titleCopy, titlePeriod,
+        () => view._continueTitlePan());
     indicator.menu.close();
     assert(view._titleLabel.translation_x === 0 && view._titlePanLaterId === 0 &&
-        !view._titleLabel.get_transition('translation-x'),
+        !view._titleLabel.get_transition('translation-x') && !view._titleCopy.visible,
     'closing the popup should cancel the title loop and pending allocation callback');
     indicator.menu.open();
     await Scripting.sleep(1400);
     assert(view._titleLabel.get_transition('translation-x') &&
         view._titleLabel.translation_x < 0,
         'reopening the popup should restart a mapped title loop');
+    view.updateMetadataDisplay({...titleMetadata, title: 'Short'});
+    await Scripting.sleep(100);
+    assert(!view._titleCopy.visible && view._titleLabel.translation_x === 0 &&
+        !view._titleLabel.get_transition('translation-x'),
+    'a fitting replacement title must remain static and hide the old copy');
     view.updateMetadataDisplay(titleMetadata);
     if (!titlePopupWasOpen)
         indicator.menu.close();
@@ -1715,12 +1864,11 @@ export async function run() {
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
     instance._updateIndicatorAndSchedule(true);
     await Scripting.sleep(2300);
-    const panelTitleDistance = Math.ceil(
-        view._panelPanLabel.get_preferred_width(-1)[1] - view._panelViewportWidth) + 8;
+    const panelTitlePeriod = referenceLabelWidth(view._panelPanLabel) + 32;
     assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
         !view._panelPanTimeline && view._panelWordTimeoutId === 0 &&
-        Math.abs(view._panelPanLabel.translation_x + panelTitleDistance) < 1,
-    'a missing-lyrics title should expose its full ending without a lyric boundary timer');
+        view._panelPanLabel.translation_x < 0 && view._panelTitleCopy.visible,
+    'a missing-lyrics title should scroll left without a lyric boundary timer');
 
     const instrumentalDocument = {source: 'test-instrumental', sourceId: null,
         instrumental: true, metadata: {}, syncLevel: 'none', lines: []};
@@ -1730,23 +1878,22 @@ export async function run() {
     assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
         view._messageLabel.text === uiText('Instrumental', '纯音乐', '純音樂'),
     'an instrumental provider flag must loop the track title while retaining the popup explanation');
-    assert(view._panelPanTargetX === 0,
-        'the title loop must schedule a return to its beginning after exposing the ending');
+    assert(view._panelPanTargetX === -panelTitlePeriod,
+        'the title loop must target one full title and gap, never a reverse leg');
     instance._state.playbackStatus = 'Paused';
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
     const pausedTitleX = view._panelPanLabel.translation_x;
     await Scripting.sleep(80);
     assert(view._panelPanPaused && view._panelPanLabel.translation_x === pausedTitleX &&
         !view._panelPanLabel.get_transition('translation-x'),
-    'pause must freeze a title even during its return leg or end hold');
+    'pause must freeze the title copies at their current position');
     instance._state.playbackStatus = 'Playing';
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
     assert(view._panelPanLabel.translation_x === pausedTitleX,
         'resuming a title loop must not jump back to its beginning');
-    await Scripting.sleep(700);
-    assert(Math.abs(view._panelPanLabel.translation_x) < 0.5,
-        'a resumed title must finish returning to its beginning');
-    await Scripting.sleep(1400);
+    await checkTitleWrap(view._panelPanLabel, view._panelTitleCopy, panelTitlePeriod,
+        () => view._continuePanelTitlePan());
+    await Scripting.sleep(200);
     assert(view._panelPanLabel.translation_x < 0 &&
         view._panelPanLabel.get_transition('translation-x'),
     'the no-lyrics title must start another loop rather than stop after one pass');
@@ -1766,6 +1913,16 @@ export async function run() {
     if (panelLoopPopupWasOpen)
         indicator.menu.open();
 
+    const panelTitleStyle = view._panelPanLabel.get_style();
+    view._panelPanLabel.set_style('font-size: 31px;');
+    await Scripting.sleep(180);
+    const resizedTitleWidth = referenceLabelWidth(view._panelPanLabel);
+    assert(referenceLabelWidth(view._panelTitleCopy) === resizedTitleWidth &&
+        view._panelTitleCopy.get_allocation_box().x1 === resizedTitleWidth + 32,
+    'font changes must update both copies and their spacing before restarting');
+    view._panelPanLabel.set_style(panelTitleStyle);
+    await Scripting.sleep(180);
+
     settings.set_int('max-panel-width', 200);
     await Scripting.sleep(150);
     assert(view._panelPanLooping && view._panelViewportWidth <= 178 &&
@@ -1774,6 +1931,8 @@ export async function run() {
     St.Settings.get().inhibit_animations();
     await Scripting.sleep(80);
     assert(view._label.visible && !view._panelPanLabel.visible &&
+        !view._panelTitleCopy.visible &&
+        !view._titleCopy.visible && !view._titleLabel.get_transition('translation-x') &&
         view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
         !view._panelPanLabel.get_transition('translation-x'),
     'a no-lyrics title must remain statically ellipsized when animations are disabled');
@@ -1784,7 +1943,7 @@ export async function run() {
         'restoring animations must restart the panel title loop');
     view.clearTrack();
     assert(!view._panelPanLooping && view._panelPanLaterId === 0 &&
-        !view._panelPanLabel.get_transition('translation-x'),
+        !view._panelPanLabel.get_transition('translation-x') && !view._panelTitleCopy.visible,
     'clearing a track must cancel both loop state and pending title motion');
     instance._state = {playbackStatus: 'Paused', metadata: offsetMetadata};
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
