@@ -9,7 +9,8 @@ RUNTIME_SOURCES := indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics-parser.js lyrics-synchronizer.js lyricsfile-parser.js mpris.js \
 	storage.js credentials.js translation-batching.js translation-cache.js \
 	translation-document.js translation-provider.js translation-service.js \
-	js-yaml.mjs LICENSE.js-yaml README.js-yaml.md LICENSE
+	js-yaml.mjs LICENSE.js-yaml README.js-yaml.md \
+	franc.mjs LICENSE.franc README.franc.md LICENSE
 PACK_SOURCE_ARGS := $(foreach source,$(RUNTIME_SOURCES),--extra-source=$(source))
 
 .PHONY: check unit-check schema-check translations-check package-check \

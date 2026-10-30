@@ -47,6 +47,7 @@ let mode = 'success';
 let requestCount = 0;
 let observed = null;
 let cancelDuringRequest = null;
+let httpError = null;
 server.add_handler(null, (_server, message) => {
     requestCount++;
     if (mode === 'slow') {
@@ -66,6 +67,12 @@ server.add_handler(null, (_server, message) => {
         userAgent: message.get_request_headers().get_one('User-Agent'),
         body: JSON.parse(body),
     };
+    if (mode === 'http-error') {
+        message.set_status(httpError.status, null);
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(httpError.body ?? JSON.stringify({error: httpError.error})));
+        return;
+    }
     if (mode === 'rate-limit' && requestCount === 1) {
         message.set_status(429, null);
         message.get_response_headers().append('Retry-After', '0');
@@ -73,6 +80,14 @@ server.add_handler(null, (_server, message) => {
     }
     if (mode === 'authentication') {
         message.set_status(Soup.Status.UNAUTHORIZED, null);
+        return;
+    }
+    if (mode === 'reject-reasoning' && observed.body.reasoning) {
+        message.set_status(Soup.Status.BAD_REQUEST, null);
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(JSON.stringify({error: {
+                code: 'unsupported_parameter', param: 'reasoning',
+            }})));
         return;
     }
     if (mode === 'redirect') {
@@ -156,12 +171,66 @@ async function run() {
         observed.userAgent.startsWith('LyricGlance/0.9.0') &&
         observed.body.model === 'custom-translation-model' &&
         observed.body.store === false &&
-        !Object.hasOwn(observed.body, 'reasoning') &&
+        observed.body.reasoning?.effort === 'none' &&
         observed.body.text.format.type === 'json_schema' &&
         observed.body.text.format.strict === true &&
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
     provider.destroy();
+
+    mode = 'reject-reasoning';
+    requestCount = 0;
+    provider = new OpenAITranslationProvider({endpoint});
+    const concurrent = await Promise.allSettled([0, 1, 2].map(() => translate(provider)));
+    assert(concurrent.every(result => result.status === 'fulfilled') && requestCount === 6,
+        'all three in-flight requests must independently retry a confirmed unsupported reasoning parameter');
+    provider.destroy();
+
+    mode = 'http-error';
+    for (const [status, error, expected] of [
+        [401, {}, 'authentication_error'],
+        [403, {}, 'permission_denied'],
+        [403, {code: 'invalid_api_key'}, 'authentication_error'],
+        [403, {code: 'insufficient_quota'}, 'quota_exceeded'],
+        [429, {type: 'insufficient_quota'}, 'quota_exceeded'],
+        [429, {code: 'credit_balance_exhausted'}, 'quota_exceeded'],
+        [400, {param: 'model', code: 'model_not_found'}, 'provider_error'],
+        [400, {param: 'reasoning', code: 'required_parameter'}, 'provider_error'],
+    ]) {
+        requestCount = 0;
+        httpError = {status, error: {...error, message: 'sensitive provider error text'}};
+        provider = new OpenAITranslationProvider({endpoint});
+        await expectCode(() => translate(provider), expected, `HTTP ${status} must retain ${expected}`);
+        assert(requestCount === 1, 'quota and unrelated request errors must not be retried');
+        if (status === 400) {
+            mode = 'success';
+            await translate(provider);
+            assert(observed.body.reasoning?.effort === 'none',
+                'unrelated 400 errors must not disable reasoning for later requests');
+            mode = 'http-error';
+        }
+        provider.destroy();
+    }
+    for (const body of ['<html>forbidden</html>', 'x'.repeat(20_000)]) {
+        httpError = {status: 403, body};
+        provider = new OpenAITranslationProvider({endpoint});
+        await expectCode(() => translate(provider), 'permission_denied',
+            'unparseable or oversized error bodies must retain safe HTTP classification');
+        provider.destroy();
+    }
+
+    mode = 'reject-reasoning';
+    provider = new OpenAITranslationProvider({endpoint, model: 'plain-model'});
+    const beforeFallback = requestCount;
+    result = await translate(provider);
+    assert(result.length === 2 && requestCount === beforeFallback + 2 &&
+        !Object.hasOwn(observed.body, 'reasoning'),
+    'models rejecting the reasoning parameter should be retried once without it');
+    await translate(provider);
+    assert(requestCount === beforeFallback + 3,
+        'the reasoning fallback should be remembered by the provider');
+    provider.destroy();
+    mode = 'success';
 
     provider = new OpenAITranslationProvider({endpoint, model: 'connection-test-model'});
     await provider.checkConnection('connection-test-token', null);

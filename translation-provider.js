@@ -10,6 +10,7 @@ export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
+const DEFAULT_REASONING_EFFORT = 'none';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
 
@@ -77,19 +78,23 @@ async function readResponse(session, message, limit, cancellable) {
     const stream = await session.send_async(
         message, GLib.PRIORITY_DEFAULT, cancellable);
     try {
-        if (message.status_code < 200 || message.status_code >= 300)
-            return GLib.Bytes.new(new Uint8Array());
+        const errorResponse = message.status_code < 200 || message.status_code >= 300;
+        if (errorResponse)
+            limit = Math.min(limit, 16 * 1024);
 
         const contentLength = message.get_response_headers()
             .get_content_length();
-        if (contentLength > limit)
+        if (!errorResponse && contentLength > limit)
             throw new ResponseTooLargeError();
 
         const chunks = [];
         let total = 0;
         while (true) {
+            if (errorResponse && total >= limit)
+                break;
             const bytes = await stream.read_bytes_async(
-                READ_CHUNK_BYTES, GLib.PRIORITY_DEFAULT, cancellable);
+                errorResponse ? Math.min(READ_CHUNK_BYTES, limit - total) : READ_CHUNK_BYTES,
+                GLib.PRIORITY_DEFAULT, cancellable);
             const size = bytes.get_size();
             if (size === 0)
                 break;
@@ -220,7 +225,7 @@ function responseSchema(ids) {
     };
 }
 
-function requestBody(document, options, model) {
+function requestBody(document, options, model, reasoningEffort) {
     const input = {
         title: document.metadata?.title ?? '',
         artist: document.metadata?.artist ?? '',
@@ -231,7 +236,7 @@ function requestBody(document, options, model) {
         contextAfter: options.chunk.contextAfter.map(line => line.text),
     };
     const ids = options.chunk.lines.map(line => line.id);
-    return {
+    const body = {
         model,
         store: false,
         instructions: [
@@ -252,20 +257,27 @@ function requestBody(document, options, model) {
         },
         max_output_tokens: options.maxOutputTokens ?? 12_000,
     };
+    // Reasoning models (e.g. Qwen3.8 defaults to xhigh) otherwise spend most
+    // of the request thinking, which translation does not need.
+    if (reasoningEffort)
+        body.reasoning = {effort: reasoningEffort};
+    return body;
 }
 
 export class OpenAITranslationProvider {
     constructor({
         endpoint = OPENAI_RESPONSES_URL,
         model = OPENAI_MODEL,
-        timeoutSeconds = 45,
+        timeoutSeconds = 120,
         maxResponseBytes = MAX_RESPONSE_BYTES,
+        reasoningEffort = DEFAULT_REASONING_EFFORT,
     } = {}) {
         this.id = OPENAI_PROVIDER_ID;
         this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
         this._endpoint = normalizeTranslationEndpoint(endpoint);
         this.configurationId = endpointConfigurationId(this._endpoint);
+        this._reasoningEffort = reasoningEffort;
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
@@ -313,8 +325,9 @@ export class OpenAITranslationProvider {
         message.set_flags(Soup.MessageFlags.NO_REDIRECT);
         message.get_request_headers().append(
             'Authorization', `Bearer ${options.credential}`);
+        const reasoningEffort = this._reasoningEffort;
         const encoded = new TextEncoder().encode(JSON.stringify(
-            requestBody(document, options, this.model)));
+            requestBody(document, options, this.model, reasoningEffort)));
         message.set_request_body_from_bytes(
             'application/json', GLib.Bytes.new(encoded));
 
@@ -348,6 +361,24 @@ export class OpenAITranslationProvider {
         }
 
         const status = message.status_code;
+        // Inspect only a bounded error body. Never expose its free-form text.
+        let apiError = null;
+        if (status < 200 || status >= 300) {
+            try {
+                apiError = JSON.parse(new TextDecoder().decode(bytes.get_data()))?.error;
+            } catch {
+                // HTML, oversized and malformed error bodies retain HTTP classification.
+            }
+        }
+        const quotaCodes = new Set(['insufficient_quota', 'quota_exceeded',
+            'credit_balance_exhausted', 'billing_hard_limit_reached',
+            'organization_spend_limit_exceeded', 'project_spend_limit_exceeded',
+            'organization_usage_limit_exceeded']);
+        if ((status < 200 || status >= 300) &&
+            (quotaCodes.has(apiError?.code) || quotaCodes.has(apiError?.type))) {
+            throw new TranslationProviderError(
+                'quota_exceeded', 'Translation quota or spending limit reached');
+        }
         if (status === 429) {
             const retryAfterMs = translationRetryAfterMs(
                 message.get_response_headers().get_one('Retry-After'));
@@ -360,9 +391,25 @@ export class OpenAITranslationProvider {
                 'rate_limited', 'Translation provider rate limited the request',
                 retryAfterMs);
         }
-        if (status === 401 || status === 403) {
+        if (status === 401 || status === 403 && apiError?.code === 'invalid_api_key') {
             throw new TranslationProviderError(
                 'authentication_error', 'Translation credential was rejected');
+        }
+        if (status === 403) {
+            throw new TranslationProviderError(
+                'permission_denied', 'Translation access was denied');
+        }
+        const reasoningParam = ['reasoning', 'reasoning.effort'].includes(apiError?.param);
+        const unsupportedReasoning = (reasoningParam &&
+            ['unsupported_parameter', 'unsupported_value', 'unknown_parameter'].includes(apiError?.code)) ||
+            (typeof apiError?.message === 'string' &&
+                (reasoningParam || /\breasoning(?:[._ ]effort)?\b/i.test(apiError.message)) &&
+                /unsupported|not supported|unknown parameter|unrecognized/i.test(apiError.message));
+        if (status === 400 && reasoningEffort && unsupportedReasoning) {
+            // Each in-flight request owns its retry, even if a sibling already
+            // disabled reasoning for subsequent requests on this provider.
+            this._reasoningEffort = null;
+            return this._request(document, options, cancellable, attempt);
         }
         if (status < 200 || status >= 300) {
             throw new TranslationProviderError(

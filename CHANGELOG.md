@@ -4,7 +4,8 @@
 
 ### Added
 
-- Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics. Timeout and retry policies are unchanged.
+- Offline language detection for unmarked lyrics skips translation only when sufficiently long, consistent samples confidently match the target language. Explicit source language takes precedence; uncertain and mixed-language text still reaches the configured translator.
+- Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics that omit credentials and request contents.
 - Translation settings can check the entered endpoint/model with the saved key using a small synthetic Responses API request, with localized outcomes and cancellation on edits or window close.
 - Traditional Chinese (`zh_TW`) interface translations for the Shell popup and Preferences.
 - Overflowing panel titles loop for tracks without lyrics and provider-marked instrumental tracks. Instrumental explanations remain in the popup; pause, hover and reduced motion are respected.
@@ -23,6 +24,9 @@
 
 ### Fixed
 
+- Translation requests prefer `reasoning.effort: "none"`, use balanced chunks of up to 20 lines/3000 characters and allow three concurrent chunks. Confirmed unsupported-reasoning errors permit one fallback per in-flight request; unrelated HTTP 400 responses do not disable reasoning. These changes reduce per-request work without guaranteeing provider latency.
+- Translation errors distinguish invalid credentials, forbidden access and recognized quota/spending-limit errors using bounded error responses. Quota failures are not automatically retried, and raw provider error text is not displayed or logged.
+- Translation requests allow 120 seconds for slow model responses, replacing the 45-second timeout; Preferences connection checks retain 15 seconds, with batch limits and retries unchanged.
 - Valid translation endpoint/model edits persist when closing Preferences without Apply; invalid edits preserve saved values. Saved credentials are explicitly marked as hidden, blank replacement keeps the existing key, and lyrics cache counts are shown separately from translation cache counts.
 - Full-text scroll measurement uses unconstrained Pango logical/ink bounds rather than CSS-dependent preferred sizes. Drawing allocations include glyph overhang, padding and borders; resource-scale changes invalidate geometry.
 - Lyrics timing buttons now use the translated seconds unit consistently. Translation checks compare current source strings against the template and every language catalog, and packaging verifies all compiled catalogs.

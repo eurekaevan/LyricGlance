@@ -7,12 +7,15 @@ import {
     createTranslationDocument,
     languagesEquivalent,
     sourceLyricsHash,
+    sourceLyricsLanguage,
     validateTranslationLines,
 } from './translation-document.js';
 import {
     OpenAITranslationProvider,
     TranslationProviderError,
 } from './translation-provider.js';
+
+const MAX_CONCURRENT_CHUNKS = 3;
 
 export const TranslationStatus = Object.freeze({
     IDLE: 'idle',
@@ -23,6 +26,8 @@ export const TranslationStatus = Object.freeze({
     NETWORK_ERROR: 'network_error',
     PROVIDER_ERROR: 'provider_error',
     AUTHENTICATION_ERROR: 'authentication_error',
+    PERMISSION_DENIED: 'permission_denied',
+    QUOTA_EXCEEDED: 'quota_exceeded',
     RATE_LIMITED: 'rate_limited',
     INVALID_RESPONSE: 'invalid_response',
     CANCELED: 'canceled',
@@ -106,15 +111,14 @@ export class TranslationService {
         if (typeof options.targetLanguage !== 'string' ||
             !options.targetLanguage.trim())
             return notify({status: TranslationStatus.PROVIDER_ERROR});
+        const sourceLanguage = sourceLyricsLanguage(document);
+        if (languagesEquivalent(sourceLanguage, options.targetLanguage))
+            return notify({status: TranslationStatus.SAME_LANGUAGE});
         if (!options.provider)
             return notify({status: TranslationStatus.PROVIDER_UNAVAILABLE});
         if (typeof options.provider.model !== 'string' ||
             !options.provider.model.trim())
             return notify({status: TranslationStatus.PROVIDER_ERROR});
-
-        const sourceLanguage = document.metadata?.language ?? 'unknown';
-        if (languagesEquivalent(sourceLanguage, options.targetLanguage))
-            return notify({status: TranslationStatus.SAME_LANGUAGE});
 
         const cacheOptions = {
             sourceLyricsHash: options.lyricsHash,
@@ -152,34 +156,16 @@ export class TranslationService {
 
             const chunks = buildTranslationChunks(
                 document, this._batchingOptions);
-            const translatedLines = [];
-            for (const chunk of chunks) {
-                if (options.cancellable.is_cancelled())
-                    return notify({status: TranslationStatus.CANCELED});
-                const lines = await options.provider.translate(document, {
+            const translatedLines = await this._translateChunks(
+                document, chunks, {
                     sourceLanguage,
                     targetLanguage: options.targetLanguage,
+                    provider: options.provider,
                     credential,
-                    chunk,
-                    batchCount: chunks.length,
-                }, options.cancellable);
-                let validated;
-                try {
-                    if (!Array.isArray(lines))
-                        throw new Error('Provider lines must be an array');
-                    validated = validateTranslationLines(
-                        {lines: chunk.lines.map(line => ({lineId: line.id}))},
-                        {lines: lines.map(line => ({
-                            id: line?.lineId,
-                            text: line?.text,
-                        }))});
-                } catch {
-                    throw new TranslationProviderError(
-                        'invalid_response',
-                        'Translation provider returned invalid line IDs');
-                }
-                translatedLines.push(...validated);
-            }
+                    cancellable: options.cancellable,
+                });
+            if (options.cancellable.is_cancelled())
+                return notify({status: TranslationStatus.CANCELED});
             if (translatedLines.length === 0)
                 return notify({status: TranslationStatus.INVALID_RESPONSE});
 
@@ -219,6 +205,69 @@ export class TranslationService {
         } finally {
             credential = null;
         }
+    }
+
+    _validateChunk(chunk, lines) {
+        try {
+            if (!Array.isArray(lines))
+                throw new Error('Provider lines must be an array');
+            return validateTranslationLines(
+                {lines: chunk.lines.map(line => ({lineId: line.id}))},
+                {lines: lines.map(line => ({
+                    id: line?.lineId,
+                    text: line?.text,
+                }))});
+        } catch {
+            throw new TranslationProviderError(
+                'invalid_response',
+                'Translation provider returned invalid line IDs');
+        }
+    }
+
+    async _translateChunks(document, chunks, {
+        sourceLanguage, targetLanguage, provider, credential, cancellable,
+    }) {
+        const results = new Array(chunks.length);
+        // Abort sibling requests as soon as one chunk fails.
+        const workCancellable = new Gio.Cancellable();
+        const signalId = cancellable.connect(() => workCancellable.cancel());
+        let failure = null;
+        let next = 0;
+
+        const worker = async () => {
+            while (!failure && next < chunks.length &&
+                !workCancellable.is_cancelled()) {
+                const index = next++;
+                const chunk = chunks[index];
+                try {
+                    const lines = await provider.translate(document, {
+                        sourceLanguage,
+                        targetLanguage,
+                        credential,
+                        chunk,
+                        batchCount: chunks.length,
+                    }, workCancellable);
+                    results[index] = this._validateChunk(chunk, lines);
+                } catch (error) {
+                    if (!failure && !cancellable.is_cancelled()) {
+                        failure = error;
+                        workCancellable.cancel();
+                    }
+                    return;
+                }
+            }
+        };
+
+        try {
+            await Promise.all(Array.from(
+                {length: Math.min(MAX_CONCURRENT_CHUNKS, chunks.length)},
+                worker));
+        } finally {
+            cancellable.disconnect(signalId);
+        }
+        if (failure)
+            throw failure;
+        return results.flat();
     }
 
     cancelAll() {

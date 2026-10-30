@@ -1085,6 +1085,8 @@ export class LyricsIndicator {
             network_error: [translationNetworkErrorText(networkReason, _), _('Retry'), true],
             provider_error: [_('Translation provider error'), _('Retry'), true],
             authentication_error: [_('Translation API key was rejected'), _('Retry'), true],
+            permission_denied: [_('Translation access was denied'), _('Retry'), true],
+            quota_exceeded: [_('Translation quota or spending limit reached'), _('Retry'), true],
             rate_limited: [_('Translation rate limited'), _('Retry'), true],
             invalid_response: [_('Translation response was invalid'), _('Retry'), true],
             canceled: [_('Translation canceled'), _('Retry'), true],

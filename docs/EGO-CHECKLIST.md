@@ -4,13 +4,31 @@ Last updated: 2026-10-30
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
 
+## Same-language translation guard — 2026-10-30
+
+- [x] explicit language and ISO/locale aliases skip before provider, credential or cache access, including an unconfigured provider
+- [x] unmarked English/Chinese/Japanese/French samples detected offline; short/repeated samples, mixed text and ambiguous rankings do not force a skip; different-language lyrics still translate
+- [x] pinned readable franc-min bundle rebuilt identically twice and imported successfully in GJS; source archives, runtime licenses and build-tool checksums retained
+
+Statistical detection can abstain or misclassify; fixture success does not establish accuracy for every song. No billable request is needed for language detection. The original lyrics remain the source of timing and displayed text.
+
+## Parallel translation compatibility — 2026-10-30
+
+- [x] three simultaneous unsupported-reasoning responses each retry once successfully; unrelated HTTP 400 does not disable reasoning for later requests
+- [x] bounded error bodies distinguish 401, generic 403, explicit invalid keys and recognized quota/spending errors; quota failures do not retry, malformed/oversized 403 bodies retain safe access-denied classification
+- [x] balancing covers 16×200 characters as 8+8, 381 short lines, mixed lengths, exact limits, intact oversized lines, stable order and neighboring context
+- [x] reverse-order completion merges in original order; first failure cancels both active siblings promptly and preserves its status/reason without starting later batches
+
+Limits remain 20 lines/3000 characters and three concurrent batches. Errors are parsed in memory up to 16 KiB; free-form provider text is never displayed or logged. SSE and partial-result publication/caching are not introduced. Automated local tests do not establish real-provider latency or quota mappings outside the recognized error codes.
+
 ## Translation transport diagnostics — 2026-10-30
 
 - [x] native GLib error cases cover timeout, DNS, TLS, proxy, connection closed/refused and unknown failures; canceled requests retain their separate status
 - [x] a delayed local HTTP response reproduces a one-second timeout without automatic retry; captured failure logs contain batch/size/time metadata and no test credential, endpoint, song title or lyrics
+- [x] after increasing the default to 120 seconds, a local HTTP response delayed for 46 seconds succeeds with exactly one request, crossing the former 45-second limit
 - [x] service results preserve the reason for the popup; packaged Shell verifies the specific timeout message, and the shared formatter is used by Preferences connection checks
 
-This adds diagnostics without changing the 45-second translation timeout, batch limits or HTTP 429 retry policy. The user's real provider failure still needs a reproduction after the desktop Shell imports the updated code; no billable API request was made for these tests.
+The initial diagnostics retained the 45-second translation timeout. After a real request timed out at 45.125 seconds, the default was raised to 120 seconds; Preferences connection checks retain their explicit 15-second timeout. Batch limits and the HTTP 429 retry policy are unchanged. Real provider success with the longer timeout still needs a reproduction after the desktop Shell imports the updated code; no billable API request was made for these tests.
 
 ## Translation connection check — 2026-10-30
 

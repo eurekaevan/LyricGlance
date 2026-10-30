@@ -171,8 +171,26 @@ async function run() {
         'instrumental tracks must not call a translation provider');
     result = await service.translate(lyricsDocument({language: 'zh'}),
         options({forceRefresh: true}));
-    assert(result.status === TranslationStatus.SAME_LANGUAGE,
+    assert(result.status === TranslationStatus.SAME_LANGUAGE &&
+        provider.requestCount === requestsBeforeSkip,
         'explicit equivalent source and target languages should skip translation');
+    result = await service.translate(lyricsDocument({language: 'zh_CN'}),
+        options({providerId: 'not-configured', forceRefresh: true}));
+    assert(result.status === TranslationStatus.SAME_LANGUAGE &&
+        provider.requestCount === requestsBeforeSkip,
+    'same-language lyrics must skip translation even without a configured provider');
+    const unmarkedLyrics = createLyricsDocument({
+        source: 'test',
+        lines: [{text: 'Every morning we open the windows and listen to the quiet sounds outside. We walk together through the city and talk about the things we hope to do tomorrow. The road is long but we have enough time to find our way home.'}],
+    });
+    result = await service.translate(unmarkedLyrics,
+        options({targetLanguage: 'en-US', providerId: 'not-configured', forceRefresh: true}));
+    assert(result.status === TranslationStatus.SAME_LANGUAGE && provider.requestCount === requestsBeforeSkip,
+        'confidently identified unmarked lyrics must skip translation without provider configuration');
+    result = await service.translate(unmarkedLyrics,
+        options({targetLanguage: 'zh-CN', forceRefresh: true}));
+    assert(result.status === TranslationStatus.AVAILABLE && provider.requestCount === requestsBeforeSkip + 1,
+        'identified lyrics in a different language must still be translated');
 
     const missingModelService = new TranslationService({
         providers: [new MockTranslationProvider({model: ''})],
@@ -233,6 +251,8 @@ async function run() {
 
     for (const code of [
         'authentication_error',
+        'permission_denied',
+        'quota_exceeded',
         'network_error',
         'provider_error',
         'rate_limited',
@@ -265,7 +285,39 @@ async function run() {
         errorService.destroy();
     }
 
-    const longProvider = new MockTranslationProvider();
+    const completionOrder = [];
+    const pendingChunks = [];
+    let releaseTimeout = 0;
+    const longProvider = {
+        id: 'mock',
+        model: 'ordered-v1',
+        requiresCredential: false,
+        requestCount: 0,
+        translate(_document, request) {
+            this.requestCount++;
+            return new Promise((resolve, reject) => {
+                pendingChunks.push({request, resolve, reject});
+                if (pendingChunks.length === 1) {
+                    releaseTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        releaseTimeout = 0;
+                        for (const pending of pendingChunks)
+                            pending.reject(new Error('three chunks did not start concurrently'));
+                        return GLib.SOURCE_REMOVE;
+                    });
+                }
+                if (pendingChunks.length === 3) {
+                    GLib.source_remove(releaseTimeout);
+                    releaseTimeout = 0;
+                    for (const pending of [...pendingChunks].reverse()) {
+                        completionOrder.push(pending.request.chunk.index);
+                        pending.resolve(pending.request.chunk.lines.map(line => ({
+                            lineId: line.id, text: line.text,
+                        })));
+                    }
+                }
+            });
+        },
+    };
     const longService = new TranslationService({
         providers: [longProvider],
         credentialStore: noCredential,
@@ -274,11 +326,80 @@ async function run() {
         }),
         batchingOptions: {maxLines: 80, maxChars: 100_000},
     });
-    result = await longService.translate(
-        lyricsDocument({lineCount: 205}), options());
+    const longLyrics = lyricsDocument({lineCount: 205});
+    result = await longService.translate(longLyrics, options());
     assert(result.status === TranslationStatus.AVAILABLE &&
-        longProvider.requestCount === 3 && result.document.lines.length === 205,
-    'long lyrics should be translated in bounded sequential chunks');
+        longProvider.requestCount === 3 && completionOrder.join(',') === '2,1,0' &&
+        result.document.lines.map(line => line.lineId).join(',') ===
+            longLyrics.lines.map(line => line.lineId).join(',') &&
+        result.document.lines.every((line, index) => line.text === longLyrics.lines[index].text),
+    'chunks completing in reverse order must merge into the exact original lyric order');
+
+    let active = 0;
+    let peak = 0;
+    let started = 0;
+    let siblingCancellations = 0;
+    let siblingTimeouts = 0;
+    const parallelProvider = {
+        id: 'parallel',
+        model: 'parallel-v1',
+        requiresCredential: false,
+        async translate(_document, request, cancellable) {
+            started++;
+            active++;
+            peak = Math.max(peak, active);
+            let timerId = 0;
+            let signalId = 0;
+            try {
+                if (request.chunk.index === 1) {
+                    await new Promise(resolve => {
+                        timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+                            timerId = 0;
+                            resolve();
+                            return GLib.SOURCE_REMOVE;
+                        });
+                    });
+                    const error = new TranslationProviderError('network_error', 'first failure');
+                    error.networkReason = 'timeout';
+                    throw error;
+                }
+                await new Promise((_resolve, reject) => {
+                    signalId = cancellable.connect(() => {
+                        siblingCancellations++;
+                        reject(new TranslationProviderError('canceled', 'sibling canceled'));
+                    });
+                    timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        timerId = 0;
+                        siblingTimeouts++;
+                        reject(new Error('sibling request was not canceled promptly'));
+                        return GLib.SOURCE_REMOVE;
+                    });
+                });
+            } finally {
+                if (timerId)
+                    GLib.source_remove(timerId);
+                if (signalId)
+                    cancellable.disconnect(signalId);
+                active--;
+            }
+        },
+    };
+    const parallelService = new TranslationService({
+        providers: [parallelProvider],
+        credentialStore: noCredential,
+        cache: new TranslationDiskCache({
+            cacheRoot: GLib.build_filenamev([tempRoot, 'parallel']),
+        }),
+        batchingOptions: {maxLines: 10, maxChars: 100_000},
+    });
+    result = await parallelService.translate(
+        lyricsDocument({lineCount: 100}), options({providerId: 'parallel'}));
+    assert(result.status === TranslationStatus.NETWORK_ERROR && result.networkReason === 'timeout' &&
+        peak > 1 && peak <= 3 && started === 3 && active === 0 &&
+        siblingCancellations === 2 && siblingTimeouts === 0,
+    `the first failure must cancel both active siblings without replacing its diagnostics or starting more work: ` +
+        `${result.status} peak=${peak} started=${started} canceled=${siblingCancellations}`);
+    parallelService.destroy();
 
     const noNetwork = await new TranslationService({
         providers: [new MockTranslationProvider()],

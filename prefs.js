@@ -336,6 +336,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 if (!request.is_cancelled()) {
                     const messages = {
                         authentication_error: _('Translation API key was rejected'),
+                        permission_denied: _('Translation access was denied'),
+                        quota_exceeded: _('Translation quota or spending limit reached'),
                         rate_limited: _('Translation rate limited'),
                         network_error: translationNetworkErrorText(error.networkReason, _),
                         invalid_response: _('Connection check failed: invalid structured response'),

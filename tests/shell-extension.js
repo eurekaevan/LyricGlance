@@ -995,6 +995,15 @@ export async function run() {
     assert(view._translationStatusLabel.text === uiText(
         'Translation request timed out', '翻译请求超时', '翻譯請求逾時'),
     'transport diagnostics should be localized in the popup');
+    for (const [status, expected] of [
+        ['permission_denied', uiText('Translation access was denied', '翻译访问被拒绝', '翻譯存取遭拒')],
+        ['quota_exceeded', uiText('Translation quota or spending limit reached',
+            '翻译额度或消费限额已用尽', '翻譯額度或消費限額已用盡')],
+    ]) {
+        view.setTranslationState(status);
+        assert(view._translationStatusLabel.text === expected,
+            'access and quota failures should have distinct localized popup messages');
+    }
     view.setTranslationState('available');
     view.setTranslationDisplayMode('translated');
     assert(!view._lyricLabels[20].visible &&

@@ -17,6 +17,9 @@ readonly REQUIRED_FILES=(
     js-yaml.mjs
     LICENSE.js-yaml
     README.js-yaml.md
+    franc.mjs
+    LICENSE.franc
+    README.franc.md
     LICENSE
 )
 
@@ -47,7 +50,7 @@ while IFS= read -r imported; do
         exit 1
     fi
 done < <(
-    rg -o "from ['\"]\./[^'\"]+['\"]" "${TMP_DIR}" --glob '*.js' |
+    rg -o "from ['\"]\./[^'\"]+['\"]" "${TMP_DIR}" --glob '*.js' --glob '*.mjs' |
         sed -E "s/^.*from ['\"]\.\/([^'\"]+)['\"]$/\1/" |
         sort -u
 )
