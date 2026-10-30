@@ -193,9 +193,9 @@ export function wordPanState(timeline, positionMs, words, viewportWidth, distanc
 
 const LINE_VISUAL_LEVELS = Object.freeze({
     static: Object.freeze({name: 'static', opacity: 224}),
-    far: Object.freeze({name: 'far', opacity: 107}),
-    mid: Object.freeze({name: 'mid', opacity: 143}),
-    near: Object.freeze({name: 'near', opacity: 184}),
+    far: Object.freeze({name: 'far', opacity: 164}),
+    mid: Object.freeze({name: 'mid', opacity: 192}),
+    near: Object.freeze({name: 'near', opacity: 220}),
     current: Object.freeze({name: 'current', opacity: 255}),
 });
 

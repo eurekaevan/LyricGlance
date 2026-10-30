@@ -11,6 +11,7 @@ import St from 'gi://St';
 
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -386,6 +387,7 @@ export class LyricsIndicator {
         this._mediaRequest = 0;
         this._mediaBusy = false;
         this._mediaState = null;
+        this._menuFocusSignalId = 0;
         this._animationsEnabled = animationPreference;
         this._lyricRows = [];
         this._lyricLabels = [];
@@ -785,8 +787,45 @@ export class LyricsIndicator {
                 forceRefresh: this._translationStatus === 'available',
             });
         });
+        // Preserve a readable lyrics viewport on small displays. The outer
+        // scroller takes over once the complete menu cannot fit the work area.
+        const menuBox = this.actor.menu.box;
+        const menuBin = menuBox.get_parent();
+        menuBin.set_child(null);
+        this._menuScrollView = new St.ScrollView({
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+            child: menuBox,
+        });
+        menuBin.set_child(this._menuScrollView);
+        this._menuFocusSignalId = global.stage.connect('notify::key-focus', () => {
+            const focus = global.stage.key_focus;
+            if (!this.actor.menu.isOpen || !focus || !this._menuScrollView.contains(focus) ||
+                !focus.has_allocation())
+                return;
+            const [, y] = focus.get_transformed_position();
+            const [, height] = focus.get_transformed_size();
+            const [, top] = this._menuScrollView.get_transformed_position();
+            const [, viewportHeight] = this._menuScrollView.get_transformed_size();
+            if (!(viewportHeight > 0))
+                return;
+            const delta = y < top ? y - top : Math.max(0, y + height - top - viewportHeight);
+            const adjustment = this._menuScrollView.vadjustment;
+            adjustment.value = Math.max(adjustment.lower, Math.min(
+                adjustment.upper - adjustment.page_size,
+                adjustment.value + delta * this._menuScrollView.height / viewportHeight));
+        });
         this.actor.menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
+                const monitor = Main.layoutManager.findMonitorForActor(this.actor) ??
+                    Main.layoutManager.primaryMonitor;
+                const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+                const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+                const margins = this.actor.menu.actor.margin_top + this.actor.menu.actor.margin_bottom;
+                this.actor.menu.actor.style = `max-height: ${Math.max(1,
+                    Math.floor((workArea.height - margins) / scale))}px;`;
+                this._menuScrollView.vadjustment.value = 0;
                 this._scheduleScrollToActive({force: true, immediate: true});
                 this._resumePanelPan();
                 this._queueTitlePan();
@@ -1961,6 +2000,9 @@ export class LyricsIndicator {
     }
 
     destroy() {
+        if (this._menuFocusSignalId)
+            global.stage.disconnect(this._menuFocusSignalId);
+        this._menuFocusSignalId = 0;
         this._cancelPanelPan();
         this._cancelTitlePan();
         if (this._titleAnimationSignalId)
@@ -1986,6 +2028,7 @@ export class LyricsIndicator {
         this._progressView?.destroy();
         this.actor?.destroy();
         this.actor = null;
+        this._menuScrollView = null;
         this._panelBox = null;
         this._icon = null;
         this._label = null;

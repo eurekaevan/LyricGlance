@@ -150,9 +150,9 @@ assert(wordPanState(normalizedTimeline, 0, null, 100, 308) === null &&
 'missing geometry and impractically narrow viewports should fall back to line motion');
 
 assert(getLineVisualLevel(5, 5).name === 'current' &&
-    getLineVisualLevel(4, 5).opacity === 184 &&
-    getLineVisualLevel(3, 5).opacity === 143 &&
-    getLineVisualLevel(1, 5).opacity === 107,
+    getLineVisualLevel(4, 5).opacity === 220 &&
+    getLineVisualLevel(3, 5).opacity === 192 &&
+    getLineVisualLevel(1, 5).opacity === 164,
 'line focus should decrease through current, near, mid, and far levels');
 assert(getLineVisualLevel(5, -1).name === 'static',
     'plain or not-yet-active lyrics should keep a readable static level');

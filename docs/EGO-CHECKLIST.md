@@ -4,6 +4,16 @@ Last updated: 2026-10-30
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
 
+## Popup presentation and multilingual layout — 2026-10-30
+
+- [x] native dark/light themes × 100%/150% fonts × 720p/480p × English/Simplified/Traditional Chinese: all 24 combinations pass the focused packaged presentation test
+- [x] inherited normal current-line foreground, distinct disabled reset styling, aligned footer bounds, original/translation grouping, native edge fade and readable active text inside both scrolling viewports
+- [x] actual offset glyph centering within one logical pixel across English/CJK units and Arabic/Hebrew RTL cases; no per-language positional correction
+- [x] large-font title/artist/album do not overlap media controls; footer keyboard focus scrolls offscreen controls into view, closing ignores subsequent focus, and disabling disconnects the focus observer
+- [x] `make check`, local integration checks and the full packaged Shell regression; focused runs have no allocation warnings
+
+The new `tests/shell-presentation.js` retains these UI regressions independently of the larger playback test. Native layout measurements and isolated screenshots verify the fixture; custom desktop themes, physical mixed-DPI monitors and Dock interactions still require live desktop checks.
+
 ## Same-language translation guard — 2026-10-30
 
 - [x] explicit language and ISO/locale aliases skip before provider, credential or cache access, including an unconfigured provider

@@ -22,6 +22,16 @@
   max-width: 456px;
 }
 
+/* Passive menu rows contain readable content and independently reactive buttons. */
+.lyric-glance-menu .popup-menu-item.lyric-glance-media-section:insensitive,
+.lyric-glance-menu .popup-menu-item.lyric-glance-scroll-item:insensitive,
+.lyric-glance-menu .popup-menu-item.lyric-glance-line:insensitive,
+.lyric-glance-menu .popup-menu-item.lyric-glance-source-item:insensitive,
+.lyric-glance-menu .popup-menu-item.lyric-glance-translation-status:insensitive,
+.lyric-glance-menu .popup-menu-item.lyric-glance-offset:insensitive {
+  color: inherit;
+}
+
 .lyric-glance-media-section {
   padding: 16px 18px 10px;
 }
@@ -47,12 +57,10 @@
 }
 
 .lyric-glance-metadata {
-  height: 80px;
+  min-height: 80px;
 }
 
 .lyric-glance-title {
-  height: 2.4em;
-  max-height: 2.4em;
   font-size: 1.14em;
   font-weight: 650;
 }
@@ -101,7 +109,9 @@
 }
 
 .lyric-glance-scroll {
+  min-height: 8em;
   max-height: 18em;
+  -st-vfade-offset: 12px;
 }
 
 .lyric-glance-scroll StScrollBar > .vhandle {
@@ -122,12 +132,12 @@
 }
 
 .lyric-glance-line {
-  padding: 2px 18px;
+  padding: 4px 18px;
 }
 
 .lyric-glance-line-near {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 .lyric-glance-line-current {
@@ -146,7 +156,7 @@
 }
 
 .lyric-glance-translation {
-  margin-top: 3px;
+  margin-top: 2px;
   font-size: 0.88em;
   font-weight: normal;
   opacity: 0.74;
@@ -177,7 +187,13 @@
 
 .lyric-glance-translation-button {
   margin-left: 12px;
-  opacity: 0.8;
+  padding: 3px 6px;
+  font-size: 0.8em;
+}
+
+.lyric-glance-translation-button:rtl {
+  margin-left: 0;
+  margin-right: 12px;
 }
 
 .lyric-glance-message {
@@ -209,11 +225,11 @@
 .lyric-glance-offset-button {
   padding: 3px 6px;
   font-size: 0.82em;
-  opacity: 0.65;
 }
 
 .lyric-glance-offset-label {
   min-width: 4.5em;
+  text-align: center;
   font-size: 0.86em;
   font-feature-settings: "tnum";
   opacity: 0.72;
@@ -222,11 +238,6 @@
 .lyric-glance-reset-button {
   padding: 3px 6px;
   font-size: 0.8em;
-  opacity: 0.68;
-}
-
-.lyric-glance-reset-button:insensitive {
-  opacity: 0.28;
 }
 
 .lyric-glance-effective-offset {
@@ -235,8 +246,7 @@
 }
 
 .lyric-glance-player {
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding: 8px 18px;
 }
 
 .lyric-glance-source-item {

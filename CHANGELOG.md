@@ -24,6 +24,8 @@
 
 ### Fixed
 
+- Popup lyrics inherit the normal theme foreground instead of disabled-row gray; distant lines retain more contrast, bilingual groups have clearer spacing, and offset text is centered across scripts and directions. Footer padding is consistent, disabled buttons keep native styling, and lyrics gain edge fading.
+- Small-display popups retain a font-relative lyrics viewport and scroll the full menu when needed, revealing keyboard-focused footer controls. Single-line titles and metadata use natural text height to prevent large-font overlap with media controls.
 - Translation requests prefer `reasoning.effort: "none"`, use balanced chunks of up to 20 lines/3000 characters and allow three concurrent chunks. Confirmed unsupported-reasoning errors permit one fallback per in-flight request; unrelated HTTP 400 responses do not disable reasoning. These changes reduce per-request work without guaranteeing provider latency.
 - Translation errors distinguish invalid credentials, forbidden access and recognized quota/spending-limit errors using bounded error responses. Quota failures are not automatically retried, and raw provider error text is not displayed or logged.
 - Translation requests allow 120 seconds for slow model responses, replacing the 45-second timeout; Preferences connection checks retain 15 seconds, with batch limits and retries unchanged.
