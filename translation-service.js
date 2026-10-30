@@ -161,6 +161,7 @@ export class TranslationService {
                     targetLanguage: options.targetLanguage,
                     credential,
                     chunk,
+                    batchCount: chunks.length,
                 }, options.cancellable);
                 let validated;
                 try {
@@ -213,7 +214,8 @@ export class TranslationService {
                 known.has(error.code)
                 ? error.code
                 : TranslationStatus.PROVIDER_ERROR;
-            return notify({status});
+            return notify({status, networkReason: error instanceof TranslationProviderError
+                ? error.networkReason : undefined});
         } finally {
             credential = null;
         }

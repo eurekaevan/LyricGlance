@@ -96,7 +96,7 @@ application.connect('activate', async app => {
         await preferences.fillPreferencesWindow(window);
         window.present();
 
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 750, () => {
+        const checkPreferences = async () => {
             try {
                 assert(window.get_visible_page(),
                     'the preferences window did not provide a visible page');
@@ -172,8 +172,108 @@ application.connect('activate', async app => {
                 endpointRow.text = 'https://api.openai.com/v1/responses';
                 modelRow.text = 'gpt-5.4-mini-2026-03-17';
                 applyButton.emit('clicked');
+                const connectionButton = widgets.find(widget => widget instanceof Gtk.Button &&
+                    widget.label === uiText('Check connection', '检查连通性', '檢查連線'));
+                const connectionRow = widgets.find(widget => widget instanceof Adw.ActionRow &&
+                    widget.title === uiText('Translation connection', '翻译连通性', '翻譯連線'));
+                assert(connectionButton && connectionRow,
+                    'preferences should expose the localized connection check');
+                endpointRow.text = 'http://unsafe.example/v1/responses';
+                connectionButton.emit('clicked');
+                assert(connectionButton.sensitive && connectionRow.subtitle === uiText(
+                    'Use HTTPS, or HTTP only for a local loopback endpoint',
+                    '请使用 HTTPS；只有本机回环端点可以使用 HTTP',
+                    '請使用 HTTPS；只有本機回送端點可以使用 HTTP'),
+                'invalid check endpoints must be rejected before looking up credentials');
+
+                const {TranslationCredentialStore} = await import(
+                    directory.get_child('credentials.js').get_uri());
+                const {OpenAITranslationProvider} = await import(
+                    directory.get_child('translation-provider.js').get_uri());
+                const originalLookup = TranslationCredentialStore.prototype.lookup;
+                const originalCheck = OpenAITranslationProvider.prototype.checkConnection;
+                let checkedRequest;
+                let checkedModel;
+                let failureCode = null;
+                TranslationCredentialStore.prototype.lookup = async () => 'test-key';
+                OpenAITranslationProvider.prototype.checkConnection = async function (key, request) {
+                    assert(key === 'test-key', 'the check must use the saved credential');
+                    checkedModel = this.model;
+                    checkedRequest = request;
+                    await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
+                        resolve();
+                        return GLib.SOURCE_REMOVE;
+                    }));
+                    if (failureCode) {
+                        const error = new Error('test-key must never appear in the UI');
+                        error.code = failureCode;
+                        throw error;
+                    }
+                };
+                try {
+                    endpointRow.text = 'http://127.0.0.1:28883/responses';
+                    modelRow.text = 'unsaved-test-model';
+                    connectionButton.emit('clicked');
+                    assert(!connectionButton.sensitive,
+                        'connection checks must disable duplicate submission');
+                    for (let attempt = 0; attempt < 30 && !connectionButton.sensitive; attempt++) {
+                        await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+                            resolve();
+                            return GLib.SOURCE_REMOVE;
+                        }));
+                    }
+                    assert(connectionButton.sensitive && checkedModel === 'unsaved-test-model' &&
+                        connectionRow.subtitle === uiText(
+                            'Connection successful: model and structured responses are available',
+                            '连接成功：模型和结构化响应可用',
+                            '連線成功：模型與結構化回應可用') &&
+                        settings.get_string('translation-model') === 'gpt-5.4-mini-2026-03-17',
+                    'checks must use entered values, show success and leave saved settings intact');
+                    failureCode = 'authentication_error';
+                    connectionButton.emit('clicked');
+                    for (let attempt = 0; attempt < 30 && !connectionButton.sensitive; attempt++) {
+                        await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+                            resolve();
+                            return GLib.SOURCE_REMOVE;
+                        }));
+                    }
+                    assert(connectionButton.sensitive && connectionRow.subtitle === uiText(
+                        'Translation API key was rejected', '翻译 API 密钥被拒绝', '翻譯 API 金鑰遭拒'),
+                    'failed checks must show a safe localized status and allow retry');
+                    failureCode = null;
+                    connectionButton.emit('clicked');
+                    await Promise.resolve();
+                    modelRow.text = 'changed-during-check';
+                    assert(checkedRequest.is_cancelled() && connectionButton.sensitive,
+                        'editing the model must cancel the active check');
+                    connectionButton.emit('clicked');
+                    await Promise.resolve();
+                    modelRow.text = '';
+                    window.close();
+                    assert(window.visible && settings.get_string('translation-model') ===
+                        'gpt-5.4-mini-2026-03-17',
+                    'invalid pending settings must block closing without overwriting saved values');
+                    modelRow.text = 'changed-during-check';
+                    connectionButton.emit('clicked');
+                    await Promise.resolve();
+                    window.close();
+                    assert(checkedRequest.is_cancelled(), 'closing preferences must cancel the check');
+                    const reopened = new Adw.PreferencesWindow({application: app});
+                    await preferences.fillPreferencesWindow(reopened);
+                    const reopenedModel = descendants(reopened).find(widget =>
+                        widget instanceof Adw.EntryRow && widget.title === uiText('Model', '模型'));
+                    const reopenedEndpoint = descendants(reopened).find(widget =>
+                        widget instanceof Adw.EntryRow && widget.title === uiText(
+                            'Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
+                    assert(reopenedModel.text === 'changed-during-check' &&
+                        reopenedEndpoint.text === 'http://127.0.0.1:28883/responses',
+                    'closing without Apply must persist both valid fields for a reopened window');
+                    reopened.close();
+                } finally {
+                    TranslationCredentialStore.prototype.lookup = originalLookup;
+                    OpenAITranslationProvider.prototype.checkConnection = originalCheck;
+                }
                 print('GTK4/Libadwaita preferences window test passed');
-                window.close();
                 app.release();
                 app.quit();
             } catch (error) {
@@ -182,6 +282,9 @@ application.connect('activate', async app => {
                 app.release();
                 app.quit();
             }
+        };
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 750, () => {
+            checkPreferences();
             return GLib.SOURCE_REMOVE;
         });
     } catch (error) {

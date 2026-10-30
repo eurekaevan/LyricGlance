@@ -23,6 +23,7 @@ import {
     panelPanState,
     panelTimelinesEqual,
     wordPanState,
+    translationNetworkErrorText,
 } from './ui-utils.js';
 
 const OFFSET_STEP_MS = 500;
@@ -1067,7 +1068,7 @@ export class LyricsIndicator {
         this._applyTranslationToRows();
     }
 
-    setTranslationState(status, {fromCache = false} = {}) {
+    setTranslationState(status, {fromCache = false, networkReason = null} = {}) {
         this._translationStatus = status;
         const states = {
             idle: [_('Translation available on request'), _('Translate'), true],
@@ -1081,7 +1082,7 @@ export class LyricsIndicator {
             ],
             not_configured: [_('Translation API key is not configured'), '', false],
             provider_unavailable: [_('Translation provider unavailable'), _('Retry'), true],
-            network_error: [_('Translation network error'), _('Retry'), true],
+            network_error: [translationNetworkErrorText(networkReason, _), _('Retry'), true],
             provider_error: [_('Translation provider error'), _('Retry'), true],
             authentication_error: [_('Translation API key was rejected'), _('Retry'), true],
             rate_limited: [_('Translation rate limited'), _('Retry'), true],

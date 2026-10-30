@@ -5,13 +5,14 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {TranslationCredentialStore} from './credentials.js';
-import {clearLyricsCache} from './storage.js';
+import {clearLyricsCache, countLyricsCache} from './storage.js';
 import {normalizeLrcApiEndpoint} from './lyrics.js';
 import {
     clearTranslationCache,
     countTranslationCache,
 } from './translation-cache.js';
-import {normalizeTranslationEndpoint} from './translation-provider.js';
+import {normalizeTranslationEndpoint, OpenAITranslationProvider} from './translation-provider.js';
+import {translationNetworkErrorText} from './ui-utils.js';
 
 function bindSwitch(settings, key, title, subtitle = '') {
     const row = new Adw.SwitchRow({title, subtitle});
@@ -229,7 +230,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
 
         const backendRow = new Adw.ActionRow({
             title: _('Translation backend'),
-            subtitle: _('Endpoint and model changes are applied together'),
+            subtitle: _('Valid endpoint and model changes are saved together on Apply or when closing this window'),
         });
         const applyBackendButton = new Gtk.Button({
             label: _('Apply'),
@@ -237,27 +238,123 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         });
         backendRow.add_suffix(applyBackendButton);
         translationGroup.add(backendRow);
-        applyBackendButton.connect('clicked', () => {
+        let backendDirty = false;
+        for (const row of [endpointRow, modelRow]) {
+            row.connect('notify::text', () => {
+                backendDirty = true;
+            });
+        }
+        const saveBackend = () => {
+            if (!backendDirty)
+                return true;
             const endpoint = normalizeTranslationEndpoint(endpointRow.text);
             const model = modelRow.text.trim();
             if (!endpoint) {
                 backendRow.subtitle = _(
                     'Use HTTPS, or HTTP only for a local loopback endpoint');
-                return;
+                return false;
             }
             if (!model) {
                 backendRow.subtitle = _('Model cannot be empty');
-                return;
+                return false;
             }
 
             settings.set_string('translation-api-endpoint', endpoint);
             settings.set_string('translation-model', model);
             endpointRow.text = endpoint;
             modelRow.text = model;
+            backendDirty = false;
             backendRow.subtitle = _('Translation backend updated');
-        });
+            return true;
+        };
+        applyBackendButton.connect('clicked', saveBackend);
 
         const credentialStore = new TranslationCredentialStore();
+        const connectionHint = _(
+            'Uses the entered endpoint/model and saved key. Sends a small request that may incur a charge.');
+        const connectionRow = new Adw.ActionRow({
+            title: _('Translation connection'),
+            subtitle: connectionHint,
+        });
+        const connectionButton = new Gtk.Button({
+            label: _('Check connection'),
+            valign: Gtk.Align.CENTER,
+        });
+        connectionRow.add_suffix(connectionButton);
+        translationGroup.add(connectionRow);
+        let connectionCheck = null;
+        const cancelConnectionCheck = () => {
+            connectionCheck?.cancel();
+            connectionCheck = null;
+            if (!cancellable.is_cancelled()) {
+                connectionButton.sensitive = true;
+                connectionRow.subtitle = connectionHint;
+            }
+        };
+        endpointRow.connect('notify::text', cancelConnectionCheck);
+        modelRow.connect('notify::text', cancelConnectionCheck);
+        signalIds.push(settings.connect(
+            'changed::translation-credential-generation', cancelConnectionCheck));
+        connectionButton.connect('clicked', async () => {
+            if (connectionCheck || cancellable.is_cancelled())
+                return;
+            const endpoint = normalizeTranslationEndpoint(endpointRow.text);
+            const model = modelRow.text.trim();
+            if (!endpoint) {
+                connectionRow.subtitle = _(
+                    'Use HTTPS, or HTTP only for a local loopback endpoint');
+                return;
+            }
+            if (!model) {
+                connectionRow.subtitle = _('Model cannot be empty');
+                return;
+            }
+            const request = new Gio.Cancellable();
+            connectionCheck = request;
+            connectionButton.sensitive = false;
+            connectionRow.subtitle = _('Checking connection…');
+            let provider = null;
+            let credential = null;
+            try {
+                credential = await credentialStore.lookup(
+                    settings.get_string('translation-provider'), request);
+                if (request.is_cancelled())
+                    return;
+                if (!credential) {
+                    connectionRow.subtitle = _('Translation API key is not configured');
+                    return;
+                }
+                provider = new OpenAITranslationProvider({
+                    endpoint, model, timeoutSeconds: 15,
+                });
+                await provider.checkConnection(credential, request);
+                if (!request.is_cancelled()) {
+                    connectionRow.subtitle = _(
+                        'Connection successful: model and structured responses are available');
+                }
+            } catch (error) {
+                if (!request.is_cancelled()) {
+                    const messages = {
+                        authentication_error: _('Translation API key was rejected'),
+                        rate_limited: _('Translation rate limited'),
+                        network_error: translationNetworkErrorText(error.networkReason, _),
+                        invalid_response: _('Connection check failed: invalid structured response'),
+                    };
+                    connectionRow.subtitle = !provider
+                        ? _('Secret Service unavailable')
+                        : messages[error.code] ?? _(
+                            'Connection check failed: the endpoint or model may not support Responses API');
+                }
+            } finally {
+                credential = null;
+                provider?.destroy();
+                if (connectionCheck === request) {
+                    connectionCheck = null;
+                    if (!cancellable.is_cancelled())
+                        connectionButton.sensitive = true;
+                }
+            }
+        });
         const credentialRow = new Adw.ActionRow({
             title: _('Translation API key'),
             subtitle: _('Checking Secret Service…'),
@@ -276,7 +373,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 if (cancellable.is_cancelled())
                     return false;
                 credentialRow.subtitle = configured
-                    ? _('Configured in GNOME Secret Service')
+                    ? _('Saved in GNOME Secret Service; the key is not displayed')
                     : _('Not configured');
                 return configured;
             } catch {
@@ -297,7 +394,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 const dialog = new Adw.AlertDialog({
                     heading: _('Translation credential'),
                     body: configured
-                        ? _('Enter a new key to replace the saved credential.')
+                        ? _('The saved key is not displayed. Enter a new key to replace it, or leave blank to keep it.')
                         : _('The key will be stored in GNOME Secret Service and sent only to the configured endpoint.'),
                     extra_child: entry,
                     close_response: 'cancel',
@@ -317,6 +414,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                         const response = dialog.choose_finish(result);
                         const provider = settings.get_string(
                             'translation-provider');
+                        if (response === 'save' && configured && !entry.text.trim())
+                            return;
                         if (response === 'save')
                             await credentialStore.store(
                                 provider, entry.text, cancellable);
@@ -383,6 +482,20 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         clearButton.add_css_class('destructive-action');
         cacheRow.add_suffix(clearButton);
         storageGroup.add(cacheRow);
+        const updateLyricsCacheCount = async () => {
+            try {
+                const count = await countLyricsCache(undefined, cancellable);
+                if (!cancellable.is_cancelled()) {
+                    cacheRow.subtitle = ngettext(
+                        '%d cached lyrics result (including missing lyrics)',
+                        '%d cached lyrics results (including missing lyrics)', count).format(count);
+                }
+            } catch {
+                if (!cancellable.is_cancelled())
+                    cacheRow.subtitle = _('Could not inspect cache');
+            }
+        };
+        updateLyricsCacheCount();
         clearButton.connect('clicked', async () => {
             clearButton.sensitive = false;
             try {
@@ -390,7 +503,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 if (cancellable.is_cancelled())
                     return;
                 bumpGeneration(settings, 'cache-clear-generation');
-                cacheRow.subtitle = _('Lyrics cache cleared');
+                await updateLyricsCacheCount();
             } catch (error) {
                 if (!cancellable.is_cancelled()) {
                     cacheRow.subtitle = _('Could not clear cache: %s')
@@ -447,7 +560,11 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         });
 
         window.connect('close-request', () => {
+            if (!saveBackend())
+                return true;
+            Gio.Settings.sync();
             cancellable.cancel();
+            cancelConnectionCheck();
             for (const id of signalIds)
                 settings.disconnect(id);
             return false;

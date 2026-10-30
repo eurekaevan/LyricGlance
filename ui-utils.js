@@ -1,3 +1,15 @@
+export function translationNetworkErrorText(reason, _) {
+    const messages = {
+        timeout: _('Translation request timed out'),
+        dns: _('Translation server name could not be resolved'),
+        tls: _('Translation secure connection failed'),
+        proxy: _('Translation proxy connection failed'),
+        connection_closed: _('Translation connection was interrupted'),
+        connection: _('Could not connect to the translation server'),
+    };
+    return Object.hasOwn(messages, reason) ? messages[reason] : _('Translation network error');
+}
+
 export function formatDuration(seconds) {
     const value = Number(seconds);
     const totalSeconds = Number.isFinite(value)

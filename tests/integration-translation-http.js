@@ -1,3 +1,4 @@
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
@@ -6,6 +7,7 @@ import {
     normalizeTranslationEndpoint,
     OpenAITranslationProvider,
     TranslationProviderError,
+    translationNetworkReason,
 } from '../translation-provider.js';
 
 function assert(condition, message) {
@@ -44,8 +46,19 @@ const server = new Soup.Server();
 let mode = 'success';
 let requestCount = 0;
 let observed = null;
+let cancelDuringRequest = null;
 server.add_handler(null, (_server, message) => {
     requestCount++;
+    if (mode === 'slow') {
+        server.pause_message(message);
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+            message.set_status(Soup.Status.OK, null);
+            server.unpause_message(message);
+            return GLib.SOURCE_REMOVE;
+        });
+        return;
+    }
+    cancelDuringRequest?.cancel();
     const body = new TextDecoder().decode(
         message.get_request_body().flatten().get_data());
     observed = {
@@ -74,10 +87,12 @@ server.add_handler(null, (_server, message) => {
         output = '{bad json';
     else if (mode === 'unknown-id')
         output = response([{id: 'unknown', text: '错误'}]);
+    else if (mode === 'empty')
+        output = response([]);
     else
-        output = response(chunk.lines.map(line => ({
+        output = response(JSON.parse(observed.body.input).lines.map(line => ({
             id: line.id,
-            text: `[zh-CN] ${line.text}`,
+            text: mode === 'blank' ? '  ' : `[zh-CN] ${line.text}`,
         })));
     message.set_response(
         'application/json',
@@ -108,6 +123,19 @@ async function expectCode(callback, code, message) {
 }
 
 async function run() {
+    for (const [domain, code, reason] of [
+        [Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT, 'timeout'],
+        [Gio.resolver_error_quark(), Gio.ResolverError.NOT_FOUND, 'dns'],
+        [Gio.tls_error_quark(), Gio.TlsError.BAD_CERTIFICATE, 'tls'],
+        [Gio.io_error_quark(), Gio.IOErrorEnum.PROXY_FAILED, 'proxy'],
+        [Gio.io_error_quark(), Gio.IOErrorEnum.CONNECTION_CLOSED, 'connection_closed'],
+        [Gio.io_error_quark(), Gio.IOErrorEnum.CONNECTION_REFUSED, 'connection'],
+        [Gio.io_error_quark(), Gio.IOErrorEnum.FAILED, 'unknown'],
+    ]) {
+        assert(translationNetworkReason(new GLib.Error(domain, code,
+            'secret-token https://private.example/path lyric-text')) === reason,
+        `native transport errors must retain their ${reason} classification`);
+    }
     assert(normalizeTranslationEndpoint(' https://proxy.example/v1/responses ') ===
         'https://proxy.example/v1/responses' &&
         normalizeTranslationEndpoint(endpoint) === endpoint &&
@@ -134,6 +162,39 @@ async function run() {
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
     provider.destroy();
+
+    provider = new OpenAITranslationProvider({endpoint, model: 'connection-test-model'});
+    await provider.checkConnection('connection-test-token', null);
+    const probe = JSON.parse(observed.body.input);
+    assert(observed.body.model === 'connection-test-model' &&
+        observed.authorization === 'Bearer connection-test-token' &&
+        observed.body.max_output_tokens === 512 &&
+        probe.lines.length === 1 && probe.lines[0].text === 'Hello' &&
+        probe.title === '' && probe.artist === '' && observed.body.store === false,
+    'connection checks must validate the configured model with a small synthetic request');
+    for (const failure of ['empty', 'blank', 'malformed', 'unknown-id']) {
+        mode = failure;
+        await expectCode(() => provider.checkConnection('connection-test-token', null),
+            'invalid_response', `${failure} must not count as a successful connection`);
+    }
+    mode = 'authentication';
+    await expectCode(() => provider.checkConnection('connection-test-token', null),
+        'authentication_error', 'connection checks must report rejected credentials');
+    const canceled = new Gio.Cancellable();
+    canceled.cancel();
+    const beforeCancel = requestCount;
+    await expectCode(() => provider.checkConnection('connection-test-token', canceled),
+        'canceled', 'canceled checks must stop without sending a request');
+    assert(requestCount === beforeCancel, 'cancellation must not contact the API');
+    mode = 'success';
+    cancelDuringRequest = new Gio.Cancellable();
+    await expectCode(() => provider.checkConnection('connection-test-token', cancelDuringRequest),
+        'canceled', 'an in-flight connection check must honor cancellation');
+    assert(requestCount === beforeCancel + 1,
+        'the in-flight cancellation check must reach the server before cancellation');
+    cancelDuringRequest = null;
+    provider.destroy();
+    mode = 'success';
 
     provider = new OpenAITranslationProvider({
         endpoint: 'not a URL',
@@ -191,6 +252,27 @@ async function run() {
     assert(result.length === 2 && requestCount === 2 && elapsedMs >= 900,
         'HTTP 429 should respect Retry-After and retry only after a delay');
     provider.destroy();
+
+    mode = 'slow';
+    requestCount = 0;
+    provider = new OpenAITranslationProvider({endpoint, timeoutSeconds: 1});
+    try {
+        let failure;
+        try {
+            await translate(provider);
+        } catch (error) {
+            failure = error;
+        }
+        assert(failure?.code === 'network_error' && failure.networkReason === 'timeout' &&
+            requestCount === 1, 'a slow real HTTP response must be classified without automatic retry');
+    } finally {
+        provider.destroy();
+    }
+    // Let the paused server response finish before disconnecting the fixture.
+    await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2100, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    }));
 }
 
 const loop = new GLib.MainLoop(null, false);

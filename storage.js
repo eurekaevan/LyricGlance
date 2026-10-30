@@ -168,6 +168,15 @@ export async function clearLyricsCache(
     await removeTree(lyricsDirectory, cancellable);
 }
 
+export async function countLyricsCache(
+    cacheRoot = defaultCacheRoot(), cancellable = null) {
+    const directory = Gio.File.new_for_path(
+        GLib.build_filenamev([cacheRoot, 'lyrics']));
+    return (await listChildren(directory, cancellable)).filter(info =>
+        info.get_file_type() === Gio.FileType.REGULAR &&
+        info.get_name().endsWith('.json')).length;
+}
+
 export class LyricsDiskCache {
     constructor({
         cacheRoot = defaultCacheRoot(),

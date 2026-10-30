@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/lyric-glance/issues\n"
-"POT-Creation-Date: 2026-10-15 15:45+0800\n"
+"POT-Creation-Date: 2026-10-30 20:55+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,490 +18,552 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: indicator.js:203
+#: indicator.js:296
 msgid "Playback position"
 msgstr ""
 
-#: indicator.js:498
+#: indicator.js:609
 msgid "Previous track"
 msgstr ""
 
-#: indicator.js:499 indicator.js:805
+#: indicator.js:610 indicator.js:917
 msgid "Play"
 msgstr ""
 
-#: indicator.js:500
+#: indicator.js:611
 msgid "Next track"
 msgstr ""
 
-#: indicator.js:524
+#: indicator.js:635
 msgid "Could not control playback"
 msgstr ""
 
-#: indicator.js:575 indicator.js:962
+#: indicator.js:686 indicator.js:1074
 msgid "Translation available on request"
 msgstr ""
 
-#: indicator.js:581 indicator.js:962
+#: indicator.js:692 indicator.js:1074
 msgid "Translate"
 msgstr ""
 
-#: indicator.js:605
+#: indicator.js:716
 msgid "Lyrics timing"
 msgstr ""
 
-#: indicator.js:612
+#: indicator.js:723
 msgid "Reset"
 msgstr ""
 
-#: indicator.js:614
+#: indicator.js:725
 msgid "Reset lyrics offset"
 msgstr ""
 
-#: indicator.js:625 indicator.js:631 indicator.js:637 indicator.js:1072
+#: indicator.js:736 indicator.js:742 indicator.js:748 indicator.js:1184
 #, javascript-format
 msgid "%s s"
 msgstr ""
 
-#: indicator.js:627
+#: indicator.js:738
 msgid "Decrease lyrics offset by 0.5 seconds"
 msgstr ""
 
-#: indicator.js:639
+#: indicator.js:750
 msgid "Increase lyrics offset by 0.5 seconds"
 msgstr ""
 
-#: indicator.js:647
+#: indicator.js:758
 msgid "Global +0.0 s  ·  Effective +0.0 s"
 msgstr ""
 
-#: indicator.js:656 indicator.js:1122 indicator.js:1134 prefs.js:352
+#: indicator.js:767 indicator.js:1234 indicator.js:1246 prefs.js:451
 msgid "Player"
 msgstr ""
 
-#: indicator.js:694 indicator.js:895
+#: indicator.js:805 indicator.js:1007
 msgid "No lyrics found"
 msgstr ""
 
-#: indicator.js:764
+#: indicator.js:876
 msgid "Loading lyrics…"
 msgstr ""
 
-#: indicator.js:805
+#: indicator.js:917
 msgid "Pause"
 msgstr ""
 
-#: indicator.js:884
+#: indicator.js:996
 #, javascript-format
 msgid "Lyrics source: %s"
 msgstr ""
 
-#: indicator.js:887
+#: indicator.js:999
 msgid "Instrumental"
 msgstr ""
 
-#: indicator.js:892
+#: indicator.js:1004
 msgid "Retrying lyrics…"
 msgstr ""
 
-#: indicator.js:894
+#: indicator.js:1006
 msgid "Lyrics service temporarily unavailable"
 msgstr ""
 
-#: indicator.js:963
+#: indicator.js:1075
 msgid "Loading translation…"
 msgstr ""
 
-#: indicator.js:963
+#: indicator.js:1075
 msgid "Loading…"
 msgstr ""
 
-#: indicator.js:966
+#: indicator.js:1078
 msgid "Translation loaded from cache"
 msgstr ""
 
-#: indicator.js:967
+#: indicator.js:1079
 msgid "Translation available"
 msgstr ""
 
-#: indicator.js:968
+#: indicator.js:1080
 msgid "Refresh"
 msgstr ""
 
-#: indicator.js:971
+#: indicator.js:1083 prefs.js:324
 msgid "Translation API key is not configured"
 msgstr ""
 
-#: indicator.js:972
+#: indicator.js:1084
 msgid "Translation provider unavailable"
 msgstr ""
 
-#: indicator.js:972 indicator.js:973 indicator.js:974 indicator.js:975
-#: indicator.js:976 indicator.js:977 indicator.js:978
+#: indicator.js:1084 indicator.js:1085 indicator.js:1086 indicator.js:1087
+#: indicator.js:1088 indicator.js:1089 indicator.js:1090
 msgid "Retry"
 msgstr ""
 
-#: indicator.js:973
-msgid "Translation network error"
-msgstr ""
-
-#: indicator.js:974
+#: indicator.js:1086
 msgid "Translation provider error"
 msgstr ""
 
-#: indicator.js:975
+#: indicator.js:1087 prefs.js:338
 msgid "Translation API key was rejected"
 msgstr ""
 
-#: indicator.js:976
+#: indicator.js:1088 prefs.js:339
 msgid "Translation rate limited"
 msgstr ""
 
-#: indicator.js:977
+#: indicator.js:1089
 msgid "Translation response was invalid"
 msgstr ""
 
-#: indicator.js:978
+#: indicator.js:1090
 msgid "Translation canceled"
 msgstr ""
 
-#: indicator.js:979
+#: indicator.js:1091
 msgid "Original language matches target language"
 msgstr ""
 
-#: indicator.js:986
+#: indicator.js:1098
 #, javascript-format
 msgid "Lyrics translation action: %s"
 msgstr ""
 
-#: indicator.js:987
+#: indicator.js:1099
 msgid "Lyrics translation"
 msgstr ""
 
-#: indicator.js:1075
+#: indicator.js:1187
 #, javascript-format
 msgid "Global %s  ·  Effective %s"
 msgstr ""
 
-#: indicator.js:1100 prefs.js:359 prefs.js:366
+#: indicator.js:1212 prefs.js:458 prefs.js:465
 msgid "Auto"
 msgstr ""
 
-#: indicator.js:1129
+#: indicator.js:1241
 #, javascript-format
 msgid "Player: %s"
 msgstr ""
 
-#: prefs.js:55
+#: prefs.js:56
 msgid "General"
 msgstr ""
 
-#: prefs.js:60
+#: prefs.js:61
 msgid "Panel"
 msgstr ""
 
-#: prefs.js:63
+#: prefs.js:64
 msgid "Show music note icon"
 msgstr ""
 
-#: prefs.js:67
+#: prefs.js:68
 msgid "Panel position"
 msgstr ""
 
-#: prefs.js:69
+#: prefs.js:70
 msgid "Left"
 msgstr ""
 
-#: prefs.js:70
+#: prefs.js:71
 msgid "Right"
 msgstr ""
 
-#: prefs.js:71
+#: prefs.js:72
 msgid "Center"
 msgstr ""
 
-#: prefs.js:72
+#: prefs.js:73
 msgid "Far left"
 msgstr ""
 
-#: prefs.js:73
+#: prefs.js:74
 msgid "Far right"
 msgstr ""
 
-#: prefs.js:76
+#: prefs.js:77
 msgid "Left and Right stay near the center; Far positions use the outer edge"
 msgstr ""
 
-#: prefs.js:80
+#: prefs.js:81
 msgid "Maximum panel width"
 msgstr ""
 
-#: prefs.js:81
+#: prefs.js:82
 msgid "Maximum width of lyrics in the top bar"
 msgstr ""
 
-#: prefs.js:104
+#: prefs.js:105
 msgid "Hide lyrics when paused"
 msgstr ""
 
-#: prefs.js:105
+#: prefs.js:106
 msgid "Keep the popup state while hiding the panel item"
 msgstr ""
 
-#: prefs.js:107
+#: prefs.js:108
 msgid "Lyrics"
 msgstr ""
 
-#: prefs.js:112
+#: prefs.js:113
 msgid "Show title when lyrics are unavailable"
 msgstr ""
 
-#: prefs.js:116
+#: prefs.js:117
 msgid "Word-synced highlighting"
 msgstr ""
 
-#: prefs.js:117
+#: prefs.js:118
 msgid "Highlight the current word when timing is available"
 msgstr ""
 
-#: prefs.js:120
+#: prefs.js:121
 msgid "Use LrcAPI as a fallback"
 msgstr ""
 
-#: prefs.js:121
+#: prefs.js:122
 msgid ""
 "When LRCLIB has no synchronized lyrics, send the song title, artist and "
 "album to LrcAPI"
 msgstr ""
 
-#: prefs.js:123
+#: prefs.js:124
 msgid "LrcAPI endpoint"
 msgstr ""
 
-#: prefs.js:135 prefs.js:245
+#: prefs.js:136 prefs.js:254 prefs.js:305
 msgid "Use HTTPS, or HTTP only for a local loopback endpoint"
 msgstr ""
 
-#: prefs.js:148
+#: prefs.js:149
 msgid "Global lyrics offset"
 msgstr ""
 
-#: prefs.js:149
+#: prefs.js:150
 msgid "Added to each track-specific offset"
 msgstr ""
 
-#: prefs.js:171 prefs.js:216
+#: prefs.js:172 prefs.js:217
 msgid "Translation"
 msgstr ""
 
-#: prefs.js:172
+#: prefs.js:173
 msgid ""
 "Uses an OpenAI-compatible Responses API. Translations never change original "
 "timing."
 msgstr ""
 
-#: prefs.js:178
+#: prefs.js:179
 msgid "Enable translation"
 msgstr ""
 
-#: prefs.js:179
+#: prefs.js:180
 msgid "Original lyrics remain available if translation fails"
 msgstr ""
 
-#: prefs.js:183
+#: prefs.js:184
 msgid "Translate automatically"
 msgstr ""
 
-#: prefs.js:184
+#: prefs.js:185
 msgid "Use a cached translation first; otherwise contact the provider"
 msgstr ""
 
-#: prefs.js:187
+#: prefs.js:188
 msgid "Target language"
 msgstr ""
 
-#: prefs.js:191
+#: prefs.js:192
 msgid "e.g. zh-CN, en, ja"
 msgstr ""
 
-#: prefs.js:204
+#: prefs.js:205
 msgid "Popup display"
 msgstr ""
 
-#: prefs.js:206
+#: prefs.js:207
 msgid "Original + Translation"
 msgstr ""
 
-#: prefs.js:207
+#: prefs.js:208
 msgid "Original only"
 msgstr ""
 
-#: prefs.js:208
+#: prefs.js:209
 msgid "Translation only"
 msgstr ""
 
-#: prefs.js:213
+#: prefs.js:214
 msgid "Panel lyrics"
 msgstr ""
 
-#: prefs.js:215
+#: prefs.js:216
 msgid "Original"
 msgstr ""
 
-#: prefs.js:219
+#: prefs.js:220
 msgid "Responses API endpoint"
 msgstr ""
 
-#: prefs.js:225
+#: prefs.js:226
 msgid "Model"
 msgstr ""
 
-#: prefs.js:231
+#: prefs.js:232
 msgid "Translation backend"
 msgstr ""
 
-#: prefs.js:232
-msgid "Endpoint and model changes are applied together"
+#: prefs.js:233
+msgid ""
+"Valid endpoint and model changes are saved together on Apply or when closing "
+"this window"
 msgstr ""
 
-#: prefs.js:235
+#: prefs.js:236
 msgid "Apply"
 msgstr ""
 
-#: prefs.js:249
+#: prefs.js:258 prefs.js:309
 msgid "Model cannot be empty"
 msgstr ""
 
-#: prefs.js:257
+#: prefs.js:267
 msgid "Translation backend updated"
 msgstr ""
 
-#: prefs.js:262
-msgid "Translation API key"
+#: prefs.js:274
+msgid ""
+"Uses the entered endpoint/model and saved key. Sends a small request that "
+"may incur a charge."
 msgstr ""
 
-#: prefs.js:263
-msgid "Checking Secret Service…"
-msgstr ""
-
-#: prefs.js:266
-msgid "Configure"
-msgstr ""
-
-#: prefs.js:279
-msgid "Configured in GNOME Secret Service"
+#: prefs.js:276
+msgid "Translation connection"
 msgstr ""
 
 #: prefs.js:280
-msgid "Not configured"
+msgid "Check connection"
 msgstr ""
 
-#: prefs.js:284
+#: prefs.js:315
+msgid "Checking connection…"
+msgstr ""
+
+#: prefs.js:333
+msgid "Connection successful: model and structured responses are available"
+msgstr ""
+
+#: prefs.js:341
+msgid "Connection check failed: invalid structured response"
+msgstr ""
+
+#: prefs.js:344 prefs.js:381
 msgid "Secret Service unavailable"
 msgstr ""
 
-#: prefs.js:294
+#: prefs.js:346
+msgid ""
+"Connection check failed: the endpoint or model may not support Responses API"
+msgstr ""
+
+#: prefs.js:359
+msgid "Translation API key"
+msgstr ""
+
+#: prefs.js:360
+msgid "Checking Secret Service…"
+msgstr ""
+
+#: prefs.js:363
+msgid "Configure"
+msgstr ""
+
+#: prefs.js:376
+msgid "Saved in GNOME Secret Service; the key is not displayed"
+msgstr ""
+
+#: prefs.js:377
+msgid "Not configured"
+msgstr ""
+
+#: prefs.js:391
 msgid "API key"
 msgstr ""
 
-#: prefs.js:298
+#: prefs.js:395
 msgid "Translation credential"
 msgstr ""
 
-#: prefs.js:300
-msgid "Enter a new key to replace the saved credential."
+#: prefs.js:397
+msgid ""
+"The saved key is not displayed. Enter a new key to replace it, or leave "
+"blank to keep it."
 msgstr ""
 
-#: prefs.js:301
+#: prefs.js:398
 msgid ""
 "The key will be stored in GNOME Secret Service and sent only to the "
 "configured endpoint."
 msgstr ""
 
-#: prefs.js:306
+#: prefs.js:403
 msgid "Cancel"
 msgstr ""
 
-#: prefs.js:308
+#: prefs.js:405
 msgid "Remove"
 msgstr ""
 
-#: prefs.js:312
+#: prefs.js:409
 msgid "Save"
 msgstr ""
 
-#: prefs.js:333
+#: prefs.js:432
 msgid "Could not update credential in Secret Service"
 msgstr ""
 
-#: prefs.js:345
+#: prefs.js:444
 msgid "Could not open credential configuration"
 msgstr ""
 
-#: prefs.js:353
+#: prefs.js:452
 msgid "Choose among currently available players from the extension popup."
 msgstr ""
 
-#: prefs.js:357
+#: prefs.js:456
 msgid "Preferred player"
 msgstr ""
 
-#: prefs.js:371
+#: prefs.js:470
 msgid "Storage"
 msgstr ""
 
-#: prefs.js:372
+#: prefs.js:471
 msgid "Cached lyrics are stored locally and expire automatically."
 msgstr ""
 
-#: prefs.js:376
+#: prefs.js:475
 msgid "Lyrics cache"
 msgstr ""
 
-#: prefs.js:377
+#: prefs.js:476
 msgid "Positive results: 30 days; unavailable lyrics: 24 hours"
 msgstr ""
 
-#: prefs.js:380
+#: prefs.js:479
 msgid "Clear Lyrics Cache"
 msgstr ""
 
-#: prefs.js:393
-msgid "Lyrics cache cleared"
+#: prefs.js:490
+#, javascript-format
+msgid "%d cached lyrics result (including missing lyrics)"
+msgid_plural "%d cached lyrics results (including missing lyrics)"
+msgstr[0] ""
+msgstr[1] ""
+
+#: prefs.js:495 prefs.js:538
+msgid "Could not inspect cache"
 msgstr ""
 
-#: prefs.js:396
+#: prefs.js:509
 #, javascript-format
 msgid "Could not clear cache: %s"
 msgstr ""
 
-#: prefs.js:406
+#: prefs.js:519
 msgid "Translation cache"
 msgstr ""
 
-#: prefs.js:407
+#: prefs.js:520
 msgid "Checking cached translations…"
 msgstr ""
 
-#: prefs.js:410
+#: prefs.js:523
 msgid "Clear Translation Cache"
 msgstr ""
 
-#: prefs.js:422
+#: prefs.js:535
 #, javascript-format
 msgid "%d cached song"
 msgid_plural "%d cached songs"
 msgstr[0] ""
 msgstr[1] ""
 
-#: prefs.js:425
-msgid "Could not inspect cache"
-msgstr ""
-
-#: prefs.js:437
+#: prefs.js:550
 msgid "Translation cache cleared"
 msgstr ""
 
-#: prefs.js:441
+#: prefs.js:554
 msgid "Could not clear translation cache"
+msgstr ""
+
+#: ui-utils.js:3
+msgid "Translation request timed out"
+msgstr ""
+
+#: ui-utils.js:4
+msgid "Translation server name could not be resolved"
+msgstr ""
+
+#: ui-utils.js:5
+msgid "Translation secure connection failed"
+msgstr ""
+
+#: ui-utils.js:6
+msgid "Translation proxy connection failed"
+msgstr ""
+
+#: ui-utils.js:7
+msgid "Translation connection was interrupted"
+msgstr ""
+
+#: ui-utils.js:8
+msgid "Could not connect to the translation server"
+msgstr ""
+
+#: ui-utils.js:10
+msgid "Translation network error"
 msgstr ""

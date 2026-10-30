@@ -1,8 +1,32 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-10-24
+Last updated: 2026-10-30
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
+
+## Translation transport diagnostics — 2026-10-30
+
+- [x] native GLib error cases cover timeout, DNS, TLS, proxy, connection closed/refused and unknown failures; canceled requests retain their separate status
+- [x] a delayed local HTTP response reproduces a one-second timeout without automatic retry; captured failure logs contain batch/size/time metadata and no test credential, endpoint, song title or lyrics
+- [x] service results preserve the reason for the popup; packaged Shell verifies the specific timeout message, and the shared formatter is used by Preferences connection checks
+
+This adds diagnostics without changing the 45-second translation timeout, batch limits or HTTP 429 retry policy. The user's real provider failure still needs a reproduction after the desktop Shell imports the updated code; no billable API request was made for these tests.
+
+## Translation connection check — 2026-10-30
+
+- [x] local HTTP contract checks: selected model/key, synthetic one-line input, 512-token output cap, invalid/empty responses, rejected credentials and cancellation before/during a request
+- [x] packaged English/Simplified Chinese/Traditional Chinese Preferences: localized success/failure, entered model without saving, duplicate submission blocked, cancellation on edits/close
+- [x] `make check`, `make integration` and full packaged Shell regression; existing translation HTTP authentication, redirect, size and 429 checks remain covered
+- [ ] user-configured real endpoint/model/key check (no billable public API request was made during verification)
+
+## Preferences and cache persistence — 2026-10-30
+
+- [x] English/Simplified Chinese/Traditional Chinese Preferences: valid endpoint/model edits survive closing without Apply and reopening; invalid pending edits block closing and preserve saved values
+- [x] isolated persistent GSettings backend: a separate process restores endpoint/model after the Preferences test exits
+- [x] real Secret Service: a separate process reads a unique temporary credential, removed afterwards; the user's existing key was not changed or displayed
+- [x] independent processes write and reload lyrics/translation caches; lyrics count tests cover positive/negative results, unrelated files, fresh instances and clear
+
+The inspected desktop already had 448 lyrics cache files (413 positive, 35 negative). Translation had no files and the journal recorded authentication failures. This establishes a configuration/UI persistence problem and failed translation requests, rather than a reproduced cache-write failure. Real provider authentication still needs checking with the intended endpoint and key; no public translation request was made during this verification.
 
 ## Repository cleanup verification — 2026-10-24
 

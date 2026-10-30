@@ -22,6 +22,27 @@ Gio._promisify(Soup.Session.prototype,
 
 class ResponseTooLargeError extends Error {}
 
+export function translationNetworkReason(error) {
+    if (error.domain === Gio.tls_error_quark())
+        return 'tls';
+    if (error.domain === Gio.resolver_error_quark())
+        return 'dns';
+    const matches = code => error.matches?.(Gio.IOErrorEnum, code);
+    if (matches(Gio.IOErrorEnum.TIMED_OUT))
+        return 'timeout';
+    if (matches(Gio.IOErrorEnum.HOST_NOT_FOUND))
+        return 'dns';
+    if ([Gio.IOErrorEnum.PROXY_FAILED, Gio.IOErrorEnum.PROXY_AUTH_FAILED,
+        Gio.IOErrorEnum.PROXY_NEED_AUTH, Gio.IOErrorEnum.PROXY_NOT_ALLOWED].some(matches))
+        return 'proxy';
+    if ([Gio.IOErrorEnum.CONNECTION_CLOSED, Gio.IOErrorEnum.PARTIAL_INPUT].some(matches))
+        return 'connection_closed';
+    if ([Gio.IOErrorEnum.CONNECTION_REFUSED, Gio.IOErrorEnum.HOST_UNREACHABLE,
+        Gio.IOErrorEnum.NETWORK_UNREACHABLE, Gio.IOErrorEnum.NOT_CONNECTED].some(matches))
+        return 'connection';
+    return 'unknown';
+}
+
 export function normalizeTranslationEndpoint(endpoint) {
     if (typeof endpoint !== 'string')
         return null;
@@ -229,7 +250,7 @@ function requestBody(document, options, model) {
                 schema: responseSchema(ids),
             },
         },
-        max_output_tokens: 12_000,
+        max_output_tokens: options.maxOutputTokens ?? 12_000,
     };
 }
 
@@ -257,6 +278,24 @@ export class OpenAITranslationProvider {
         return this._request(document, options, cancellable, 0);
     }
 
+    async checkConnection(credential, cancellable) {
+        const lines = await this.translate({metadata: {}}, {
+            credential,
+            sourceLanguage: 'en',
+            targetLanguage: 'zh-CN',
+            maxOutputTokens: 512,
+            chunk: {
+                lines: [{id: 'connection-check', text: 'Hello'}],
+                contextBefore: [],
+                contextAfter: [],
+            },
+        }, cancellable);
+        if (lines.length !== 1 || !lines[0].text.trim()) {
+            throw new TranslationProviderError(
+                'invalid_response', 'Connection check returned no translation');
+        }
+    }
+
     async _request(document, options, cancellable, attempt) {
         if (cancellable?.is_cancelled())
             throw canceledError();
@@ -280,6 +319,7 @@ export class OpenAITranslationProvider {
             'application/json', GLib.Bytes.new(encoded));
 
         let bytes;
+        const startedUs = GLib.get_monotonic_time();
         try {
             bytes = await readResponse(this._session, message,
                 this._maxResponseBytes, cancellable);
@@ -292,8 +332,19 @@ export class OpenAITranslationProvider {
                     'invalid_response',
                     'Translation response exceeded the size limit');
             }
-            throw new TranslationProviderError(
+            const failure = new TranslationProviderError(
                 'network_error', 'Translation network request failed');
+            failure.networkReason = translationNetworkReason(error);
+            // Never include native error messages: they can contain URLs,
+            // credentials or response contents. All fields here are bounded
+            // classifications or numbers derived from this request.
+            console.warn(`LyricGlance: translation transport failure reason=${failure.networkReason}` +
+                ` batch=${(options.chunk.index ?? 0) + 1}/${options.batchCount ?? 1}` +
+                ` lines=${options.chunk.lines.length} requestBytes=${encoded.length}` +
+                ` elapsedMs=${Math.round((GLib.get_monotonic_time() - startedUs) / 1000)}` +
+                ` attempt=${attempt + 1} phase=${message.status_code ? 'read-body' : 'request-or-headers'}` +
+                ` nativeCode=${Number.isInteger(error.code) ? error.code : -1}`);
+            throw failure;
         }
 
         const status = message.status_code;

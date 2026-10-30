@@ -4,6 +4,8 @@
 
 ### Added
 
+- Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics. Timeout and retry policies are unchanged.
+- Translation settings can check the entered endpoint/model with the saved key using a small synthetic Responses API request, with localized outcomes and cancellation on edits or window close.
 - Traditional Chinese (`zh_TW`) interface translations for the Shell popup and Preferences.
 - Overflowing panel titles loop for tracks without lyrics and provider-marked instrumental tracks. Instrumental explanations remain in the popup; pause, hover and reduced motion are respected.
 - MPRIS playback, pause, previous/next and seek controls in the popup, with capability checks and cancellation when the active track or player changes.
@@ -21,6 +23,7 @@
 
 ### Fixed
 
+- Valid translation endpoint/model edits persist when closing Preferences without Apply; invalid edits preserve saved values. Saved credentials are explicitly marked as hidden, blank replacement keeps the existing key, and lyrics cache counts are shown separately from translation cache counts.
 - Full-text scroll measurement uses unconstrained Pango logical/ink bounds rather than CSS-dependent preferred sizes. Drawing allocations include glyph overhang, padding and borders; resource-scale changes invalidate geometry.
 - Lyrics timing buttons now use the translated seconds unit consistently. Translation checks compare current source strings against the template and every language catalog, and packaging verifies all compiled catalogs.
 - Rapid song changes debounce uncached lookups; 429/503 retries honor service-wide cooldowns across tracks, preserve plain lyrics and align delayed results with the current clock. Temporary failures are distinguished from missing lyrics and are not negatively cached.

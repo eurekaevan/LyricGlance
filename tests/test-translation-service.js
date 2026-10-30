@@ -242,7 +242,10 @@ async function run() {
             model: `${code}-v1`,
             requiresCredential: false,
             async translate() {
-                throw new TranslationProviderError(code, 'Safe diagnostic');
+                const error = new TranslationProviderError(code, 'Safe diagnostic');
+                if (code === 'network_error')
+                    error.networkReason = 'timeout';
+                throw error;
             },
         };
         const errorService = new TranslationService({
@@ -257,6 +260,8 @@ async function run() {
         }));
         assert(result.status === code,
             `provider failure ${code} should retain its distinct status`);
+        if (code === 'network_error')
+            assert(result.networkReason === 'timeout', 'network diagnostics must reach the UI result');
         errorService.destroy();
     }
 

@@ -5,6 +5,7 @@ import Soup from 'gi://Soup?version=3.0';
 import {LyricsProvider} from '../lyrics.js';
 import {
     clearLyricsCache,
+    countLyricsCache,
     LyricsDiskCache,
     OffsetStore,
     removeTree,
@@ -70,6 +71,27 @@ const loop = new GLib.MainLoop(null, false);
 let scenarioError = null;
 
 async function run() {
+    const countRoot = GLib.build_filenamev([tempRoot, 'count-cache']);
+    assert(await countLyricsCache(countRoot) === 0,
+        'a missing lyrics cache directory should count as empty');
+    const countWriter = new LyricsDiskCache({cacheRoot: countRoot});
+    await countWriter.put(trackA, {syncedLyrics: '[00:01.00] persisted'});
+    await countWriter.put(trackB, null);
+    countWriter.destroy();
+    const countDirectory = GLib.build_filenamev([countRoot, 'lyrics']);
+    GLib.file_set_contents(GLib.build_filenamev([countDirectory, 'notes.txt']), 'ignored');
+    Gio.File.new_for_path(GLib.build_filenamev([countDirectory, 'nested.json']))
+        .make_directory(null);
+    assert(await countLyricsCache(countRoot) === 2,
+        'lyrics count should include positive and negative JSON files, excluding other files and directories');
+    const reopened = new LyricsDiskCache({cacheRoot: countRoot});
+    assert((await reopened.get(trackA)).hit && await countLyricsCache(countRoot) === 2,
+        'a fresh cache instance should find persisted entries and retain their count');
+    await reopened.clear();
+    assert(await countLyricsCache(countRoot) === 0,
+        'clearing persisted lyrics should reset the count');
+    reopened.destroy();
+
     let now = 10_000;
     const directRoot = GLib.build_filenamev([tempRoot, 'direct-cache']);
     const diskCache = new LyricsDiskCache({

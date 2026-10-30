@@ -991,6 +991,10 @@ export async function run() {
     assert(view._translationStatusLabel.text ===
         uiText('Translation network error', '翻译网络错误', '翻譯網路錯誤'),
         'translation failure should remain a compact secondary state');
+    view.setTranslationState('network_error', {networkReason: 'timeout'});
+    assert(view._translationStatusLabel.text === uiText(
+        'Translation request timed out', '翻译请求超时', '翻譯請求逾時'),
+    'transport diagnostics should be localized in the popup');
     view.setTranslationState('available');
     view.setTranslationDisplayMode('translated');
     assert(!view._lyricLabels[20].visible &&
