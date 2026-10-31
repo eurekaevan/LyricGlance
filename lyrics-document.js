@@ -21,10 +21,6 @@ function stringOrEmpty(value) {
     return typeof value === 'string' ? value : '';
 }
 
-function nullableTimestamp(value) {
-    return value === null || value === undefined ? null : value;
-}
-
 function plainTextLines(plain) {
     if (typeof plain !== 'string' || !plain.trim())
         return [];
@@ -62,13 +58,13 @@ function normalizeLines(lines) {
 
     return lines.map(line => ({
         text: stringOrEmpty(line?.text),
-        startMs: nullableTimestamp(line?.startMs),
-        endMs: nullableTimestamp(line?.endMs),
+        startMs: line?.startMs ?? null,
+        endMs: line?.endMs ?? null,
         words: Array.isArray(line?.words)
             ? line.words.map(word => ({
                 text: stringOrEmpty(word?.text),
-                startMs: nullableTimestamp(word?.startMs),
-                endMs: nullableTimestamp(word?.endMs),
+                startMs: word?.startMs ?? null,
+                endMs: word?.endMs ?? null,
             }))
             : [],
     }));

@@ -54,12 +54,12 @@ async function ensureDirectory(directory, cancellable = null) {
     }
 }
 
-async function readJson(file, cancellable = null) {
+export async function readJson(file, cancellable = null) {
     const [contents] = await file.load_contents_async(cancellable);
     return JSON.parse(new TextDecoder().decode(contents));
 }
 
-async function writeJson(file, value, cancellable = null) {
+export async function writeJson(file, value, cancellable = null) {
     await ensureDirectory(file.get_parent(), cancellable);
     const contents = new TextEncoder().encode(JSON.stringify(value));
     await file.replace_contents_async(
@@ -74,7 +74,7 @@ async function listChildren(directory, cancellable = null) {
     let enumerator;
     try {
         enumerator = await directory.enumerate_children_async(
-            'standard::name,standard::type,time::modified',
+            'standard::name,standard::type',
             Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
             GLib.PRIORITY_DEFAULT,
             cancellable);

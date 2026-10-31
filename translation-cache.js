@@ -1,7 +1,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import {defaultCacheRoot, removeTree} from './storage.js';
+import {defaultCacheRoot, readJson, removeTree, writeJson} from './storage.js';
 import {
     createTranslationDocument,
     TRANSLATION_DOCUMENT_VERSION,
@@ -10,12 +10,6 @@ import {
 
 const MAX_TRANSLATION_CACHE_ENTRIES = 500;
 
-Gio._promisify(Gio.File.prototype,
-    'load_contents_async', 'load_contents_finish');
-Gio._promisify(Gio.File.prototype,
-    'replace_contents_async', 'replace_contents_finish');
-Gio._promisify(Gio.File.prototype,
-    'make_directory_async', 'make_directory_finish');
 Gio._promisify(Gio.File.prototype,
     'enumerate_children_async', 'enumerate_children_finish');
 Gio._promisify(Gio.File.prototype,
@@ -27,35 +21,6 @@ Gio._promisify(Gio.FileEnumerator.prototype,
 
 function isNotFound(error) {
     return error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND);
-}
-
-async function ensureDirectory(directory, cancellable = null) {
-    const parent = directory.get_parent();
-    if (parent)
-        await ensureDirectory(parent, cancellable);
-    try {
-        await directory.make_directory_async(
-            GLib.PRIORITY_DEFAULT, cancellable);
-    } catch (error) {
-        if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.EXISTS))
-            throw error;
-    }
-}
-
-async function readJson(file, cancellable = null) {
-    const [contents] = await file.load_contents_async(cancellable);
-    return JSON.parse(new TextDecoder().decode(contents));
-}
-
-async function writeJson(file, value, cancellable = null) {
-    await ensureDirectory(file.get_parent(), cancellable);
-    const contents = new TextEncoder().encode(JSON.stringify(value));
-    await file.replace_contents_async(
-        contents,
-        null,
-        false,
-        Gio.FileCreateFlags.REPLACE_DESTINATION,
-        cancellable);
 }
 
 async function listFiles(directory, cancellable = null) {

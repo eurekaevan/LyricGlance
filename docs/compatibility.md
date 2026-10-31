@@ -11,6 +11,7 @@
 | Firefox with Spotify Web lyrics | PASS by owner-confirmed practical use, 2026-09-23 | The owner reports no significant issues in practical use and accepts the live-player UI and soak gates as complete. The 1,800-second 2026-08-23 run observed 19 track changes, 18 lyric loads and 57 synchronized samples. Fresh GNOME Shell 50.5 import was confirmed on 2026-09-23; no player was present for another instrumented run that day |
 | Media controls and interactive progress | Deterministic tests PASS, 2026-10-09; live player not tested | Isolated MPRIS control, failure and cancellation tests; packaged headless Shell buttons, drag cancellation and native slider stepping |
 | Spotify Linux client | Limited live integration evidence, 2026-10-14 | Real MPRIS state and seeks were exercised through an isolated Shell with cached lyrics. This did not reproduce the desktop clipping report or prove the latest desktop rendering fixes |
+| Spotify Linux client, control core | Live MPRIS tests PASS, 2026-10-31 | Real player discovery, playback, pause/resume and bidirectional seeks passed with the original state restored. The selected song returned no lyrics; this does not establish lyric rendering or a fresh desktop import of the latest package |
 | GNOME Shell 49 | Not tested / not declared | Absent from `shell-version` |
 | GNOME Shell 51 | Not tested / not declared | Absent from `shell-version` |
 

@@ -867,12 +867,11 @@ export class LyricsIndicator {
             canScroll && (normalizedTimeline || (looping && this._animationsEnabled()))
                 ? Pango.EllipsizeMode.NONE
                 : Pango.EllipsizeMode.END);
-        if (!this._label ||
-            (this._label.text === text &&
-                this._panelPanScrollable === canScroll &&
-                this._panelPanLooping === looping &&
-                this._panelTextKey === contentKey)) {
-            if (this._label && (timelineChanged || wordsChanged))
+        if (this._label.text === text &&
+            this._panelPanScrollable === canScroll &&
+            this._panelPanLooping === looping &&
+            this._panelTextKey === contentKey) {
+            if (timelineChanged || wordsChanged)
                 this._schedulePanelPan();
             return;
         }

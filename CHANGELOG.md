@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Reused existing JSON file helpers across both caches and removed null-only timestamp wrappers, redundant guards/validation and a forwarding method. Refreshed gettext source references, removed obsolete catalog entries without changing active translations, and clarified current versus historical verification records.
 - Removed unused UI lookup/multiline paths, one-use forwarding methods and unconsumed translation options/error fields. Module-only helpers and defaults no longer expose unused exports; runtime behavior and cache formats are unchanged.
 - Removed unused internal LRC lookup helpers/re-exports, artwork state, provider labels, build variables and an unreferenced fixture. Parser tests now exercise the document/synchronizer path used at runtime; maintenance docs distinguish deterministic checks from live tests.
 - Overflowing panel and popup titles now scroll continuously left with matching copies and a fixed gap, replacing the reverse return leg. Popup-title hover pauses without resetting its position.
@@ -25,6 +26,7 @@
 
 ### Fixed
 
+- Mixed-language translation instructions explicitly cover foreign-language lines and phrases, including English refrains in Japanese lyrics. API responses with omitted/empty lines are rejected, and prompt-versioned cache identity prevents old translations masking the new policy; nonempty translation language/quality still depends on the model.
 - Popup lyrics inherit the normal theme foreground instead of disabled-row gray; distant lines retain more contrast, bilingual groups have clearer spacing, and offset text is centered across scripts and directions. Footer padding is consistent, disabled buttons keep native styling, and lyrics gain edge fading.
 - Small-display popups retain a font-relative lyrics viewport and scroll the full menu when needed, revealing keyboard-focused footer controls. Single-line titles and metadata use natural text height to prevent large-font overlap with media controls.
 - Translation requests prefer `reasoning.effort: "none"`, use balanced chunks of up to 20 lines/3000 characters and allow three concurrent chunks. Confirmed unsupported-reasoning errors permit one fallback per in-flight request; unrelated HTTP 400 responses do not disable reasoning. These changes reduce per-request work without guaranteeing provider latency.

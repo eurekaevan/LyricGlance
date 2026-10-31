@@ -42,10 +42,6 @@ function validateYamlValue(value, seen, depth, counter) {
     }
 }
 
-function optionalInteger(value) {
-    return value === undefined || value === null ? null : value;
-}
-
 function parseWords(words, lineNumber) {
     if (words === undefined || words === null)
         return [];
@@ -60,7 +56,7 @@ function parseWords(words, lineNumber) {
         return {
             text: word.text,
             startMs: word.start_ms ?? Number.NaN,
-            endMs: optionalInteger(word.end_ms),
+            endMs: word.end_ms ?? null,
         };
     });
 }
@@ -77,7 +73,7 @@ function parseLines(lines) {
         return {
             text: line.text,
             startMs: line.start_ms ?? Number.NaN,
-            endMs: optionalInteger(line.end_ms),
+            endMs: line.end_ms ?? null,
             words: parseWords(line.words, index + 1),
         };
     });

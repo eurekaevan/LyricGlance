@@ -3,6 +3,10 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {createLyricsDocument} from '../lyrics-document.js';
+import {removeTree} from '../storage.js';
+import {TranslationDiskCache} from '../translation-cache.js';
+import {createTranslationDocument, sourceLyricsHash} from '../translation-document.js';
+import {TranslationService, TranslationStatus} from '../translation-service.js';
 import {
     normalizeTranslationEndpoint,
     OpenAITranslationProvider,
@@ -41,6 +45,17 @@ const chunk = {
     contextAfter: [],
     lines: lyrics.lines.map(line => ({id: line.lineId, text: line.text})),
 };
+const mixedLyrics = createLyricsDocument({
+    source: 'test',
+    metadata: {title: 'Mixed-language fixture', language: 'ja'},
+    lines: [
+        {text: '明日も君と歩きたい', startMs: 0, endMs: 1000},
+        {text: 'Stay with me tonight', startMs: 1000, endMs: 2000},
+        {text: '君と forever in my heart', startMs: 2000, endMs: 3000},
+        {text: '已经是中文', startMs: 3000, endMs: 4000},
+    ],
+});
+const mixedTranslations = ['明天也想与你同行', '今晚留在我身边', '你永远在我心中', '已经是中文'];
 
 const server = new Soup.Server();
 let mode = 'success';
@@ -104,6 +119,14 @@ server.add_handler(null, (_server, message) => {
         output = response([{id: 'unknown', text: '错误'}]);
     else if (mode === 'empty')
         output = response([]);
+    else if (['mixed', 'mixed-partial', 'mixed-blank'].includes(mode))
+        output = response(JSON.parse(observed.body.input).lines
+            .filter((_line, index) => mode !== 'mixed-partial' || index !== 1)
+            .map(line => ({id: line.id,
+                text: mode === 'mixed-blank' && line.id === mixedLyrics.lines[1].lineId
+                    ? '  '
+                    : mixedTranslations[mixedLyrics.lines.findIndex(original =>
+                        original.lineId === line.id)]})));
     else
         output = response(JSON.parse(observed.body.input).lines.map(line => ({
             id: line.id,
@@ -177,6 +200,54 @@ async function run() {
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
     provider.destroy();
+
+    const cacheRoot = GLib.dir_make_tmp('lyric-mixed-translation-XXXXXX');
+    provider = new OpenAITranslationProvider({endpoint});
+    const mixedService = new TranslationService({
+        providers: [provider],
+        credentialStore: {lookup: async () => 'unit-test-token'},
+        cache: new TranslationDiskCache({cacheRoot}),
+    });
+    const mixedOptions = {trackKey: 'mixed-track', providerId: provider.id,
+        targetLanguage: 'zh-CN'};
+    try {
+        // Before prompt versioning, endpoint alone identified this cache.
+        const oldCache = new TranslationDiskCache({cacheRoot});
+        await oldCache.put(createTranslationDocument({
+            trackKey: mixedOptions.trackKey,
+            sourceLyricsHash: sourceLyricsHash(mixedLyrics),
+            sourceLanguage: 'ja', targetLanguage: mixedOptions.targetLanguage,
+            provider: provider.id, model: provider.model,
+            providerConfiguration: GLib.compute_checksum_for_string(
+                GLib.ChecksumType.SHA256, endpoint, -1),
+            lines: mixedLyrics.lines.map(line => ({lineId: line.lineId, text: line.text})),
+        }));
+        for (const failure of ['mixed-partial', 'mixed-blank']) {
+            mode = failure;
+            const beforeMixed = requestCount;
+            result = await mixedService.translate(mixedLyrics, mixedOptions);
+            assert(result.status === TranslationStatus.INVALID_RESPONSE &&
+                requestCount === beforeMixed + 1,
+            'old prompt caches must not hide an omitted or empty English translation');
+        }
+        mode = 'mixed';
+        result = await mixedService.translate(mixedLyrics, mixedOptions);
+        const input = JSON.parse(observed.body.input);
+        assert(result.status === TranslationStatus.AVAILABLE && !result.fromCache &&
+            input.sourceLanguage === 'ja' && input.targetLanguage === 'zh-CN' &&
+            input.lines.map(line => line.text).join('\n') ===
+                mixedLyrics.lines.map(line => line.text).join('\n') &&
+            result.document.lines.map(line => line.text).join('\n') === mixedTranslations.join('\n'),
+        'Japanese, English, mixed phrases and target-language text must all survive the request/response path');
+        const afterMixed = requestCount;
+        result = await mixedService.translate(mixedLyrics, mixedOptions);
+        assert(result.fromCache && requestCount === afterMixed,
+            'translations generated with the current prompt must still use the cache');
+    } finally {
+        mixedService.destroy();
+        await removeTree(Gio.File.new_for_path(cacheRoot));
+    }
+    mode = 'success';
 
     mode = 'reject-reasoning';
     requestCount = 0;

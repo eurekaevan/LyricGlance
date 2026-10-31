@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/lyric-glance/issues\n"
-"POT-Creation-Date: 2026-10-30 22:13+0800\n"
+"POT-Creation-Date: 2026-10-31 22:28+0800\n"
 "PO-Revision-Date: 2026-10-15 15:53+0800\n"
 "Last-Translator: LyricGlance contributors\n"
 "Language-Team: Chinese (Traditional)\n"
@@ -16,181 +16,181 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: indicator.js:296
+#: indicator.js:292
 msgid "Playback position"
 msgstr "播放進度"
 
-#: indicator.js:609
+#: indicator.js:606
 msgid "Previous track"
 msgstr "上一首"
 
-#: indicator.js:610 indicator.js:917
+#: indicator.js:607 indicator.js:946
 msgid "Play"
 msgstr "播放"
 
-#: indicator.js:611
+#: indicator.js:608
 msgid "Next track"
 msgstr "下一首"
 
-#: indicator.js:635
+#: indicator.js:632
 msgid "Could not control playback"
 msgstr "無法控制播放"
 
-#: indicator.js:686 indicator.js:1074
+#: indicator.js:683 indicator.js:1103
 msgid "Translation available on request"
 msgstr "可按需翻譯"
 
-#: indicator.js:692 indicator.js:1074
+#: indicator.js:689 indicator.js:1103
 msgid "Translate"
 msgstr "翻譯"
 
-#: indicator.js:716
+#: indicator.js:713
 msgid "Lyrics timing"
 msgstr "歌詞時間偏移"
 
-#: indicator.js:723
+#: indicator.js:720
 msgid "Reset"
 msgstr "重設"
 
-#: indicator.js:725
+#: indicator.js:722
 msgid "Reset lyrics offset"
 msgstr "重設歌詞時間偏移"
 
-#: indicator.js:736 indicator.js:742 indicator.js:748 indicator.js:1186
+#: indicator.js:733 indicator.js:739 indicator.js:745 indicator.js:1210
 #, javascript-format
 msgid "%s s"
 msgstr "%s 秒"
 
-#: indicator.js:738
+#: indicator.js:735
 msgid "Decrease lyrics offset by 0.5 seconds"
 msgstr "將歌詞時間偏移減少 0.5 秒"
 
-#: indicator.js:750
+#: indicator.js:747
 msgid "Increase lyrics offset by 0.5 seconds"
 msgstr "將歌詞時間偏移增加 0.5 秒"
 
-#: indicator.js:758
+#: indicator.js:755
 msgid "Global +0.0 s  ·  Effective +0.0 s"
 msgstr "全域 +0.0 秒  ·  實際 +0.0 秒"
 
-#: indicator.js:767 indicator.js:1236 indicator.js:1248 prefs.js:453
+#: indicator.js:764 indicator.js:1260 indicator.js:1272 prefs.js:453
 msgid "Player"
 msgstr "播放器"
 
-#: indicator.js:805 indicator.js:1007
+#: indicator.js:839 indicator.js:1036
 msgid "No lyrics found"
 msgstr "找不到歌詞"
 
-#: indicator.js:876
+#: indicator.js:910
 msgid "Loading lyrics…"
 msgstr "正在載入歌詞…"
 
-#: indicator.js:917
+#: indicator.js:946
 msgid "Pause"
 msgstr "暫停"
 
-#: indicator.js:996
+#: indicator.js:1025
 #, javascript-format
 msgid "Lyrics source: %s"
 msgstr "歌詞來源：%s"
 
-#: indicator.js:999
+#: indicator.js:1028
 msgid "Instrumental"
 msgstr "純音樂"
 
-#: indicator.js:1004
+#: indicator.js:1033
 msgid "Retrying lyrics…"
 msgstr "正在重試歌詞…"
 
-#: indicator.js:1006
+#: indicator.js:1035
 msgid "Lyrics service temporarily unavailable"
 msgstr "歌詞服務暫時無法使用"
 
-#: indicator.js:1075
+#: indicator.js:1104
 msgid "Loading translation…"
 msgstr "正在載入翻譯…"
 
-#: indicator.js:1075
+#: indicator.js:1104
 msgid "Loading…"
 msgstr "正在載入…"
 
-#: indicator.js:1078
+#: indicator.js:1107
 msgid "Translation loaded from cache"
 msgstr "已從快取載入翻譯"
 
-#: indicator.js:1079
+#: indicator.js:1108
 msgid "Translation available"
 msgstr "翻譯可用"
 
-#: indicator.js:1080
+#: indicator.js:1109
 msgid "Refresh"
 msgstr "重新整理"
 
-#: indicator.js:1083 prefs.js:324
+#: indicator.js:1112 prefs.js:324
 msgid "Translation API key is not configured"
 msgstr "尚未設定翻譯 API 金鑰"
 
-#: indicator.js:1084
+#: indicator.js:1113
 msgid "Translation provider unavailable"
 msgstr "翻譯服務無法使用"
 
-#: indicator.js:1084 indicator.js:1085 indicator.js:1086 indicator.js:1087
-#: indicator.js:1088 indicator.js:1089 indicator.js:1090 indicator.js:1091
-#: indicator.js:1092
+#: indicator.js:1113 indicator.js:1114 indicator.js:1115 indicator.js:1116
+#: indicator.js:1117 indicator.js:1118 indicator.js:1119 indicator.js:1120
+#: indicator.js:1121
 msgid "Retry"
 msgstr "重試"
 
-#: indicator.js:1086
+#: indicator.js:1115
 msgid "Translation provider error"
 msgstr "翻譯服務錯誤"
 
-#: indicator.js:1087 prefs.js:338
+#: indicator.js:1116 prefs.js:338
 msgid "Translation API key was rejected"
 msgstr "翻譯 API 金鑰遭拒"
 
-#: indicator.js:1088 prefs.js:339
+#: indicator.js:1117 prefs.js:339
 msgid "Translation access was denied"
 msgstr "翻譯存取遭拒"
 
-#: indicator.js:1089 prefs.js:340
+#: indicator.js:1118 prefs.js:340
 msgid "Translation quota or spending limit reached"
 msgstr "翻譯額度或消費限額已用盡"
 
-#: indicator.js:1090 prefs.js:341
+#: indicator.js:1119 prefs.js:341
 msgid "Translation rate limited"
 msgstr "翻譯請求過於頻繁"
 
-#: indicator.js:1091
+#: indicator.js:1120
 msgid "Translation response was invalid"
 msgstr "翻譯回應無效"
 
-#: indicator.js:1092
+#: indicator.js:1121
 msgid "Translation canceled"
 msgstr "翻譯已取消"
 
-#: indicator.js:1093
+#: indicator.js:1122
 msgid "Original language matches target language"
 msgstr "原文語言與目標語言相同"
 
-#: indicator.js:1100
+#: indicator.js:1129
 #, javascript-format
 msgid "Lyrics translation action: %s"
 msgstr "歌詞翻譯操作：%s"
 
-#: indicator.js:1101
+#: indicator.js:1130
 msgid "Lyrics translation"
 msgstr "歌詞翻譯"
 
-#: indicator.js:1189
+#: indicator.js:1213
 #, javascript-format
 msgid "Global %s  ·  Effective %s"
 msgstr "全域 %s  ·  實際 %s"
 
-#: indicator.js:1214 prefs.js:460 prefs.js:467
+#: indicator.js:1238 prefs.js:460 prefs.js:467
 msgid "Auto"
 msgstr "自動"
 
-#: indicator.js:1243
+#: indicator.js:1267
 #, javascript-format
 msgid "Player: %s"
 msgstr "播放器：%s"
@@ -572,22 +572,3 @@ msgstr "無法連線至翻譯伺服器"
 #: ui-utils.js:10
 msgid "Translation network error"
 msgstr "翻譯網路錯誤"
-
-#~ msgid "Endpoint and model changes are applied together"
-#~ msgstr "端點與模型的變更會一併套用"
-
-#~ msgid "Configured in GNOME Secret Service"
-#~ msgstr "已儲存在 GNOME Secret Service 中"
-
-#~ msgid "Enter a new key to replace the saved credential."
-#~ msgstr "輸入新金鑰以取代已儲存的憑證。"
-
-#~ msgid "Lyrics cache cleared"
-#~ msgstr "歌詞快取已清除"
-
-#~ msgid ""
-#~ "Translations are aligned by lyric line and never change original timing."
-#~ msgstr "翻译按歌词行对齐，不会改变原始时间。"
-
-#~ msgid "Provider"
-#~ msgstr "服务商"

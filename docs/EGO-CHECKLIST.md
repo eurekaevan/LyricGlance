@@ -4,9 +4,20 @@ Last updated: 2026-10-31
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
 
+## Mixed-language translation — 2026-10-31
+
+- [x] local HTTP fixture sends Japanese lines, English refrains, mixed phrases and existing Chinese text together with a Japanese source-language hint and Chinese target; returned fixture translations retain their line IDs
+- [x] responses omitting or blanking the English line fail as invalid, without caching the incomplete result; old endpoint-only prompt cache entries are missed, while current results still hit the cache
+- [x] translation document/service checks, `make check`, local integration and packaged Shell regression pass
+- [x] installed locally; all 33 packaged files and the compiled schema match, with enabled/ACTIVE status (a fresh desktop import remains unverified)
+
+The request instructions now explicitly cover mixed languages; nonempty model output is not semantically language-checked. This fixture verifies transport, validation, alignment and caching, not a real model's translation quality. No configured credential or paid translation endpoint was used.
+
 ## Repository cleanup verification — 2026-10-31
 
 - [x] inspected all production modules, tests, styles, build/release scripts, gettext manifests and documentation; removed only unconsumed internal methods, options, fields, exports and the unused gettext import/extraction entry
+- [x] follow-up audit reuses existing atomic JSON helpers across both caches, replaces null-only timestamp wrappers and removes a forwarding method, unreachable guards and redundant connection-result validation; parser limits, cancellation and cache formats remain intact
+- [x] removed six obsolete entries from each Chinese catalog and refreshed source references; all 133 active translations in each language are unchanged
 - [x] retained cache migration, test-used helpers, all seven lyric fixtures, native callbacks, dependency notices and historical verification records; no cache/schema format, user-facing behavior, dependency or file additions
 - [x] `make check`, isolated local integration and the final packaged Shell regression pass on GNOME Shell 50.6
 - [x] English/Simplified/Traditional Chinese × native dark/light themes × 100%/150% fonts × 720p/480p: all 24 presentation combinations pass; these runs and the main Shell regression have no allocation warnings
@@ -23,6 +34,10 @@ The initial cleanup verification above used repository and isolated-runtime evid
 - [ ] a fresh desktop session importing this package: the active Wayland session began before this installation; ACTIVE and matching files do not prove a new ESM import
 
 No automatic logout or Shell restart was performed. The real-player tests exercise the checked-out code against the actual desktop MPRIS bus; they do not establish that the running desktop indicator has imported the newly installed code.
+
+## Independent finding — offset reset during loading
+
+A temporary isolated `OffsetStore` fixture persisted `1000 ms`, reset it to `0` immediately after constructing a new store, then awaited `ready()`. The stored offset returned as `1000 ms`: loading merges pending nonzero entries, but a pending deletion leaves no entry to override the loaded value. This pre-existing reset/load race was reproduced during cleanup and remains unfixed. It is separate from cache-helper deduplication; existing storage tests set offsets after loading and do not cover this ordering.
 
 ## Popup presentation and multilingual layout — 2026-10-30
 
@@ -121,7 +136,7 @@ The automated Shell run is isolated and uses controlled playback data. It does n
 
 For the desktop check, log out/in after installing JavaScript, then compare short and long occurrences of the same lyric, pause/resume, seek both directions, hover/leave, close/reopen the popup, and change the configured width or font. With animations disabled, verify that panel lyrics change pages without sliding and that the title remains static. Inspect the journal from that login and distinguish LyricGlance messages from allocation warnings belonging to other actors; an unnamed actor hierarchy alone does not establish ownership.
 
-## Deterministic and repository gates
+## Deterministic and repository gates — historical 0.9.0 baseline
 
 - [x] metadata valid, concise, and contains project URL
 - [x] only GNOME Shell 50 declared
@@ -145,7 +160,7 @@ For the desktop check, log out/in after installing JavaScript, then compare shor
 - [x] focused changelog present
 - [x] current EGO guideline audit recorded
 
-## Final live desktop gates
+## Final live desktop gates — historical 0.9.0 baseline
 
 - [x] install the final zip into a clean user extension directory and byte-compare packaged files
 - [x] log out/in so GNOME Shell 50 fresh-imports the candidate ESM

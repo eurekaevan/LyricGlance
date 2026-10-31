@@ -109,7 +109,8 @@ export default class LyricGlanceExtension extends Extension {
         });
 
         this._indicator = new LyricsIndicator(this.metadata.name, {
-            onOffsetAdjust: deltaMs => this._adjustTrackOffset(deltaMs),
+            onOffsetAdjust: deltaMs =>
+                this._setTrackOffsetMs(this._trackOffsetMs + deltaMs),
             onOffsetReset: () => this._setTrackOffsetMs(0),
             onPlayerSelected: stableId => {
                 this._settings.set_string('preferred-player', stableId);
@@ -804,10 +805,6 @@ export default class LyricGlanceExtension extends Extension {
             });
         GLib.Source.set_name_by_id(
             this._wordTimerId, '[LyricGlance] next lyric word boundary');
-    }
-
-    _adjustTrackOffset(deltaMs) {
-        this._setTrackOffsetMs(this._trackOffsetMs + deltaMs);
     }
 
     _setTrackOffsetMs(offsetMs) {

@@ -11,6 +11,8 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
 const DEFAULT_REASONING_EFFORT = 'none';
+// Bump when translation instructions or output policy change to avoid stale results.
+const TRANSLATION_PROMPT_VERSION = 2;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
 
@@ -69,9 +71,10 @@ export function normalizeTranslationEndpoint(endpoint) {
     return value;
 }
 
-function endpointConfigurationId(endpoint) {
+function providerConfigurationId(endpoint) {
     return GLib.compute_checksum_for_string(
-        GLib.ChecksumType.SHA256, endpoint ?? 'invalid', -1);
+        GLib.ChecksumType.SHA256,
+        JSON.stringify([endpoint ?? 'invalid', TRANSLATION_PROMPT_VERSION]), -1);
 }
 
 async function readResponse(session, message, limit, cancellable) {
@@ -240,9 +243,13 @@ function requestBody(document, options, model, reasoningEffort) {
         store: false,
         instructions: [
             'Translate song lyrics into the requested target language.',
+            'Lyrics may mix languages: translate every line, including words or lines in languages other than sourceLanguage, into the target language.',
+            'sourceLanguage is only a hint, not a filter. Detect the language of each line and phrase.',
+            'Translate meaningful foreign-language phrases, including English refrains inside mixed-language lines; do not preserve them merely because they use Latin letters.',
+            'Text already in the target language and proper names may remain unchanged.',
             'Use the full supplied context to preserve meaning and repeated lines.',
             'Write concise, natural lyrics. Do not censor, embellish, or explain.',
-            'Never alter IDs. Return only the requested lines as structured JSON.',
+            'Never alter IDs. Return exactly one translation for every requested line ID as structured JSON, without omitting lines in other languages.',
             'Do not add timestamps. Preserve non-lyric semantics when present.',
         ].join(' '),
         input: JSON.stringify(input),
@@ -275,7 +282,7 @@ export class OpenAITranslationProvider {
         this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
         this._endpoint = normalizeTranslationEndpoint(endpoint);
-        this.configurationId = endpointConfigurationId(this._endpoint);
+        this.configurationId = providerConfigurationId(this._endpoint);
         this._reasoningEffort = reasoningEffort;
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         this._session = new Soup.Session({
@@ -290,7 +297,7 @@ export class OpenAITranslationProvider {
     }
 
     async checkConnection(credential, cancellable) {
-        const lines = await this.translate({metadata: {}}, {
+        await this.translate({metadata: {}}, {
             credential,
             sourceLanguage: 'en',
             targetLanguage: 'zh-CN',
@@ -301,10 +308,6 @@ export class OpenAITranslationProvider {
                 contextAfter: [],
             },
         }, cancellable);
-        if (lines.length !== 1 || !lines[0].text.trim()) {
-            throw new TranslationProviderError(
-                'invalid_response', 'Connection check returned no translation');
-        }
     }
 
     async _request(document, options, cancellable, attempt) {
@@ -430,10 +433,14 @@ export class OpenAITranslationProvider {
             lines: options.chunk.lines.map(line => ({lineId: line.id})),
         };
         try {
-            return validateTranslationLines(chunkDocument, translated);
+            const lines = validateTranslationLines(chunkDocument, translated);
+            if (lines.length !== chunkDocument.lines.length ||
+                lines.some(line => !line.text.trim()))
+                throw new Error('Missing or empty translation lines');
+            return lines;
         } catch {
             throw new TranslationProviderError(
-                'invalid_response', 'Translation provider returned invalid line IDs');
+                'invalid_response', 'Translation provider returned incomplete or invalid lines');
         }
     }
 
