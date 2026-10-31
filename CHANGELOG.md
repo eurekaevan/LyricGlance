@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Removed unused UI lookup/multiline paths, one-use forwarding methods and unconsumed translation options/error fields. Module-only helpers and defaults no longer expose unused exports; runtime behavior and cache formats are unchanged.
 - Removed unused internal LRC lookup helpers/re-exports, artwork state, provider labels, build variables and an unreferenced fixture. Parser tests now exercise the document/synchronizer path used at runtime; maintenance docs distinguish deterministic checks from live tests.
 - Overflowing panel and popup titles now scroll continuously left with matching copies and a fixed gap, replacing the reverse return leg. Popup-title hover pauses without resetting its position.
 - Renamed the project and GNOME extension identity to LyricGlance (`lyric-glance@eureka`), including its settings schema, credential namespace, gettext domain, cache/config paths, package, and release artifacts. No migration from the previous identity is provided.

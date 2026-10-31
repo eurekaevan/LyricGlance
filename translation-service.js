@@ -83,7 +83,6 @@ export class TranslationService {
             trackKey,
             targetLanguage,
             provider,
-            providerId,
             lyricsHash,
             forceRefresh,
             allowNetwork,

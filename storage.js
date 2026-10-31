@@ -117,7 +117,7 @@ export function defaultCacheRoot() {
     return GLib.build_filenamev([GLib.get_user_cache_dir(), 'lyric-glance']);
 }
 
-export function defaultConfigRoot() {
+function defaultConfigRoot() {
     return GLib.build_filenamev([GLib.get_user_config_dir(), 'lyric-glance']);
 }
 

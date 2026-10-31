@@ -1,5 +1,5 @@
-export const DEFAULT_MAX_CHUNK_LINES = 20;
-export const DEFAULT_MAX_CHUNK_CHARS = 3000;
+const DEFAULT_MAX_CHUNK_LINES = 20;
+const DEFAULT_MAX_CHUNK_CHARS = 3000;
 
 export function buildTranslationChunks(document, {
     maxLines = DEFAULT_MAX_CHUNK_LINES,

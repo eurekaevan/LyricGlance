@@ -1,8 +1,28 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-10-30
+Last updated: 2026-10-31
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
+
+## Repository cleanup verification — 2026-10-31
+
+- [x] inspected all production modules, tests, styles, build/release scripts, gettext manifests and documentation; removed only unconsumed internal methods, options, fields, exports and the unused gettext import/extraction entry
+- [x] retained cache migration, test-used helpers, all seven lyric fixtures, native callbacks, dependency notices and historical verification records; no cache/schema format, user-facing behavior, dependency or file additions
+- [x] `make check`, isolated local integration and the final packaged Shell regression pass on GNOME Shell 50.6
+- [x] English/Simplified/Traditional Chinese × native dark/light themes × 100%/150% fonts × 720p/480p: all 24 presentation combinations pass; these runs and the main Shell regression have no allocation warnings
+- [x] local Markdown targets, fixture references, vendored file/license hashes, gettext manifests, shell script syntax and `git diff --check` verified
+
+The initial cleanup verification above used repository and isolated-runtime evidence. Installation and real-player follow-up are recorded separately below; no Secret Service credential, physical display/input or new desktop-session soak was exercised.
+
+## Installation and real-player follow-up — 2026-10-31
+
+- [x] installed the cleaned package locally; all 33 packaged files and the locally compiled schema match, and the desktop reports the extension enabled/ACTIVE
+- [x] discovered the real Spotify player; playback, pause/resume and bidirectional seek synchronization pass, restoring the original paused state and approximately 29.8-second position
+- [x] inspected the current desktop session's journal: no `needs an allocation` warning since its 12:30:20 start; LRCLIB TLS/503 failures are present
+- [ ] lyric rendering/synchronization with a real song: the selected Bach track returned no lyrics, so this check remains open
+- [ ] a fresh desktop session importing this package: the active Wayland session began before this installation; ACTIVE and matching files do not prove a new ESM import
+
+No automatic logout or Shell restart was performed. The real-player tests exercise the checked-out code against the actual desktop MPRIS bus; they do not establish that the running desktop indicator has imported the newly installed code.
 
 ## Popup presentation and multilingual layout — 2026-10-30
 

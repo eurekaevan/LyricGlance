@@ -57,19 +57,14 @@ function configureEllipsized(label) {
     label.clutter_text.set_single_line_mode(true);
 }
 
-function createMetadataLabel(styleClass, {multiline = false} = {}) {
+function createMetadataLabel(styleClass) {
     const label = new St.Label({
         style_class: styleClass,
         text: '',
         x_expand: true,
         y_align: Clutter.ActorAlign.START,
     });
-    label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
-    label.clutter_text.set_single_line_mode(!multiline);
-    if (multiline) {
-        label.clutter_text.set_line_wrap(true);
-        label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
-    }
+    configureEllipsized(label);
     return label;
 }
 
@@ -907,17 +902,13 @@ export class LyricsIndicator {
     }
 
     setTrack(metadata, trackKey) {
-        this.updateTrackMetadata(metadata, trackKey);
+        this.updateMetadataDisplay(metadata);
+        this.setArtwork(metadata.artUrl, trackKey);
         this.setProgress(0, metadata.durationUs);
         this._document = null;
         this._translationDocument = null;
         this.setTranslationState('idle');
         this._showLyricsMessage(_('Loading lyrics…'));
-    }
-
-    updateTrackMetadata(metadata, trackKey) {
-        this.updateMetadataDisplay(metadata);
-        this.setArtwork(metadata.artUrl, trackKey);
     }
 
     updateMetadataDisplay(metadata) {
@@ -1141,11 +1132,6 @@ export class LyricsIndicator {
         this._translationActionButton.visible = Boolean(action);
         setButtonEnabled(this._translationActionButton, enabled);
         this._updateTranslationControlVisibility();
-    }
-
-    translatedTextForLine(lineId) {
-        return this._translationDocument?.lines
-            ?.find(line => line.lineId === lineId)?.text ?? null;
     }
 
     isOriginalLineVisible(index) {

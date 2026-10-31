@@ -67,7 +67,7 @@ async function closeStream(stream) {
     }
 }
 
-export function defaultArtworkCacheDirectory() {
+function defaultArtworkCacheDirectory() {
     return GLib.build_filenamev([
         GLib.get_user_cache_dir(),
         'lyric-glance',

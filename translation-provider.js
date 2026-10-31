@@ -4,9 +4,9 @@ import Soup from 'gi://Soup?version=3.0';
 
 import {validateTranslationLines} from './translation-document.js';
 
-export const OPENAI_PROVIDER_ID = 'openai';
-export const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
-export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+const OPENAI_PROVIDER_ID = 'openai';
+const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
+const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
@@ -121,15 +121,14 @@ async function readResponse(session, message, limit, cancellable) {
 }
 
 export class TranslationProviderError extends Error {
-    constructor(code, message, retryAfterMs = null) {
+    constructor(code, message) {
         super(message);
         this.name = 'TranslationProviderError';
         this.code = code;
-        this.retryAfterMs = retryAfterMs;
     }
 }
 
-export function translationRetryAfterMs(value, now = Date.now()) {
+function translationRetryAfterMs(value, now = Date.now()) {
     if (typeof value !== 'string' || !value.trim())
         return 5000;
     const seconds = Number(value);
@@ -388,8 +387,7 @@ export class OpenAITranslationProvider {
                     document, options, cancellable, attempt + 1);
             }
             throw new TranslationProviderError(
-                'rate_limited', 'Translation provider rate limited the request',
-                retryAfterMs);
+                'rate_limited', 'Translation provider rate limited the request');
         }
         if (status === 401 || status === 403 && apiError?.code === 'invalid_api_key') {
             throw new TranslationProviderError(

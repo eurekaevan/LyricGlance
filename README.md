@@ -24,7 +24,7 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 ## 兼容性
 
 - Fedora Linux
-- GNOME Shell 50（已在 50.4 测试，近期滚动回归使用 50.5）
+- GNOME Shell 50（历史验证覆盖 50.4／50.5，近期打包回归使用 50.6）
 - Wayland
 - GJS ES Modules
 
@@ -309,6 +309,8 @@ make translations-update
 补齐新词条后运行 `make check`：它会检查模板是否遗漏当前源码中的词条、每种语言是否
 有缺失/未翻译/模糊词条，以及格式占位符是否有效。打包检查还会核对每个 PO 都有对应的
 编译后 MO 文件，避免新增语言只留在源码中。
+
+新增包含界面文案的源文件时，将它加入 `po/POTFILES.in`；清单只保留实际需要提取文案的文件。
 
 添加语言时，先更新模板，再用 `msginit --input=po/lyric-glance@eureka.pot
 --locale=语言代码 --output-file=po/语言代码.po` 创建翻译文件，填写翻译并将语言代码加入

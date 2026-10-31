@@ -6,7 +6,7 @@ export const SyncLevel = Object.freeze({
     WORD: 'word',
 });
 
-export function createLineId(index, startMs, text) {
+function createLineId(index, startMs, text) {
     const identity = JSON.stringify([
         Number.isInteger(index) ? index : -1,
         Number.isInteger(startMs) ? startMs : '',
@@ -25,7 +25,7 @@ function nullableTimestamp(value) {
     return value === null || value === undefined ? null : value;
 }
 
-export function plainTextLines(plain) {
+function plainTextLines(plain) {
     if (typeof plain !== 'string' || !plain.trim())
         return [];
 

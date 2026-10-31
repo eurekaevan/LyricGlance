@@ -89,7 +89,7 @@ async function listFiles(directory, cancellable = null) {
     return files;
 }
 
-export function defaultTranslationCacheDirectory(
+function defaultTranslationCacheDirectory(
     cacheRoot = defaultCacheRoot()) {
     return GLib.build_filenamev([cacheRoot, 'translations']);
 }

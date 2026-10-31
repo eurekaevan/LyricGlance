@@ -9,7 +9,7 @@ import {LyricsDiskCache, trackKey} from './storage.js';
 
 const API_URL = 'https://lrclib.net/api/get';
 const SEARCH_API_URL = 'https://lrclib.net/api/search';
-export const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';
+const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';
 const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const REQUEST_SPACING_MS = 300;
 const TRACK_DEBOUNCE_MS = 600;
@@ -248,13 +248,9 @@ export class LyricsProvider {
             this._spacingDelayMs(), 0);
     }
 
-    clearMemoryCache() {
-        this._cache.clear();
-    }
-
     async clearCaches() {
         this.cancelPending();
-        this.clearMemoryCache();
+        this._cache.clear();
         await this._diskCache?.clear();
     }
 
