@@ -12,7 +12,7 @@ const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
 const DEFAULT_REASONING_EFFORT = 'none';
 // Bump when translation instructions or output policy change to avoid stale results.
-const TRANSLATION_PROMPT_VERSION = 2;
+const TRANSLATION_PROMPT_VERSION = 3;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
 
@@ -131,6 +131,13 @@ export class TranslationProviderError extends Error {
     }
 }
 
+function invalidResponse(reason) {
+    // Only fixed classifications belong here, never provider text or line IDs.
+    console.warn(`LyricGlance: invalid translation response reason=${reason}`);
+    return new TranslationProviderError(
+        'invalid_response', 'Translation response was invalid');
+}
+
 function translationRetryAfterMs(value, now = Date.now()) {
     if (typeof value !== 'string' || !value.trim())
         return 5000;
@@ -183,8 +190,7 @@ function delay(milliseconds, cancellable) {
 
 function outputText(response) {
     if (!response || !Array.isArray(response.output))
-        throw new TranslationProviderError(
-            'invalid_response', 'Provider response has no output');
+        throw invalidResponse('missing_output');
 
     const parts = [];
     for (const output of response.output) {
@@ -200,8 +206,7 @@ function outputText(response) {
         }
     }
     if (parts.length === 0)
-        throw new TranslationProviderError(
-            'invalid_response', 'Provider response contains no text');
+        throw invalidResponse('missing_output_text');
     return parts.join('');
 }
 
@@ -250,6 +255,8 @@ function requestBody(document, options, model, reasoningEffort) {
             'Use the full supplied context to preserve meaning and repeated lines.',
             'Write concise, natural lyrics. Do not censor, embellish, or explain.',
             'Never alter IDs. Return exactly one translation for every requested line ID as structured JSON, without omitting lines in other languages.',
+            'The JSON must be an object with a top-level "lines" array; each item has exactly "id" and "text" string fields.',
+            'Example shape: {"lines":[{"id":"<exact requested ID>","text":"<translated text>"}]}. Do not use another top-level field or Markdown fences.',
             'Do not add timestamps. Preserve non-lyric semantics when present.',
         ].join(' '),
         input: JSON.stringify(input),
@@ -343,9 +350,7 @@ export class OpenAITranslationProvider {
                 error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 throw canceledError();
             if (error instanceof ResponseTooLargeError) {
-                throw new TranslationProviderError(
-                    'invalid_response',
-                    'Translation response exceeded the size limit');
+                throw invalidResponse('response_too_large');
             }
             const failure = new TranslationProviderError(
                 'network_error', 'Translation network request failed');
@@ -418,30 +423,44 @@ export class OpenAITranslationProvider {
         }
 
         let response;
-        let translated;
         try {
             response = JSON.parse(new TextDecoder().decode(bytes.get_data()));
-            translated = JSON.parse(outputText(response));
-        } catch (error) {
-            if (error instanceof TranslationProviderError)
-                throw error;
-            throw new TranslationProviderError(
-                'invalid_response', 'Translation provider returned invalid JSON');
+        } catch {
+            throw invalidResponse('response_json');
+        }
+        if (response?.status && response.status !== 'completed') {
+            throw invalidResponse(response.status === 'incomplete' &&
+                response.incomplete_details?.reason === 'max_output_tokens'
+                ? 'output_limit' : 'response_not_completed');
+        }
+        const text = outputText(response);
+        let translated;
+        try {
+            translated = JSON.parse(text);
+        } catch {
+            throw invalidResponse('translation_json');
+        }
+        // Some compatible endpoints return this alias despite strict schema.
+        // Normalize only its container; IDs and completeness stay mandatory.
+        if (translated && !Object.hasOwn(translated, 'lines') &&
+            Array.isArray(translated.translations)) {
+            translated = {lines: translated.translations};
         }
 
         const chunkDocument = {
             lines: options.chunk.lines.map(line => ({lineId: line.id})),
         };
+        let lines;
         try {
-            const lines = validateTranslationLines(chunkDocument, translated);
-            if (lines.length !== chunkDocument.lines.length ||
-                lines.some(line => !line.text.trim()))
-                throw new Error('Missing or empty translation lines');
-            return lines;
+            lines = validateTranslationLines(chunkDocument, translated);
         } catch {
-            throw new TranslationProviderError(
-                'invalid_response', 'Translation provider returned incomplete or invalid lines');
+            throw invalidResponse('line_schema');
         }
+        if (lines.length !== chunkDocument.lines.length)
+            throw invalidResponse('missing_lines');
+        if (lines.some(line => !line.text.trim()))
+            throw invalidResponse('blank_translation');
+        return lines;
     }
 
     destroy() {

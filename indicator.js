@@ -282,6 +282,8 @@ class PlaybackProgressView {
         this._dragTarget = null;
         this._dragging = false;
         this._updating = false;
+        this._seekPending = false;
+        this._positionUs = 0;
         this._durationUs = 0;
         this.actor = new St.BoxLayout({
             style_class: 'lyric-glance-progress',
@@ -323,10 +325,20 @@ class PlaybackProgressView {
     }
 
     setControlState(target, enabled) {
-        if (JSON.stringify(target) !== JSON.stringify(this._target) || !enabled)
+        if (JSON.stringify(target) !== JSON.stringify(this._target)) {
             this.cancelDrag();
+            this.setSeekPending(false);
+        } else if (!enabled) {
+            this.cancelDrag();
+        }
         this._target = target;
         setButtonEnabled(this._slider, Boolean(enabled));
+    }
+
+    setSeekPending(pending) {
+        this._seekPending = pending;
+        if (!pending)
+            this._renderProgress();
     }
 
     cancelDrag() {
@@ -337,10 +349,16 @@ class PlaybackProgressView {
     setProgress(positionUs, durationUs) {
         const duration = Number(durationUs);
         this._durationUs = Number.isFinite(duration) && duration > 0 ? duration : 0;
+        this._positionUs = Number(positionUs) || 0;
         this.actor.visible = this._durationUs > 0;
-        if (this._dragging && this._dragTarget)
+        this._durationLabel.text = formatDuration(this._durationUs / 1_000_000);
+        this._renderProgress();
+    }
+
+    _renderProgress() {
+        if (this._seekPending || this._dragging && this._dragTarget)
             return;
-        const position = Math.min(Math.max(0, Number(positionUs) || 0),
+        const position = Math.min(Math.max(0, this._positionUs),
             this._durationUs);
         this._updating = true;
         // Shell 50 retains a separate step origin after user interaction.
@@ -348,11 +366,11 @@ class PlaybackProgressView {
         this._slider.value = this._durationUs > 0 ? position / this._durationUs : 0;
         this._updating = false;
         this._currentLabel.text = formatDuration(position / 1_000_000);
-        this._durationLabel.text = formatDuration(this._durationUs / 1_000_000);
     }
 
     destroy() {
         this.cancelDrag();
+        this._seekPending = false;
         this._onSeek = null;
         this._target = null;
         this.actor = null;
@@ -962,9 +980,13 @@ export class LyricsIndicator {
         const request = ++this._mediaRequest;
         this._mediaBusy = true;
         this._mediaErrorLabel.hide();
+        if (action === 'SetPosition')
+            this._progressView.setSeekPending(true);
         this.setMediaState(this._mediaState);
         try {
-            await this._onMediaControl(action, target, positionUs);
+            const accepted = await this._onMediaControl(action, target, positionUs);
+            if (accepted === false && this.actor && request === this._mediaRequest)
+                throw new Error('Playback control was rejected');
         } catch (error) {
             if (this.actor && request === this._mediaRequest) {
                 this._mediaErrorLabel.show();
@@ -973,6 +995,8 @@ export class LyricsIndicator {
         } finally {
             if (this.actor && request === this._mediaRequest) {
                 this._mediaBusy = false;
+                if (action === 'SetPosition')
+                    this._progressView.setSeekPending(false);
                 this.setMediaState(this._mediaState);
             }
         }
@@ -980,6 +1004,7 @@ export class LyricsIndicator {
 
     cancelMediaDrag() {
         this._progressView.cancelDrag();
+        this._progressView.setSeekPending(false);
     }
 
     setProgress(positionUs, durationUs, options = {}) {

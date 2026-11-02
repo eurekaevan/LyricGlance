@@ -14,18 +14,29 @@ import {
     translationNetworkReason,
 } from '../translation-provider.js';
 
+// GJS console methods are read-only; observe their structured log output.
+const diagnostics = [];
+GLib.log_set_writer_func((level, fields) => {
+    if (!(level & (GLib.LogLevelFlags.LEVEL_DEBUG | GLib.LogLevelFlags.LEVEL_INFO))) {
+        const message = new TextDecoder().decode(fields.MESSAGE ?? new Uint8Array());
+        diagnostics.push(message);
+        printerr(message);
+    }
+    return GLib.LogWriterOutput.HANDLED;
+});
+
 function assert(condition, message) {
     if (!condition)
         throw new Error(message);
 }
 
-function response(lines) {
+function response(lines, field = 'lines') {
     return JSON.stringify({
         output: [{
             type: 'message',
             content: [{
                 type: 'output_text',
-                text: JSON.stringify({lines}),
+                text: JSON.stringify({[field]: lines}),
             }],
         }],
     });
@@ -115,8 +126,18 @@ server.add_handler(null, (_server, message) => {
     let output;
     if (mode === 'malformed')
         output = '{bad json';
-    else if (mode === 'unknown-id')
-        output = response([{id: 'unknown', text: '错误'}]);
+    else if (mode === 'unknown-id' || mode === 'alias-unknown-id')
+        output = response([{id: mode === 'alias-unknown-id' ? 'private-response-content' : 'unknown',
+            text: '错误'}],
+            mode === 'alias-unknown-id' ? 'translations' : 'lines');
+    else if (mode === 'missing-output')
+        output = JSON.stringify({status: 'completed', detail: 'private-response-content'});
+    else if (mode === 'missing-text')
+        output = JSON.stringify({status: 'completed', output: []});
+    else if (mode === 'invalid-translation-json')
+        output = JSON.stringify({output: [{type: 'message', content: [{
+            type: 'output_text', text: 'private-response-content not JSON',
+        }]}]});
     else if (mode === 'empty')
         output = response([]);
     else if (['mixed', 'mixed-partial', 'mixed-blank'].includes(mode))
@@ -127,11 +148,26 @@ server.add_handler(null, (_server, message) => {
                     ? '  '
                     : mixedTranslations[mixedLyrics.lines.findIndex(original =>
                         original.lineId === line.id)]})));
-    else
-        output = response(JSON.parse(observed.body.input).lines.map(line => ({
-            id: line.id,
-            text: mode === 'blank' ? '  ' : `[zh-CN] ${line.text}`,
-        })));
+    else {
+        const inputLines = JSON.parse(observed.body.input).lines;
+        output = response(inputLines.map(line => ({
+            id: mode === 'alias-duplicate' ? inputLines[0].id : line.id,
+            text: mode === 'blank' || mode === 'alias-blank' ? '  ' : `[zh-CN] ${line.text}`,
+        })).filter((_line, index) => mode !== 'alias-partial' || index === 0),
+        mode.startsWith('alias-') ? 'translations' : 'lines');
+        if (mode === 'alias-conflict') {
+            const envelope = JSON.parse(output);
+            const payload = JSON.parse(envelope.output[0].content[0].text);
+            payload.lines = 'invalid canonical container';
+            envelope.output[0].content[0].text = JSON.stringify(payload);
+            output = JSON.stringify(envelope);
+        } else if (mode === 'incomplete') {
+            const envelope = JSON.parse(output);
+            envelope.status = 'incomplete';
+            envelope.incomplete_details = {reason: 'max_output_tokens'};
+            output = JSON.stringify(envelope);
+        }
+    }
     message.set_response(
         'application/json',
         Soup.MemoryUse.COPY,
@@ -200,6 +236,45 @@ async function run() {
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
     provider.destroy();
+
+    mode = 'alias-success';
+    provider = new OpenAITranslationProvider({endpoint});
+    result = await translate(provider);
+    assert(result.length === 2 && result[0].lineId === lyrics.lines[0].lineId &&
+        result[0].text === '[zh-CN] Hello',
+    'the observed translations array alias must retain strict ID alignment');
+    await provider.checkConnection('unit-test-token', null);
+    for (const failure of ['alias-unknown-id', 'alias-duplicate', 'alias-partial',
+        'alias-blank', 'alias-conflict']) {
+        mode = failure;
+        await expectCode(() => translate(provider), 'invalid_response',
+            `${failure} must not bypass translation validation`);
+    }
+    provider.destroy();
+    mode = 'success';
+
+    provider = new OpenAITranslationProvider({endpoint});
+    try {
+        for (const [failure, reason] of [
+            ['missing-output', 'missing_output'],
+            ['missing-text', 'missing_output_text'],
+            ['invalid-translation-json', 'translation_json'],
+            ['incomplete', 'output_limit'],
+        ]) {
+            mode = failure;
+            await expectCode(() => translate(provider), 'invalid_response',
+                `${failure} must be rejected even when HTTP succeeds`);
+            assert(diagnostics.at(-1) === `LyricGlance: invalid translation response reason=${reason}`,
+                'invalid response diagnostics must retain only a fixed classification');
+        }
+        assert(!diagnostics.join('\n').includes('private-response-content') &&
+            !diagnostics.join('\n').includes('unit-test-token') &&
+            !diagnostics.join('\n').includes(lyrics.lines[0].lineId),
+        'response diagnostics must not expose credentials, response text or line IDs');
+    } finally {
+        provider.destroy();
+    }
+    mode = 'success';
 
     const cacheRoot = GLib.dir_make_tmp('lyric-mixed-translation-XXXXXX');
     provider = new OpenAITranslationProvider({endpoint});

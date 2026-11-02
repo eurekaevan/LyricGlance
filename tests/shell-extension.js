@@ -1116,6 +1116,82 @@ export async function run() {
     await Scripting.sleep(10);
     assert(Math.abs(mediaCommands.at(-1).position - 24_400_000) < 1,
         'native keyboard/scroll stepping must start from the latest clock position');
+
+    const immediateMediaControl = view._onMediaControl;
+    let resolveSeek;
+    view._onMediaControl = () => new Promise(resolve => (resolveSeek = resolve));
+    view.setProgress(20_000_000, 220_000_000);
+    slider.emit('drag-begin');
+    slider.value = 0.5;
+    slider.emit('drag-end');
+    view.setProgress(21_000_000, 220_000_000);
+    assert(slider.value === 0.5 && progress._currentLabel.text === '1:50' &&
+        progress._seekPending && view._mediaBusy,
+    'a pending seek must retain its preview despite an old clock tick');
+    view.setProgress(111_000_000, 220_000_000);
+    assert(slider.value === 0.5,
+        'authoritative progress should be recorded without replacing the pending preview');
+    resolveSeek(true);
+    await Scripting.sleep(10);
+    assert(Math.abs(slider.value - 111 / 220) < 0.0001 &&
+        progress._currentLabel.text === '1:51' && !progress._seekPending && !view._mediaBusy,
+    'seek completion must reveal the latest authoritative progress');
+
+    for (const rejected of [false, new Error('Expected seek rejection')]) {
+        let settleSeek;
+        view._onMediaControl = () => new Promise((resolve, reject) => {
+            settleSeek = () => rejected === false ? resolve(false) : reject(rejected);
+        });
+        view.setProgress(20_000_000, 220_000_000);
+        slider.value = 0.5;
+        view.setProgress(21_000_000, 220_000_000);
+        settleSeek();
+        await Scripting.sleep(10);
+        assert(Math.abs(slider.value - 21 / 220) < 0.0001 &&
+            progress._currentLabel.text === '0:21' && !progress._seekPending &&
+            !view._mediaBusy && view._mediaErrorLabel.visible,
+        'a rejected or failed seek must restore actual progress and report failure');
+    }
+
+    view._onMediaControl = () => new Promise(resolve => (resolveSeek = resolve));
+    view.setProgress(20_000_000, 220_000_000);
+    slider.value = 0.5;
+    view.setMediaState({...mediaState, controlTarget:
+        {...mediaState.controlTarget, trackKey: 'pending-replacement'}});
+    view.setProgress(5_000_000, 220_000_000);
+    resolveSeek(false);
+    await Scripting.sleep(10);
+    assert(Math.abs(slider.value - 5 / 220) < 0.0001 && !progress._seekPending &&
+        !view._mediaErrorLabel.visible,
+    'a stale seek completion must not replace the new track progress or show its error');
+    view.setMediaState(mediaState);
+    view.setProgress(20_000_000, 220_000_000);
+    slider.value = 0.5;
+    view.cancelMediaDrag();
+    assert(!progress._seekPending && Math.abs(slider.value - 20 / 220) < 0.0001,
+        'closing the popup must discard an unconfirmed seek preview');
+    view.setProgress(22_000_000, 220_000_000);
+    resolveSeek(true);
+    await Scripting.sleep(10);
+    assert(Math.abs(slider.value - 22 / 220) < 0.0001,
+        'completion after closing must retain the latest authoritative progress');
+    view._onMediaControl = immediateMediaControl;
+
+    let finishDestroyedSeek;
+    const pendingView = new view.constructor('Pending seek lifecycle fixture', {
+        onMediaControl: () => new Promise(resolve => (finishDestroyedSeek = resolve)),
+    });
+    pendingView.setMediaState(mediaState);
+    pendingView.setProgress(20_000_000, 220_000_000);
+    const pendingProgress = pendingView._progressView;
+    pendingProgress._slider.value = 0.5;
+    assert(pendingProgress._seekPending, 'the lifecycle fixture must have an active seek');
+    pendingView.destroy();
+    finishDestroyedSeek(true);
+    await Scripting.sleep(10);
+    assert(!pendingProgress._seekPending && pendingProgress._slider === null,
+        'destroying a pending seek must release its preview and ignore later completion');
+
     const beforeCancelled = mediaCommands.length;
     slider.emit('drag-begin');
     slider.value = 0.8;

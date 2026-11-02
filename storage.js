@@ -409,6 +409,7 @@ export class OffsetStore {
         this._onLoaded = onLoaded;
         this._now = now;
         this._entries = new Map();
+        this._pendingResets = new Set();
         this._dirty = false;
         this._saving = false;
         this._savePromise = null;
@@ -432,7 +433,9 @@ export class OffsetStore {
         const value = clampOffset(offsetMs);
         if (value === 0) {
             this._entries.delete(hash);
+            this._pendingResets?.add(hash);
         } else {
+            this._pendingResets?.delete(hash);
             this._entries.set(hash, {
                 offsetMs: value,
                 lastAccessed: this._now(),
@@ -448,6 +451,7 @@ export class OffsetStore {
         this._cancellable = null;
         this._onLoaded = null;
         this._entries.clear();
+        this._pendingResets = null;
     }
 
     async ready() {
@@ -489,12 +493,15 @@ export class OffsetStore {
             }
 
             // Adjustments made before the asynchronous load completed win.
+            for (const hash of this._pendingResets)
+                loaded.delete(hash);
             for (const [hash, entry] of this._entries)
                 loaded.set(hash, entry);
             this._entries = loaded;
             this._evictOldest();
         }
 
+        this._pendingResets = null;
         this._onLoaded?.();
     }
 

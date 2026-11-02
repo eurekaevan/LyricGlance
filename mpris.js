@@ -238,16 +238,32 @@ export class MprisManager {
 
         // Only feedback for this operation suppresses its one-shot readback;
         // unrelated properties and older queries are not acknowledgements.
+        let readback = null;
         if (action === 'SetPosition') {
             if ((player.propertyVersions.Position ?? 0) <= version ||
                 player.anchorPositionUs !== seekPositionUs)
-                this._queryPosition(player);
+                readback = this._queryPosition(player);
         } else if (!['Play', 'Pause'].includes(action) ||
             (player.propertyVersions.PlaybackStatus ?? 0) <= version ||
             player.playbackStatus !== (action === 'Play' ? 'Playing' : 'Paused')) {
-            this._refreshPlayer(player);
+            readback = this._refreshPlayer(player);
         }
-        return true;
+        const readDeadlineUs = GLib.get_monotonic_time() + CALL_TIMEOUT_MS * 1000;
+        while (readback) {
+            await readback;
+            if (this._cancellable !== lifetime ||
+                this._players.get(this._selectedName) !== player ||
+                target.trackKey !== metadataKey(player.metadata))
+                return false;
+            // Follow a read already started by newer feedback; never start a
+            // polling loop or release a seek preview before that read settles.
+            readback = player.positionReadPromise;
+            if (readback && GLib.get_monotonic_time() >= readDeadlineUs)
+                return false;
+        }
+        return this._cancellable === lifetime &&
+            this._players.get(this._selectedName) === player &&
+            target.trackKey === metadataKey(player.metadata);
     }
 
     _watchPlayers(cancellable) {
@@ -324,6 +340,9 @@ export class MprisManager {
             stateVersion: 0,
             propertyVersions: {},
             positionRequestSerial: 0,
+            refreshRequestSerial: 0,
+            positionFeedbackVersion: 0,
+            positionReadPromise: null,
             propertySignalId: 0,
             seekedSignalId: 0,
         };
@@ -403,10 +422,11 @@ export class MprisManager {
 
     _refreshPlayer(player) {
         const stateVersion = player.stateVersion;
-        // All clock reads share an ordering token: the latest request wins,
-        // including when a full refresh supersedes a pending Position read.
+        const refreshSerial = ++player.refreshRequestSerial;
+        // Position reads share a clock token, while full snapshots have their
+        // own order so a newer Seeked cannot discard valid status feedback.
         const positionSerial = ++player.positionRequestSerial;
-        this._connection.call(
+        return this._trackPositionRead(player, new Promise((resolve, reject) => this._connection.call(
             player.name,
             MPRIS_PATH,
             PROPERTIES_INTERFACE,
@@ -423,19 +443,36 @@ export class MprisManager {
                 } catch (error) {
                     if (this._cancellable &&
                         this._players.get(player.name) === player &&
-                        player.positionRequestSerial === positionSerial &&
+                        player.refreshRequestSerial === refreshSerial &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                         console.debug(`LyricGlance: ignoring ${player.name}: ${error.message}`);
+                    resolve(false);
                     return;
                 }
 
                 if (!this._cancellable ||
                     this._players.get(player.name) !== player ||
-                    player.positionRequestSerial !== positionSerial)
+                    player.refreshRequestSerial !== refreshSerial) {
+                    resolve(false);
                     return;
+                }
 
-                this._applyAllProperties(player, properties, stateVersion);
-            });
+                try {
+                    resolve(this._applyAllProperties(
+                        player, properties, stateVersion, positionSerial));
+                } catch (error) {
+                    reject(error);
+                }
+            })));
+    }
+
+    _trackPositionRead(player, promise) {
+        const tracked = promise.finally(() => {
+            if (player.positionReadPromise === tracked)
+                player.positionReadPromise = null;
+        });
+        player.positionReadPromise = tracked;
+        return tracked;
     }
 
     _refreshIdentity(player) {
@@ -482,15 +519,33 @@ export class MprisManager {
             });
     }
 
-    _applyAllProperties(player, properties, stateVersion) {
+    _applyAllProperties(player, properties, stateVersion, positionSerial) {
         const now = GLib.get_monotonic_time();
-        player.positionRequestSerial++;
-        player.playbackStatus = unpackString(properties.PlaybackStatus) || 'Stopped';
-        player.rate = playbackRate(properties.Rate);
-        if ((player.propertyVersions.Metadata ?? 0) <= stateVersion)
-            player.metadata = parseMetadata(properties.Metadata);
-        player.anchorPositionUs = Math.max(0, unpackNumber(properties.Position));
+        const metadata = parseMetadata(properties.Metadata);
+        const metadataCurrent = (player.propertyVersions.Metadata ?? 0) <= stateVersion;
+        if (!metadataCurrent && metadataKey(metadata) !== metadataKey(player.metadata))
+            return false;
+
+        const positionCurrent = player.positionRequestSerial === positionSerial;
+        const trackChanged = metadataCurrent && metadataKey(metadata) !== metadataKey(player.metadata);
+        if (metadataCurrent)
+            player.metadata = metadata;
+        // Starting a newer read invalidates a snapshot but supplies no clock.
+        const positionUs = trackChanged && player.positionFeedbackVersion <= stateVersion
+            ? 0 : this._positionAt(player, now);
+        if ((player.propertyVersions.PlaybackStatus ?? 0) <= stateVersion)
+            player.playbackStatus = unpackString(properties.PlaybackStatus) || 'Stopped';
+        if ((player.propertyVersions.Rate ?? 0) <= stateVersion)
+            player.rate = playbackRate(properties.Rate);
+        player.anchorPositionUs = positionCurrent && Object.hasOwn(properties, 'Position')
+            ? Math.max(0, unpackNumber(properties.Position))
+            : positionUs;
         player.anchorMonotonicUs = now;
+        if (positionCurrent) {
+            player.positionRequestSerial++;
+            if (Object.hasOwn(properties, 'Position'))
+                player.positionFeedbackVersion = ++player.stateVersion;
+        }
         for (const property of CAPABILITIES) {
             if ((player.propertyVersions[property] ?? 0) <= stateVersion)
                 player.capabilities[property] = unpack(properties[property]) === true;
@@ -499,8 +554,9 @@ export class MprisManager {
         player.lastActivity = ++this._activitySerial;
         this._notifyStateChanged();
 
-        if (!Object.hasOwn(properties, 'Position'))
-            this._queryPosition(player);
+        return positionCurrent && !Object.hasOwn(properties, 'Position')
+            ? this._queryPosition(player)
+            : true;
     }
 
     _onPropertiesChanged(name, parameters) {
@@ -515,7 +571,7 @@ export class MprisManager {
         player.stateVersion++;
         // A newer capability or artwork notification must survive an older
         // full snapshot without suppressing its still-current playback clock.
-        for (const property of ['Metadata', ...CAPABILITIES]) {
+        for (const property of ['Metadata', 'Rate', ...CAPABILITIES]) {
             if (Object.hasOwn(changed, property) || invalidated.includes(property))
                 player.propertyVersions[property] = player.stateVersion;
         }
@@ -526,7 +582,7 @@ export class MprisManager {
                 player.propertyVersions[property] = 0;
         }
         const now = GLib.get_monotonic_time();
-        const oldPosition = this._positionAt(player, now);
+        let oldPosition = this._positionAt(player, now);
         let shouldQueryPosition = false;
         let significantChange = false;
         let positionChanged = false;
@@ -535,6 +591,7 @@ export class MprisManager {
             const oldKey = metadataKey(player.metadata);
             player.metadata = parseMetadata(changed.Metadata);
             if (metadataKey(player.metadata) !== oldKey) {
+                oldPosition = 0;
                 player.anchorPositionUs = 0;
                 player.anchorMonotonicUs = now;
                 significantChange = true;
@@ -563,6 +620,7 @@ export class MprisManager {
         if (Object.hasOwn(changed, 'Position')) {
             player.anchorPositionUs = Math.max(0, unpackNumber(changed.Position));
             player.anchorMonotonicUs = now;
+            player.positionFeedbackVersion = player.stateVersion;
             shouldQueryPosition = false;
             positionChanged = true;
         }
@@ -602,6 +660,7 @@ export class MprisManager {
         const [positionUs] = parameters.deepUnpack();
         player.stateVersion++;
         player.propertyVersions.Position = player.stateVersion;
+        player.positionFeedbackVersion = player.stateVersion;
         player.positionRequestSerial++;
         player.anchorPositionUs = Math.max(0, Number(positionUs));
         player.anchorMonotonicUs = GLib.get_monotonic_time();
@@ -611,7 +670,7 @@ export class MprisManager {
 
     _queryPosition(player) {
         const requestSerial = ++player.positionRequestSerial;
-        this._connection.call(
+        return this._trackPositionRead(player, new Promise((resolve, reject) => this._connection.call(
             player.name,
             MPRIS_PATH,
             PROPERTIES_INTERFACE,
@@ -631,19 +690,28 @@ export class MprisManager {
                         player.positionRequestSerial === requestSerial &&
                         !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                         console.debug(`LyricGlance: position query failed for ${player.name}: ${error.message}`);
+                    resolve(false);
                     return;
                 }
 
                 if (!this._cancellable ||
                     this._players.get(player.name) !== player ||
-                    player.positionRequestSerial !== requestSerial)
+                    player.positionRequestSerial !== requestSerial) {
+                    resolve(false);
                     return;
+                }
 
                 player.anchorPositionUs = Math.max(0, unpackNumber(position));
                 player.anchorMonotonicUs = GLib.get_monotonic_time();
                 player.positionRequestSerial++;
-                this._notifyStateChanged();
-            });
+                player.positionFeedbackVersion = ++player.stateVersion;
+                try {
+                    this._notifyStateChanged();
+                    resolve(true);
+                } catch (error) {
+                    reject(error);
+                }
+            })));
     }
 
     getDelayUntilPositionUs(targetPositionUs) {

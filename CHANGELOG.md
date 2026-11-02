@@ -26,6 +26,9 @@
 
 ### Fixed
 
+- Playback controls retain valid status readbacks when newer position feedback arrives, preserve newer per-property state, and reset the old clock on track changes. Seek previews remain visible until reconciliation settles, including when a newer read supersedes the original; rejected controls restore current progress and show the existing error hint without adding polling.
+- Offset resets made while saved offsets are loading now override the old entry, while preserving subsequent adjustments and other tracks; no offset-file format change.
+- Translation requests explicitly name the required JSON shape and accept the observed `translations` array alias only when `lines` is absent. ID/completeness checks remain strict; incomplete Responses outputs are rejected and privacy-safe format diagnostics distinguish failure stages. The configured endpoint passed a real connection check and a two-line synthetic Japanese/English request after this fix.
 - Mixed-language translation instructions explicitly cover foreign-language lines and phrases, including English refrains in Japanese lyrics. API responses with omitted/empty lines are rejected, and prompt-versioned cache identity prevents old translations masking the new policy; nonempty translation language/quality still depends on the model.
 - Popup lyrics inherit the normal theme foreground instead of disabled-row gray; distant lines retain more contrast, bilingual groups have clearer spacing, and offset text is centered across scripts and directions. Footer padding is consistent, disabled buttons keep native styling, and lyrics gain edge fading.
 - Small-display popups retain a font-relative lyrics viewport and scroll the full menu when needed, revealing keyboard-focused footer controls. Single-line titles and metadata use natural text height to prevent large-font overlap with media controls.

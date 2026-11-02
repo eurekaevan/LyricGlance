@@ -217,6 +217,55 @@ async function run() {
     await reloadedOffsets.flush();
     reloadedOffsets.destroy();
 
+    const pendingRoot = GLib.build_filenamev([tempRoot, 'pending-offsets']);
+    const pendingSeed = new OffsetStore({configRoot: pendingRoot});
+    await pendingSeed.ready();
+    pendingSeed.set(trackA, 1000);
+    pendingSeed.set(trackB, -500);
+    pendingSeed.set(trackC, 750);
+    await pendingSeed.flush();
+    pendingSeed.destroy();
+
+    let canceledLoads = 0;
+    const canceledOffsets = new OffsetStore({
+        configRoot: pendingRoot,
+        onLoaded: () => canceledLoads++,
+    });
+    canceledOffsets.set(trackA, 0);
+    canceledOffsets.destroy();
+    await canceledOffsets.ready();
+    assert(canceledLoads === 0,
+        'destroying a store during load must not notify its former owner');
+    const afterCanceledOffsets = new OffsetStore({configRoot: pendingRoot});
+    await afterCanceledOffsets.ready();
+    assert(afterCanceledOffsets.get(trackA) === 1000,
+        'destroying a pending reset must leave the saved offset unchanged');
+    await afterCanceledOffsets.flush();
+    afterCanceledOffsets.destroy();
+
+    const pendingOffsets = new OffsetStore({configRoot: pendingRoot});
+    pendingOffsets.set(trackA, 0);
+    pendingOffsets.set(trackA, 500);
+    pendingOffsets.set(trackA, 0);
+    pendingOffsets.set(trackB, 0);
+    pendingOffsets.set(trackB, 250);
+    await pendingOffsets.ready();
+    assert(pendingOffsets.get(trackA) === 0 &&
+        pendingOffsets.get(trackB) === 250 &&
+        pendingOffsets.get(trackC) === 750,
+    'pre-load reset and later adjustment must override saved offsets without clearing other tracks');
+    await pendingOffsets.flush();
+    pendingOffsets.destroy();
+
+    const persistedPending = new OffsetStore({configRoot: pendingRoot});
+    await persistedPending.ready();
+    assert(persistedPending.get(trackA) === 0 &&
+        persistedPending.get(trackB) === 250 &&
+        persistedPending.get(trackC) === 750,
+    'reset and adjustment made during loading must remain persisted after recreation');
+    await persistedPending.flush();
+    persistedPending.destroy();
+
     const providerRoot = GLib.build_filenamev([tempRoot, 'provider-cache']);
     const providerOptions = {
         apiUrl,

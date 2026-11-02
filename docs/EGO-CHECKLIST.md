@@ -1,8 +1,31 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-10-31
+Last updated: 2026-11-02
 
-The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track the current scrolling changes separately here.
+The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
+
+## Playback control reconciliation — 2026-11-02
+
+- [x] controlled D-Bus regressions cover silent Play/Pause replies racing with newer `Seeked`, playback status and rate notifications; valid status readbacks survive while newer clock feedback is retained, with no ongoing polling
+- [x] combined metadata/status/rate notifications reset the previous track's clock; delayed controls are discarded on track replacement, player removal or destruction
+- [x] delayed full snapshots and position replies are released in both orders: changed tracks discard the old clock while preserving actual newer feedback using the new duration; superseded seek readbacks wait for the current read without starting another query
+- [x] packaged Shell regressions retain a released seek preview through delayed feedback, restore authoritative progress on rejection/failure, and cover popup close, target replacement and destruction
+- [x] final `make check`, isolated local integration and packaged Shell regressions pass without allocation warnings; all 133 active translations per Chinese catalog remain unchanged
+- [x] installed locally after verification; all 33 packaged files and the compiled schema match, with enabled/ACTIVE status
+- [x] current source against real Spotify playback/pause and progress: at the 300 ms and 1200 ms samples, status matches and position differs by less than 2 ms; restored the starting paused state and position (within 1 ms)
+- [ ] a fresh desktop session importing the installed package and physical input validation
+
+The D-Bus and isolated Shell tests establish event ordering and UI behavior under controlled conditions. Matching installed files and ACTIVE status do not prove that the running desktop has imported changed modules; no automatic logout or Shell restart is performed.
+
+## Offset loading and translation response fixes — 2026-11-01
+
+- [x] offset reset regression fails before the fix and passes afterward; repeated reset/adjustment ordering, unrelated offsets, persistence and destroy-during-load behavior are covered without changing the stored schema
+- [x] two configured `Hello` probes reproduced HTTP 200/completed JSON using `translations` rather than required `lines`; diagnostics retained only structural summaries, not payload contents or credentials
+- [x] after explicit JSON-shape instructions and bounded alias normalization, the configured connection check succeeds; a separate two-line synthetic Japanese/English request returns both expected IDs with Chinese text
+- [x] local HTTP tests retain rejection of unknown/duplicate/missing/blank lines, malformed canonical containers, incomplete responses and invalid JSON; diagnostics are checked for fixed classifications and absence of credentials, payload text and IDs
+- [x] `make check`, local integration and packaged Shell regression pass without allocation warnings; installed locally with all 33 packaged files and the compiled schema matching (fresh desktop import remains separate)
+
+These small live requests used the configured credential and endpoint, with fixed synthetic input and a 512-token output cap. They establish connection/structure and two returned lines, not every historical `invalid_response` cause, full-song quality, model reliability or fresh desktop rendering. No credential or response body was written to diagnostic files.
 
 ## Mixed-language translation — 2026-10-31
 
@@ -35,9 +58,9 @@ The initial cleanup verification above used repository and isolated-runtime evid
 
 No automatic logout or Shell restart was performed. The real-player tests exercise the checked-out code against the actual desktop MPRIS bus; they do not establish that the running desktop indicator has imported the newly installed code.
 
-## Independent finding — offset reset during loading
+## Offset reset during loading — fixed 2026-11-01
 
-A temporary isolated `OffsetStore` fixture persisted `1000 ms`, reset it to `0` immediately after constructing a new store, then awaited `ready()`. The stored offset returned as `1000 ms`: loading merges pending nonzero entries, but a pending deletion leaves no entry to override the loaded value. This pre-existing reset/load race was reproduced during cleanup and remains unfixed. It is separate from cache-helper deduplication; existing storage tests set offsets after loading and do not cover this ordering.
+A temporary isolated `OffsetStore` fixture persisted `1000 ms`, reset it to `0` immediately after constructing a new store, then awaited `ready()`. Before the fix the stored offset returned as `1000 ms`, because a pending deletion left no entry to override the loaded value. The store now retains pending resets until loading merges them, applies later nonzero adjustments and releases the temporary record after loading or destruction. Storage regressions cover this ordering and persistence; the file format is unchanged.
 
 ## Popup presentation and multilingual layout — 2026-10-30
 
