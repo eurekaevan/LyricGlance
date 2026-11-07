@@ -201,6 +201,10 @@ async function takeScreenshot(path) {
 
 export async function run() {
     await Scripting.sleep(1000);
+    const indicatorDeadlineUs = GLib.get_monotonic_time() + 10_000_000;
+    while (!Main.panel.statusArea[UUID] &&
+        GLib.get_monotonic_time() < indicatorDeadlineUs)
+        await Scripting.sleep(100);
 
     const screenshotStyle = GLib.getenv('LYRIC_GLANCE_SCREENSHOT_STYLE');
     if (['prefer-light', 'prefer-dark'].includes(screenshotStyle)) {
@@ -2001,17 +2005,37 @@ export async function run() {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
-    await Scripting.sleep(80);
+    assert(view._label.opacity === 255 &&
+        !view._progressView._slider.get_transition('value') &&
+        !view._panelPanLabel.get_transition('translation-x') &&
+        !view._panelFadeEffect.enabled &&
+        !view._titleLabel.get_transition('translation-x'),
+    'animation inhibition must stop movement before deferred layout completes');
+    // Width and title changes can require several native layout frames.
+    const reducedMotionDeadlineUs = GLib.get_monotonic_time() + 1_000_000;
+    while ((view._panelPanLaterId || view._panelGeometryLaterId ||
+        view._titlePanLaterId || !view._panelPanLabel.visible) &&
+        GLib.get_monotonic_time() < reducedMotionDeadlineUs)
+        await Scripting.sleep(20);
     assert(view._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
+        view._panelPanLaterId === 0 && view._panelGeometryLaterId === 0 &&
+        view._titlePanLaterId === 0 &&
         !view._label.visible && view._panelPanLabel.visible &&
         !view._panelPanLabel.get_transition('translation-x') &&
         view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
         view._panelWordTimeoutId !== 0 &&
         !view._panelFadeEffect.enabled &&
         !view._titleLabel.get_transition('translation-x'),
-    'disabled Shell animations should use timed pages without animated movement');
+    'disabled Shell animations should use timed pages without animated movement ' +
+        `(panLater=${view._panelPanLaterId}, geometryLater=${view._panelGeometryLaterId}, ` +
+        `titleLater=${view._titlePanLaterId}, panVisible=${view._panelPanLabel.visible}, ` +
+        `pageTimer=${view._panelWordTimeoutId})`);
     const firstPageX = view._panelPanLabel.translation_x;
-    await Scripting.sleep(1700);
+    const firstPageDeadlineUs = GLib.MainContext.default()
+        .find_source_by_id(view._panelWordTimeoutId).get_ready_time() + 500_000;
+    while (view._panelPanLabel.translation_x === firstPageX &&
+        GLib.get_monotonic_time() < firstPageDeadlineUs)
+        await Scripting.sleep(20);
     assert(view._panelPanLabel.translation_x < firstPageX &&
         !view._panelPanLabel.get_transition('translation-x'),
     'reduced-motion lyrics must advance to a later page using the playback clock');
