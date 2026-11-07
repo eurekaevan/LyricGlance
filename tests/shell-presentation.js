@@ -192,8 +192,13 @@ async function checkOffsetCenters(view) {
 }
 
 export async function run() {
-    await Scripting.sleep(700);
-    const view = Main.extensionManager.lookup(UUID)?.stateObj?._indicator;
+    let view;
+    for (let attempt = 0; attempt < 100; attempt++) {
+        view = Main.extensionManager.lookup(UUID)?.stateObj?._indicator;
+        if (view)
+            break;
+        await Scripting.sleep(100);
+    }
     assert(view, 'the packaged extension must create its indicator');
     const document = {
         source: 'lrclib-synced', syncLevel: 'line', metadata: {}, instrumental: false,

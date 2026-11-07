@@ -16,10 +16,8 @@ readonly REQUIRED_FILES=(
     schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
     js-yaml.mjs
     LICENSE.js-yaml
-    README.js-yaml.md
     franc.mjs
     LICENSE.franc
-    README.franc.md
     LICENSE
 )
 
@@ -38,9 +36,15 @@ for catalog in "$(dirname "${BASH_SOURCE[0]}")/../po/"*.po; do
     fi
 done
 
-if unzip -Z1 "${ARCHIVE}" | rg -q \
-    '(^|/)(\.git|tests|tools|docs|node_modules|build|dist)(/|$)|(^|/)(\.env|gschemas\.compiled$)'; then
+if unzip -Z1 "${ARCHIVE}" | grep -E \
+    '(^|/)(\.git|tests|tools|docs|node_modules|build|dist)(/|$)|(^|/)(\.env|gschemas\.compiled$|README\.[^/]+\.md$)' > /dev/null; then
     printf 'Package contains a development-only or forbidden file\n' >&2
+    exit 1
+fi
+
+if grep -rE '\b(MockTranslationProvider|alignTranslation|progressFraction)\b' \
+    --include='*.js' --include='*.mjs' "${TMP_DIR}" > /dev/null; then
+    printf 'Package contains test-only translation or UI helpers\n' >&2
     exit 1
 fi
 
@@ -50,8 +54,9 @@ while IFS= read -r imported; do
         exit 1
     fi
 done < <(
-    rg -o "from ['\"]\./[^'\"]+['\"]" "${TMP_DIR}" --glob '*.js' --glob '*.mjs' |
-        sed -E "s/^.*from ['\"]\.\/([^'\"]+)['\"]$/\1/" |
+    grep -rEho "(from|import) ['\"]\./[^'\"]+['\"]" \
+        --include='*.js' --include='*.mjs' "${TMP_DIR}" |
+        sed -E "s/^.*(from|import) ['\"]\.\/([^'\"]+)['\"]$/\2/" |
         sort -u
 )
 

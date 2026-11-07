@@ -1,8 +1,40 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-11-02
+Last updated: 2026-11-07
 
 The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
+
+## Full source audit and local installation — 2026-11-07
+
+- [x] reviewed all production modules, tests, styles/schema, build/release scripts and documentation; fixed retry-cancellation deadlock, credential-dialog continuation after window closure, lyrics-cache continuation after destruction and native integer overflow from large lyric timestamps
+- [x] js-yaml 4.1.1 and franc-min 6.2.0, including both licenses, reproduced byte-for-byte with the repository scripts; dependency hashes and source notes are current
+- [x] `make check` passes: nine unit entry points, strict schemas/gettext, package/runtime imports and official pinned shexli with zero findings, errors or warnings
+- [x] `GSETTINGS_BACKEND=memory make integration` passes all six local D-Bus, HTTP and storage entry points, including cancellation during actual 429 backoff and destruction during a pending cache read
+- [x] packaged Shell lifecycle/timing regression, popup presentation and GTK Preferences close/reopen/cleanup regressions pass on Shell 51.1; no `needs an allocation` warning in these runs
+- [x] fixed the presentation fixture's 700-ms startup assumption after it failed in a concurrent run; the bounded readiness wait retains its original indicator assertion, and the complete presentation target passes on rerun
+- [x] workflow YAML and embedded command syntax, JavaScript syntax, shell script syntax, local documentation links and `git diff --check` pass
+- [x] installed the verified ZIP locally; all 34 packaged files byte-match, the compiled schema matches and no obsolete package files remain; extension remains enabled/ACTIVE
+- [ ] fresh desktop session importing the newly installed modules, physical input and real-player/provider validation for this package
+
+Installed ZIP SHA-256: `e69864f729b9de2ce6c48a5f4b20dce0c319bd497e5aa2e5d68a5bad63e9c8d3`.
+The previous installation was backed up before replacement. Installed metadata
+contains the canonical public repository URL and Shell 50/51 declarations; the
+running desktop still reports its earlier cached URL. ACTIVE status therefore
+does not establish a fresh ESM import. No logout/restart, real credential access,
+billable provider request, remote CI run or publication was performed.
+
+## GNOME Shell 51 port — 2026-11-04
+
+- [x] Fedora 45 / Shell 51.1 baseline: `make check` passed but the packaged extension did not load; adding only `51` reproduced the removed `Shell.GLSLEffect` inheritance error
+- [x] migrated the fade to the native 51 snippet hook/uniform API while retaining the 50 branch; reviewed installed 51 resources and upstream 50/51 headers for panel placement, menu calls, slider state, texture loading and synchronous disable
+- [x] full packaged Shell regression passes, including native 51 reduced motion with animations still enabled: active scrolling stops, timed pages advance, titles become static, artwork replacement skips crossfades, and continuous motion returns when the preference clears
+- [x] English/Simplified/Traditional Chinese × native dark/light themes × 100%/150% fonts × 800×720/800×480 virtual monitors: all 24 popup presentation combinations pass, without allocation warnings
+- [x] packaged GTK4/Libadwaita Preferences regressions pass in all three languages; the optional screenshot path waits for a rendered paintable image and the English rendered capture was visually inspected
+- [x] repository checks, local integration, workflow YAML/matrix/runtime-gate checks and `git diff --check` pass; gettext refresh changes source references only, retaining all 133 active translations in each Chinese catalog
+- [x] installed locally after final verification; all 33 packaged/source files, Shell 50/51 metadata and compiled schema match
+- [ ] physical input, live-player controls and a freshly loaded desktop indicator on Shell 51
+
+The Shell 50 branch was checked against upstream headers and historical runtime evidence, not rerun locally during this port. CI now targets Fedora 44/45, and release verification uses Fedora 45 with packaged Shell tests; these remote workflows have not been executed in this run. The Preferences render-cache race was reproduced independently of extension settings and corrected without weakening its render-node assertion. Temporary test harnesses and captures stay outside the repository. The current desktop still reports the old OUT OF DATE state after installation; logout/login is required to refresh the desktop's metadata/modules. No automatic session restart or physical-input validation was performed.
 
 ## Playback control reconciliation — 2026-11-02
 

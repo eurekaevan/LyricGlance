@@ -1,22 +1,37 @@
 UUID := lyric-glance@eureka
 GETTEXT_DOMAIN := $(UUID)
+APP_VERSION := $(shell sed -nE "s/^export const VERSION = '([^']+)';$$/\1/p" network-utils.js)
 PACKAGE := $(UUID).shell-extension.zip
 SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
 POT_FILE := po/$(GETTEXT_DOMAIN).pot
 PO_FILES := $(wildcard po/*.po)
-RUNTIME_SOURCES := indicator.js artwork-loader.js artwork-view.js ui-utils.js \
+RUNTIME_SOURCES := network-utils.js shell-ui-utils.js io-promisify.js indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics.js lyrics-document.js lyrics-matcher.js lyrics-normalizer.js \
 	lyrics-parser.js lyrics-synchronizer.js lyricsfile-parser.js mpris.js \
 	storage.js credentials.js translation-batching.js translation-cache.js \
 	translation-document.js translation-provider.js translation-service.js \
-	js-yaml.mjs LICENSE.js-yaml README.js-yaml.md \
-	franc.mjs LICENSE.franc README.franc.md LICENSE
+	js-yaml.mjs LICENSE.js-yaml \
+	franc.mjs LICENSE.franc LICENSE
 PACK_SOURCE_ARGS := $(foreach source,$(RUNTIME_SOURCES),--extra-source=$(source))
 
-.PHONY: check unit-check schema-check translations-check package-check \
+.PHONY: check shell-check shell-presentation-check prefs-check unit-check schema-check translations-check package-check shexli-check \
 	integration integration-secret install enable disable reload pack pot translations-update clean
 
-check: schema-check translations-check unit-check pack package-check
+check: schema-check translations-check unit-check pack package-check shexli-check
+
+shell-check: SHELL_TEST_SCRIPT := tests/shell-extension.js
+shell-presentation-check: SHELL_TEST_SCRIPT := tests/shell-presentation.js
+prefs-check: SHELL_TEST_SCRIPT := tests/shell-prefs.js
+prefs-check: SHELL_TEST_ARGS := --extra-filter org.gnome.Shell.Extensions.LyricGlancePrefsTest
+
+shell-check shell-presentation-check prefs-check: pack
+	@set -eu; shell_runtime=$$(mktemp -d /tmp/lyricglance-shell-XXXXXX); \
+	trap 'rm -rf -- "$$shell_runtime"' EXIT; \
+	cp "$(PACKAGE)" "$$shell_runtime/$(PACKAGE)"; \
+	dbus-run-session -- env XDG_RUNTIME_DIR="$$shell_runtime" \
+		GIO_USE_VFS=local GSETTINGS_BACKEND=memory LIBGL_ALWAYS_SOFTWARE=1 \
+		timeout 300s gnome-shell-test-tool --headless \
+		$(SHELL_TEST_ARGS) --extension "$$shell_runtime/$(PACKAGE)" "$(SHELL_TEST_SCRIPT)"
 
 schema-check:
 	glib-compile-schemas --strict --dry-run schemas
@@ -45,6 +60,9 @@ unit-check:
 
 package-check: pack
 	tools/check-package.sh "$(PACKAGE)"
+
+shexli-check: pack
+	shexli "$(PACKAGE)"
 
 integration:
 	dbus-run-session -- gjs -m tests/integration-mpris-events.js
@@ -80,8 +98,8 @@ pack:
 pot:
 	xgettext --from-code=UTF-8 --language=JavaScript \
 		--keyword=_ --keyword=ngettext:1,2 --add-comments=Translators \
-		--package-name="LyricGlance" --package-version=0.9.0 \
-		--msgid-bugs-address="https://github.com/eurekaevan/lyric-glance/issues" \
+		--package-name="LyricGlance" --package-version=$(APP_VERSION) \
+		--msgid-bugs-address="https://github.com/eurekaevan/LyricGlance/issues" \
 		--output=$(POT_FILE) --files-from=po/POTFILES.in
 
 translations-update: pot

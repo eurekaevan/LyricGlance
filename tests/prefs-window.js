@@ -22,10 +22,25 @@ function descendants(widget) {
     return result;
 }
 
-function takeWidgetScreenshot(widget, path) {
+async function takeWidgetScreenshot(widget, path) {
+    const paintable = new Gtk.WidgetPaintable({widget});
+    // GTK can discard an unobserved widget's cached render node. Wait for
+    // the paintable's next rendered image before taking a snapshot.
+    await new Promise((resolve, reject) => {
+        const signal = paintable.connect('invalidate-contents', () => {
+            paintable.disconnect(signal);
+            GLib.source_remove(frameTimeoutId);
+            resolve();
+        });
+        const frameTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+            paintable.disconnect(signal);
+            reject(new Error('preferences screenshot did not receive a rendered frame'));
+            return GLib.SOURCE_REMOVE;
+        });
+        widget.queue_draw();
+    });
     const width = widget.get_width();
     const height = widget.get_height();
-    const paintable = new Gtk.WidgetPaintable({widget});
     const snapshot = new Gtk.Snapshot();
     paintable.snapshot(snapshot, width, height);
     const node = snapshot.to_node();
@@ -59,7 +74,7 @@ const metadataPath = GLib.build_filenamev([extensionPath, 'metadata.json']);
 const [ok, metadataContents] = GLib.file_get_contents(metadataPath);
 assert(ok, 'the installed extension metadata could not be read');
 const metadata = JSON.parse(new TextDecoder().decode(metadataContents));
-assert(metadata.url === 'https://github.com/eurekaevan/lyric-glance' &&
+assert(metadata.url === 'https://github.com/eurekaevan/LyricGlance' &&
     metadata['gettext-domain'] === 'lyric-glance@eureka' &&
     !Object.hasOwn(metadata, 'version'),
 'preferences should load release metadata without deprecated version');
@@ -155,7 +170,7 @@ application.connect('activate', async app => {
                 assert(endpointRow && modelRow && applyButton,
                 'preferences should expose the configurable translation backend');
                 if (screenshotPath)
-                    takeWidgetScreenshot(window, screenshotPath);
+                    await takeWidgetScreenshot(window, screenshotPath);
                 const settings = preferences.getSettings();
                 endpointRow.text = 'https://proxy.example/v1/responses';
                 modelRow.text = 'custom-translation-model';
@@ -249,13 +264,15 @@ application.connect('activate', async app => {
                     connectionButton.emit('clicked');
                     await Promise.resolve();
                     modelRow.text = '';
-                    window.close();
+                    applyButton.emit('clicked');
                     assert(window.visible && settings.get_string('translation-model') ===
                         'gpt-5.4-mini-2026-03-17',
-                    'invalid pending settings must block closing without overwriting saved values');
+                    'applying an invalid draft must retain the window and saved values');
                     modelRow.text = 'changed-during-check';
                     connectionButton.emit('clicked');
                     await Promise.resolve();
+                    assert(!window.emit('close-request'),
+                        'a valid close request should save settings and allow closing');
                     window.close();
                     assert(checkedRequest.is_cancelled(), 'closing preferences must cancel the check');
                     const reopened = new Adw.PreferencesWindow({application: app});
@@ -269,6 +286,62 @@ application.connect('activate', async app => {
                         reopenedEndpoint.text === 'http://127.0.0.1:28883/responses',
                     'closing without Apply must persist both valid fields for a reopened window');
                     reopened.close();
+
+                    for (const [endpointDraft, modelDraft] of [
+                        ['http://127.0.0.1:28884/responses', ''],
+                        ['http://unsafe.example/responses', 'unsaved-model'],
+                    ]) {
+                        const draftWindow = new Adw.PreferencesWindow({application: app});
+                        await preferences.fillPreferencesWindow(draftWindow);
+                        draftWindow.present();
+                        const rows = descendants(draftWindow);
+                        const draftEndpoint = rows.find(widget => widget instanceof Adw.EntryRow &&
+                            widget.title === uiText('Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
+                        const draftModel = rows.find(widget => widget instanceof Adw.EntryRow &&
+                            widget.title === uiText('Model', '模型'));
+                        assert(draftEndpoint.text === 'http://127.0.0.1:28883/responses' &&
+                            draftModel.text === 'changed-during-check',
+                        'reopening must show the last saved backend rather than discarded drafts');
+                        draftEndpoint.text = endpointDraft;
+                        draftModel.text = modelDraft;
+                        draftWindow.close();
+                        assert(!draftWindow.visible &&
+                            settings.get_string('translation-api-endpoint') === 'http://127.0.0.1:28883/responses' &&
+                            settings.get_string('translation-model') === 'changed-during-check',
+                        'invalid drafts must allow closing without partially overwriting the saved backend');
+                    }
+
+                    const closingWindow = new Adw.PreferencesWindow({application: app});
+                    await preferences.fillPreferencesWindow(closingWindow);
+                    closingWindow.present();
+                    const configureButton = descendants(closingWindow).find(widget =>
+                        widget instanceof Gtk.Button && widget.label === uiText('Configure', '配置', '設定'));
+                    assert(configureButton, 'preferences should expose credential configuration');
+                    const configuredLookup = TranslationCredentialStore.prototype.lookup;
+                    const originalChoose = Adw.AlertDialog.prototype.choose;
+                    let finishLookup;
+                    let dialogCount = 0;
+                    TranslationCredentialStore.prototype.lookup = () => new Promise(resolve => {
+                        finishLookup = resolve;
+                    });
+                    Adw.AlertDialog.prototype.choose = () => { dialogCount++; };
+                    try {
+                        configureButton.emit('clicked');
+                        assert(finishLookup, 'Configure should wait for credential status');
+                        closingWindow.close();
+                        finishLookup(null);
+                        await new Promise(resolve => GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                            resolve();
+                            return GLib.SOURCE_REMOVE;
+                        }));
+                        assert(!closingWindow.visible && dialogCount === 0,
+                            'a credential lookup completing after closing must not open a dialog');
+                    } finally {
+                        finishLookup?.(null);
+                        TranslationCredentialStore.prototype.lookup = configuredLookup;
+                        Adw.AlertDialog.prototype.choose = originalChoose;
+                        closingWindow.close();
+                    }
                 } finally {
                     TranslationCredentialStore.prototype.lookup = originalLookup;
                     OpenAITranslationProvider.prototype.checkConnection = originalCheck;
@@ -296,6 +369,7 @@ application.connect('activate', async app => {
 });
 
 const status = application.run([]);
+Gio.Settings.sync();
 Gio.resources_unregister(extensionsResource);
 if (scenarioError)
     throw scenarioError;

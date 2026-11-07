@@ -7,13 +7,29 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fedora: 44
+            shell: 50
+          - fedora: 45
+            shell: 51
+    container: fedora:${{ matrix.fedora }}
     steps:
       - name: Install test dependencies
         run: >-
           dnf --setopt=install_weak_deps=False install -y
           dbus-daemon gettext gjs glib2 gnome-shell libsecret libsoup3
-          make ripgrep unzip
+          make mesa-dri-drivers python3.14 python-pip-wheel unzip xorg-x11-server-Xwayland
+
+      - name: Install shexli review analyzer
+        run: |
+          python3.14 -m venv /tmp/lyricglance-shexli
+          /tmp/lyricglance-shexli/bin/python -m pip install --no-cache-dir \
+            'shexli @ https://github.com/GNOME/extensions-web/archive/56e6799ac01e39c0b31d83d350a8b4c15326efd8.tar.gz#subdirectory=shexli' \
+            tree-sitter==0.25.2 tree-sitter-javascript==0.25.0
+          echo /tmp/lyricglance-shexli/bin >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
 
@@ -23,10 +39,19 @@ jobs:
       - name: Run local integration checks
         run: make integration
 
+      - name: Run packaged Shell regressions
+        run: make shell-check
+
+      - name: Run packaged presentation regressions
+        run: make shell-presentation-check
+
+      - name: Run packaged Preferences regressions
+        run: make prefs-check
+
       - name: Upload tested extension package
         uses: actions/upload-artifact@v4
         with:
-          name: lyric-glance-gnome-50
+          name: lyric-glance-gnome-${{ matrix.shell }}
           path: lyric-glance@eureka.shell-extension.zip
           if-no-files-found: error
 

@@ -1,7 +1,6 @@
 import Clutter from 'gi://Clutter';
 import Atk from 'gi://Atk';
 import Cogl from 'gi://Cogl';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
@@ -16,6 +15,7 @@ import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {ArtworkView} from './artwork-view.js';
+import {animationsEnabled, musicIcon} from './shell-ui-utils.js';
 import {
     comfortableScrollTarget,
     formatDuration,
@@ -40,16 +40,9 @@ const TITLE_LOOP_GAP = 32;
 const TITLE_LOOP_SPEED = 35;
 const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
-const LINE_VISUAL_CLASS_NAMES = [
-    'lyric-glance-line-static',
-    'lyric-glance-line-far',
-    'lyric-glance-line-mid',
-    'lyric-glance-line-near',
-    'lyric-glance-line-current',
-];
-
-function animationsEnabled() {
-    return St.Settings.get().enable_animations;
+function sameControlTarget(a, b) {
+    return a === b || Boolean(a && b && a.busName === b.busName &&
+        a.generation === b.generation && a.trackKey === b.trackKey);
 }
 
 function configureEllipsized(label) {
@@ -118,14 +111,6 @@ function loopTitle(label, period, delayMs, onComplete) {
     });
 }
 
-function musicIcon() {
-    return Gio.ThemedIcon.new_from_names([
-        'music-note-symbolic',
-        'audio-x-generic-symbolic',
-        'media-playback-start-symbolic',
-    ]);
-}
-
 function setButtonEnabled(button, enabled) {
     button.reactive = enabled;
     button.can_focus = enabled;
@@ -135,25 +120,29 @@ function setButtonEnabled(button, enabled) {
         button.add_style_pseudo_class('insensitive');
 }
 
-class PanelEdgeFade extends Shell.GLSLEffect {
+class PanelEdgeFade extends (Shell.GLSLEffect ?? Clutter.ShaderEffect) {
     static {
         GObject.registerClass(this);
     }
 
     _init() {
         super._init({enabled: false});
-        this._edgesLocation = this.get_uniform_location('edges');
+        this._edgesLocation = Shell.GLSLEffect ? this.get_uniform_location('edges') : 'edges';
         this._edges = [];
     }
 
-    vfunc_build_pipeline() {
-        this.add_glsl_snippet(Cogl.SnippetHook.FRAGMENT,
-            'uniform vec3 edges;', `
-                float x = cogl_tex_coord_in[0].x;
-                float left = mix(1.0, clamp(x / edges.x, 0.0, 1.0), edges.y);
-                float right = mix(1.0, clamp((1.0 - x) / edges.x, 0.0, 1.0), edges.z);
-                cogl_color_out *= left * right;
-            `, false);
+    // Register only the native hook available on the selected parent.
+    [Shell.GLSLEffect ? 'vfunc_build_pipeline' : 'vfunc_get_static_snippet']() {
+        const declarations = 'uniform vec3 edges;';
+        const code = `
+            float x = cogl_tex_coord_in[0].x;
+            float left = mix(1.0, clamp(x / edges.x, 0.0, 1.0), edges.y);
+            float right = mix(1.0, clamp((1.0 - x) / edges.x, 0.0, 1.0), edges.z);
+            cogl_color_out *= left * right;
+        `;
+        if (Shell.GLSLEffect)
+            return this.add_glsl_snippet(Cogl.SnippetHook.FRAGMENT, declarations, code, false);
+        return Cogl.Snippet.new(Cogl.SnippetHook.FRAGMENT, declarations, code);
     }
 
     setEdges(width, offset, textWidth) {
@@ -302,30 +291,30 @@ class PlaybackProgressView {
         timeRow.add_child(this._currentLabel);
         timeRow.add_child(this._durationLabel);
         this.actor.add_child(timeRow);
-        this._slider.connect('drag-begin', () => {
+        this._slider.connectObject('drag-begin', () => {
             this._dragging = true;
             this._dragTarget = this._slider.reactive ? this._target : null;
-        });
-        this._slider.connect('drag-end', () => {
+        }, this.actor);
+        this._slider.connectObject('drag-end', () => {
             const target = this._dragTarget;
             this._dragging = false;
             this._dragTarget = null;
             if (target && this._slider.reactive)
                 this._onSeek?.(target, this._slider.value * this._durationUs);
-        });
-        this._slider.connect('notify::value', () => {
+        }, this.actor);
+        this._slider.connectObject('notify::value', () => {
             if (this._updating || !this._slider.reactive)
                 return;
             this._currentLabel.text = formatDuration(
                 this._slider.value * this._durationUs / 1_000_000);
             if (!this._dragging)
                 this._onSeek?.(this._target, this._slider.value * this._durationUs);
-        });
+        }, this.actor);
         this.actor.hide();
     }
 
     setControlState(target, enabled) {
-        if (JSON.stringify(target) !== JSON.stringify(this._target)) {
+        if (!sameControlTarget(target, this._target)) {
             this.cancelDrag();
             this.setSeekPending(false);
         } else if (!enabled) {
@@ -361,7 +350,7 @@ class PlaybackProgressView {
         const position = Math.min(Math.max(0, this._positionUs),
             this._durationUs);
         this._updating = true;
-        // Shell 50 retains a separate step origin after user interaction.
+        // Shell 50/51 retain a separate step origin after user interaction.
         this._slider._unsnappedValue = null;
         this._slider.value = this._durationUs > 0 ? position / this._durationUs : 0;
         this._updating = false;
@@ -373,6 +362,10 @@ class PlaybackProgressView {
         this._seekPending = false;
         this._onSeek = null;
         this._target = null;
+        this._slider?.disconnectObject(this.actor);
+        this._currentLabel?.destroy();
+        this._durationLabel?.destroy();
+        this.actor?.destroy();
         this.actor = null;
         this._slider = null;
         this._currentLabel = null;
@@ -595,12 +588,13 @@ export class LyricsIndicator {
                 this._cancelTitlePan();
         });
         this._titleAnimationSettings = St.Settings.get();
-        this._titleAnimationSignalId = this._titleAnimationSettings.connect(
-            'notify::enable-animations', () => {
+        this._titleAnimationSignalIds = ['enable-animations',
+            ...(St.ReducedMotion ? ['reduced-motion'] : [])].map(property =>
+            this._titleAnimationSettings.connect(`notify::${property}`, () => {
                 this._cancelTitlePan();
                 this._queueTitlePan();
                 this._schedulePanelPan();
-            });
+            }));
         this._titleViewport.connect('notify::allocation', () => {
             const width = this._titleViewport.get_allocation_box().get_width();
             if (width === this._titleViewportWidth)
@@ -948,7 +942,7 @@ export class LyricsIndicator {
 
     setMediaState(state) {
         const target = state?.controlTarget ?? null;
-        if (JSON.stringify(target) !== JSON.stringify(this._mediaTarget)) {
+        if (!sameControlTarget(target, this._mediaTarget)) {
             this._mediaRequest++;
             this._mediaBusy = false;
             this._mediaErrorLabel.hide();
@@ -1332,11 +1326,22 @@ export class LyricsIndicator {
     }
 
     _applyLineVisualLevels(previousIndex, currentIndex, animate) {
-        for (let index = 0; index < this._lyricRows.length; index++) {
-            const row = this._lyricRows[index];
+        const fullRefresh = previousIndex < 0 || currentIndex < 0;
+        const indices = fullRefresh ? this._lyricRows.keys() : new Set();
+        if (!fullRefresh) {
+            for (const center of [previousIndex, currentIndex]) {
+                for (let index = Math.max(0, center - 2);
+                    index <= Math.min(this._lyricRows.length - 1, center + 2); index++)
+                    indices.add(index);
+            }
+        }
+        for (const index of indices) {
+            const previousLevel = getLineVisualLevel(index, previousIndex);
             const level = getLineVisualLevel(index, currentIndex);
-            for (const className of LINE_VISUAL_CLASS_NAMES)
-                row.remove_style_class_name(className);
+            if (!fullRefresh && previousLevel.name === level.name)
+                continue;
+            const row = this._lyricRows[index];
+            row.remove_style_class_name(`lyric-glance-line-${previousLevel.name}`);
             row.add_style_class_name(`lyric-glance-line-${level.name}`);
 
             row.remove_all_transitions();
@@ -1425,6 +1430,10 @@ export class LyricsIndicator {
     }
 
     _queuePanelPan() {
+        if (this._panelPanLaterId) {
+            this._laters.remove(this._panelPanLaterId);
+            this._panelPanLaterId = 0;
+        }
         if (!this._panelPanScrollable ||
             (!this._panelPanTimeline && !this._panelPanLooping) ||
             !this._labelViewport?.mapped)
@@ -1518,13 +1527,7 @@ export class LyricsIndicator {
         const repeatChanged = this._panelPanLooping &&
             this._panelLabelLayout.setRepeatOffset(naturalWidth + TITLE_LOOP_GAP);
         if (panWidthChanged || repeatChanged) {
-            this._panelPanLaterId = this._laters.add(
-                Meta.LaterType.IDLE,
-                () => {
-                    this._panelPanLaterId = 0;
-                    this._startPanelPan();
-                    return GLib.SOURCE_REMOVE;
-                });
+            this._queuePanelPan();
             return;
         }
         if (this._panelPanLooping) {
@@ -1551,20 +1554,23 @@ export class LyricsIndicator {
         if (shouldAnimate) {
             this._panelPanLabel.ease({
                 translation_x: this._panelPanTargetX,
-                delay: panState.delayMs,
-                duration: panState.durationMs,
+                delay: Math.min(2_147_483_647, panState.delayMs),
+                duration: Math.min(2_147_483_647, panState.durationMs),
                 mode: Clutter.AnimationMode.LINEAR,
             });
         }
         const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
         if (this._panelPlaying && panState.nextMs && !hoverPaused) {
             this._panelWordTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
-                Math.max(1, Math.ceil((panState.nextMs - this._panelPanPositionAt()) /
-                    this._panelPanTimeline.playbackRate)), () => {
+                Math.min(2_147_483_647, Math.max(1, Math.ceil(
+                    (panState.nextMs - this._panelPanPositionAt()) /
+                    this._panelPanTimeline.playbackRate))), () => {
                     this._panelWordTimeoutId = 0;
                     this._startPanelPan();
                     return GLib.SOURCE_REMOVE;
                 });
+            GLib.Source.set_name_by_id(
+                this._panelWordTimeoutId, '[LyricGlance] panel word pan');
         }
         if (hoverPaused && shouldAnimate)
             this._pausePanelPan();
@@ -1608,7 +1614,9 @@ export class LyricsIndicator {
                     if (rectangle.width < 0 || rectangle.x < characterX)
                         valid = false;
                     characterX = rectangle.x;
-                    characterByte += encoder.encode(character).length;
+                    const codePoint = character.codePointAt(0);
+                    characterByte += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 :
+                        codePoint <= 0xffff ? 3 : 4;
                 }
                 for (let index = 0; valid && index < words.length; index++) {
                     const word = words[index];
@@ -2015,9 +2023,9 @@ export class LyricsIndicator {
         this._menuFocusSignalId = 0;
         this._cancelPanelPan();
         this._cancelTitlePan();
-        if (this._titleAnimationSignalId)
-            this._titleAnimationSettings.disconnect(this._titleAnimationSignalId);
-        this._titleAnimationSignalId = 0;
+        for (const id of this._titleAnimationSignalIds)
+            this._titleAnimationSettings.disconnect(id);
+        this._titleAnimationSignalIds = [];
         this._titleAnimationSettings = null;
         this._cancelScheduledScroll();
         this._cancelLayoutAnchor();

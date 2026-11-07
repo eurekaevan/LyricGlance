@@ -2,6 +2,8 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
+import {closeStream, readLimited, ResponseTooLargeError, USER_AGENT} from './network-utils.js';
+
 import {rankLyricsCandidates} from './lyrics-matcher.js';
 import {LrcParser} from './lyrics-parser.js';
 import {normalizeLyricsPayload} from './lyrics-normalizer.js';
@@ -10,22 +12,11 @@ import {LyricsDiskCache, trackKey} from './storage.js';
 const API_URL = 'https://lrclib.net/api/get';
 const SEARCH_API_URL = 'https://lrclib.net/api/search';
 const LRCAPI_URL = 'https://api.lrc.cx/jsonapi';
-const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const REQUEST_SPACING_MS = 300;
 const TRACK_DEBOUNCE_MS = 600;
 const MAX_RETRIES = 4;
 const MAX_CACHE_ENTRIES = 100;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-const READ_CHUNK_BYTES = 64 * 1024;
-
-Gio._promisify(Gio.InputStream.prototype,
-    'read_bytes_async', 'read_bytes_finish');
-Gio._promisify(Gio.InputStream.prototype,
-    'close_async', 'close_finish');
-Gio._promisify(Soup.Session.prototype,
-    'send_async', 'send_finish');
-
-class ResponseTooLargeError extends Error {}
 
 async function readResponse(session, message, limit, cancellable) {
     const stream = await session.send_async(
@@ -39,33 +30,9 @@ async function readResponse(session, message, limit, cancellable) {
         if (contentLength > limit)
             throw new ResponseTooLargeError();
 
-        const chunks = [];
-        let total = 0;
-        while (true) {
-            const bytes = await stream.read_bytes_async(
-                READ_CHUNK_BYTES, GLib.PRIORITY_DEFAULT, cancellable);
-            const size = bytes.get_size();
-            if (size === 0)
-                break;
-            total += size;
-            if (total > limit)
-                throw new ResponseTooLargeError();
-            chunks.push(bytes.get_data());
-        }
-
-        const contents = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            contents.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return GLib.Bytes.new(contents);
+        return GLib.Bytes.new(await readLimited(stream, limit, cancellable));
     } finally {
-        try {
-            await stream.close_async(GLib.PRIORITY_DEFAULT, null);
-        } catch {
-            // The request error is more useful than a stream-close error.
-        }
+        await closeStream(stream);
     }
 }
 
@@ -234,6 +201,8 @@ export class LyricsProvider {
                 this._complete(serial, cached);
                 return GLib.SOURCE_REMOVE;
             });
+            GLib.Source.set_name_by_id(
+                this._delayTimerId, '[LyricGlance] lyrics memory cache hit');
             return;
         }
 
@@ -444,7 +413,7 @@ export class LyricsProvider {
                     if (attempt < MAX_RETRIES) {
                         this._scheduleStage(track, key, serial, stage, 0, attempt + 1);
                     } else {
-                        console.warn(`LyricGlance: ${providerName} returned HTTP ${status}; retries exhausted`);
+                        console.debug(`LyricGlance: ${providerName} returned HTTP ${status}; retries exhausted`);
                         this._complete(serial, null, 'unavailable');
                     }
                     return;
@@ -468,7 +437,7 @@ export class LyricsProvider {
                 }
 
                 if (status !== 200) {
-                    console.warn(`LyricGlance: ${providerName} returned HTTP ${status}`);
+                    console.debug(`LyricGlance: ${providerName} returned HTTP ${status}`);
                     this._complete(serial, null, 'unavailable');
                     return;
                 }
@@ -477,14 +446,14 @@ export class LyricsProvider {
                 try {
                     json = JSON.parse(new TextDecoder().decode(bytes.get_data()));
                 } catch (error) {
-                    console.warn(`LyricGlance: invalid ${providerName} response: ${error.message}`);
+                    console.debug(`LyricGlance: invalid ${providerName} response: ${error.message}`);
                     this._complete(serial, null, 'unavailable');
                     return;
                 }
 
                 if (stage === 'lrcapi') {
                     if (!Array.isArray(json)) {
-                        console.warn('LyricGlance: LrcAPI response is not a candidate array');
+                        console.debug('LyricGlance: LrcAPI response is not a candidate array');
                         this._complete(serial, null, 'unavailable');
                         return;
                     }
@@ -567,7 +536,7 @@ export class LyricsProvider {
                 if (error instanceof ResponseTooLargeError) {
                     console.warn(`LyricGlance: ${providerName} response exceeded the size limit`);
                 } else {
-                    console.warn(`LyricGlance: ${providerName} request failed: ${error.message}`);
+                    console.debug(`LyricGlance: ${providerName} request failed: ${error.message}`);
                 }
                 this._complete(serial, null, 'unavailable');
             });

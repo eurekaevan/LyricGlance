@@ -1,10 +1,5 @@
 import Secret from 'gi://Secret?version=1';
 
-const SCHEMA = new Secret.Schema(
-    'org.gnome.shell.extensions.lyric-glance.translation',
-    Secret.SchemaFlags.NONE,
-    {provider: Secret.SchemaAttributeType.STRING});
-
 function attributes(provider) {
     return {provider: String(provider)};
 }
@@ -16,10 +11,18 @@ function secretError() {
 }
 
 export class TranslationCredentialStore {
+    get _schema() {
+        this._secretSchema ??= new Secret.Schema(
+            'org.gnome.shell.extensions.lyric-glance.translation',
+            Secret.SchemaFlags.NONE,
+            {provider: Secret.SchemaAttributeType.STRING});
+        return this._secretSchema;
+    }
+
     lookup(provider, cancellable = null) {
         return new Promise((resolve, reject) => {
             Secret.password_lookup(
-                SCHEMA,
+                this._schema,
                 attributes(provider),
                 cancellable,
                 (_source, result) => {
@@ -42,7 +45,7 @@ export class TranslationCredentialStore {
 
         return new Promise((resolve, reject) => {
             Secret.password_store(
-                SCHEMA,
+                this._schema,
                 attributes(provider),
                 Secret.COLLECTION_DEFAULT,
                 `LyricGlance ${provider} translation API key`,
@@ -61,7 +64,7 @@ export class TranslationCredentialStore {
     clear(provider, cancellable = null) {
         return new Promise((resolve, reject) => {
             Secret.password_clear(
-                SCHEMA,
+                this._schema,
                 attributes(provider),
                 cancellable,
                 (_source, result) => {

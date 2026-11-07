@@ -7,8 +7,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
-"Report-Msgid-Bugs-To: https://github.com/eurekaevan/lyric-glance/issues\n"
-"POT-Creation-Date: 2026-11-02 09:50+0800\n"
+"Report-Msgid-Bugs-To: https://github.com/eurekaevan/LyricGlance/issues\n"
+"POT-Creation-Date: 2026-11-02 16:09+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,181 +18,181 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: indicator.js:294
+#: indicator.js:300
 msgid "Playback position"
 msgstr ""
 
-#: indicator.js:624
+#: indicator.js:631
 msgid "Previous track"
 msgstr ""
 
-#: indicator.js:625 indicator.js:964
+#: indicator.js:632 indicator.js:971
 msgid "Play"
 msgstr ""
 
-#: indicator.js:626
+#: indicator.js:633
 msgid "Next track"
 msgstr ""
 
-#: indicator.js:650
+#: indicator.js:657
 msgid "Could not control playback"
 msgstr ""
 
-#: indicator.js:701 indicator.js:1128
+#: indicator.js:708 indicator.js:1135
 msgid "Translation available on request"
 msgstr ""
 
-#: indicator.js:707 indicator.js:1128
+#: indicator.js:714 indicator.js:1135
 msgid "Translate"
 msgstr ""
 
-#: indicator.js:731
+#: indicator.js:738
 msgid "Lyrics timing"
 msgstr ""
 
-#: indicator.js:738
+#: indicator.js:745
 msgid "Reset"
 msgstr ""
 
-#: indicator.js:740
+#: indicator.js:747
 msgid "Reset lyrics offset"
 msgstr ""
 
-#: indicator.js:751 indicator.js:757 indicator.js:763 indicator.js:1235
+#: indicator.js:758 indicator.js:764 indicator.js:770 indicator.js:1242
 #, javascript-format
 msgid "%s s"
 msgstr ""
 
-#: indicator.js:753
+#: indicator.js:760
 msgid "Decrease lyrics offset by 0.5 seconds"
 msgstr ""
 
-#: indicator.js:765
+#: indicator.js:772
 msgid "Increase lyrics offset by 0.5 seconds"
 msgstr ""
 
-#: indicator.js:773
+#: indicator.js:780
 msgid "Global +0.0 s  ·  Effective +0.0 s"
 msgstr ""
 
-#: indicator.js:782 indicator.js:1285 indicator.js:1297 prefs.js:453
+#: indicator.js:789 indicator.js:1292 indicator.js:1304 prefs.js:453
 msgid "Player"
 msgstr ""
 
-#: indicator.js:857 indicator.js:1061
+#: indicator.js:864 indicator.js:1068
 msgid "No lyrics found"
 msgstr ""
 
-#: indicator.js:928
+#: indicator.js:935
 msgid "Loading lyrics…"
 msgstr ""
 
-#: indicator.js:964
+#: indicator.js:971
 msgid "Pause"
 msgstr ""
 
-#: indicator.js:1050
+#: indicator.js:1057
 #, javascript-format
 msgid "Lyrics source: %s"
 msgstr ""
 
-#: indicator.js:1053
+#: indicator.js:1060
 msgid "Instrumental"
 msgstr ""
 
-#: indicator.js:1058
+#: indicator.js:1065
 msgid "Retrying lyrics…"
 msgstr ""
 
-#: indicator.js:1060
+#: indicator.js:1067
 msgid "Lyrics service temporarily unavailable"
 msgstr ""
 
-#: indicator.js:1129
+#: indicator.js:1136
 msgid "Loading translation…"
 msgstr ""
 
-#: indicator.js:1129
+#: indicator.js:1136
 msgid "Loading…"
 msgstr ""
 
-#: indicator.js:1132
+#: indicator.js:1139
 msgid "Translation loaded from cache"
 msgstr ""
 
-#: indicator.js:1133
+#: indicator.js:1140
 msgid "Translation available"
 msgstr ""
 
-#: indicator.js:1134
+#: indicator.js:1141
 msgid "Refresh"
 msgstr ""
 
-#: indicator.js:1137 prefs.js:324
+#: indicator.js:1144 prefs.js:324
 msgid "Translation API key is not configured"
 msgstr ""
 
-#: indicator.js:1138
+#: indicator.js:1145
 msgid "Translation provider unavailable"
 msgstr ""
 
-#: indicator.js:1138 indicator.js:1139 indicator.js:1140 indicator.js:1141
-#: indicator.js:1142 indicator.js:1143 indicator.js:1144 indicator.js:1145
-#: indicator.js:1146
+#: indicator.js:1145 indicator.js:1146 indicator.js:1147 indicator.js:1148
+#: indicator.js:1149 indicator.js:1150 indicator.js:1151 indicator.js:1152
+#: indicator.js:1153
 msgid "Retry"
 msgstr ""
 
-#: indicator.js:1140
+#: indicator.js:1147
 msgid "Translation provider error"
 msgstr ""
 
-#: indicator.js:1141 prefs.js:338
+#: indicator.js:1148 prefs.js:338
 msgid "Translation API key was rejected"
 msgstr ""
 
-#: indicator.js:1142 prefs.js:339
+#: indicator.js:1149 prefs.js:339
 msgid "Translation access was denied"
 msgstr ""
 
-#: indicator.js:1143 prefs.js:340
+#: indicator.js:1150 prefs.js:340
 msgid "Translation quota or spending limit reached"
 msgstr ""
 
-#: indicator.js:1144 prefs.js:341
+#: indicator.js:1151 prefs.js:341
 msgid "Translation rate limited"
 msgstr ""
 
-#: indicator.js:1145
+#: indicator.js:1152
 msgid "Translation response was invalid"
 msgstr ""
 
-#: indicator.js:1146
+#: indicator.js:1153
 msgid "Translation canceled"
 msgstr ""
 
-#: indicator.js:1147
+#: indicator.js:1154
 msgid "Original language matches target language"
 msgstr ""
 
-#: indicator.js:1154
+#: indicator.js:1161
 #, javascript-format
 msgid "Lyrics translation action: %s"
 msgstr ""
 
-#: indicator.js:1155
+#: indicator.js:1162
 msgid "Lyrics translation"
 msgstr ""
 
-#: indicator.js:1238
+#: indicator.js:1245
 #, javascript-format
 msgid "Global %s  ·  Effective %s"
 msgstr ""
 
-#: indicator.js:1263 prefs.js:460 prefs.js:467
+#: indicator.js:1270 prefs.js:460 prefs.js:467
 msgid "Auto"
 msgstr ""
 
-#: indicator.js:1292
+#: indicator.js:1299
 #, javascript-format
 msgid "Player: %s"
 msgstr ""

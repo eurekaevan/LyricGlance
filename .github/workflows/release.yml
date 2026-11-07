@@ -11,13 +11,21 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    container: fedora:44
+    container: fedora:45
     steps:
       - name: Install release dependencies
         run: >-
           dnf --setopt=install_weak_deps=False install -y
           dbus-daemon gettext gjs glib2 gnome-shell libsecret libsoup3
-          make ripgrep unzip
+          make mesa-dri-drivers python3.14 python-pip-wheel unzip xorg-x11-server-Xwayland
+
+      - name: Install shexli review analyzer
+        run: |
+          python3.14 -m venv /tmp/lyricglance-shexli
+          /tmp/lyricglance-shexli/bin/python -m pip install --no-cache-dir \
+            'shexli @ https://github.com/GNOME/extensions-web/archive/56e6799ac01e39c0b31d83d350a8b4c15326efd8.tar.gz#subdirectory=shexli' \
+            tree-sitter==0.25.2 tree-sitter-javascript==0.25.0
+          echo /tmp/lyricglance-shexli/bin >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
 
@@ -32,6 +40,9 @@ jobs:
           fi
           make check
           make integration
+          make shell-check
+          make shell-presentation-check
+          make prefs-check
           sha256sum lyric-glance@eureka.shell-extension.zip \
             > lyric-glance@eureka.shell-extension.zip.sha256
 

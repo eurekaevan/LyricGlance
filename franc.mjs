@@ -201,22 +201,25 @@ var MAX_LENGTH = 2048;
 var MIN_LENGTH = 10;
 var MAX_DIFFERENCE = 300;
 var own2 = {}.hasOwnProperty;
-var script;
-var numericData = {};
-for (script in data) {
-  if (own2.call(data, script)) {
-    const languages = data[script];
-    let name;
-    numericData[script] = {};
-    for (name in languages) {
-      if (own2.call(languages, name)) {
-        const model = languages[name].split("|");
-        const trigrams2 = {};
-        let weight = model.length;
-        while (weight--) {
-          trigrams2[model[weight]] = weight;
+var numericData;
+function initializeData() {
+  if (numericData) return;
+  numericData = {};
+  for (const script in data) {
+    if (own2.call(data, script)) {
+      const languages = data[script];
+      let name;
+      numericData[script] = {};
+      for (name in languages) {
+        if (own2.call(languages, name)) {
+          const model = languages[name].split("|");
+          const trigrams2 = {};
+          let weight = model.length;
+          while (weight--) {
+            trigrams2[model[weight]] = weight;
+          }
+          numericData[script][name] = trigrams2;
         }
-        numericData[script][name] = trigrams2;
       }
     }
   }
@@ -232,16 +235,17 @@ function francAll(value, options = {}) {
     return und();
   }
   value = value.slice(0, MAX_LENGTH);
-  const script2 = getTopScript(value, expressions);
-  if (!script2[0] || !(script2[0] in numericData)) {
-    if (!script2[0] || script2[1] === 0 || !allow(script2[0], only, ignore)) {
+  initializeData();
+  const script = getTopScript(value, expressions);
+  if (!script[0] || !(script[0] in numericData)) {
+    if (!script[0] || script[1] === 0 || !allow(script[0], only, ignore)) {
       return und();
     }
-    return singleLanguageTuples(script2[0]);
+    return singleLanguageTuples(script[0]);
   }
   return normalize(
     value,
-    getDistances(asTuples(value), numericData[script2[0]], only, ignore)
+    getDistances(asTuples(value), numericData[script[0]], only, ignore)
   );
 }
 function normalize(value, distances) {
@@ -256,13 +260,13 @@ function normalize(value, distances) {
 function getTopScript(value, scripts) {
   let topCount = -1;
   let topScript;
-  let script2;
-  for (script2 in scripts) {
-    if (own2.call(scripts, script2)) {
-      const count = getOccurrence(value, scripts[script2]);
+  let script;
+  for (script in scripts) {
+    if (own2.call(scripts, script)) {
+      const count = getOccurrence(value, scripts[script]);
       if (count > topCount) {
         topCount = count;
-        topScript = script2;
+        topScript = script;
       }
     }
   }

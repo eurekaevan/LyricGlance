@@ -389,6 +389,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             configureCredentialButton.sensitive = false;
             try {
                 const configured = await refreshCredentialStatus();
+                if (cancellable.is_cancelled())
+                    return;
                 const entry = new Adw.PasswordEntryRow({
                     title: _('API key'),
                     text: '',
@@ -562,13 +564,12 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         });
 
         window.connect('close-request', () => {
-            if (!saveBackend())
-                return true;
-            Gio.Settings.sync();
+            saveBackend();
             cancellable.cancel();
             cancelConnectionCheck();
             for (const id of signalIds)
                 settings.disconnect(id);
+            signalIds.length = 0;
             return false;
         });
     }

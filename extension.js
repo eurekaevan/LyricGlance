@@ -86,7 +86,7 @@ export default class LyricGlanceExtension extends Extension {
         this._currentTrackIdentity = null;
         this._lyricsDocument = null;
         this._lyricsLoaded = false;
-        this._translationDocument = null;
+        this._translationLines = new Map();
         this._translationGeneration = 0;
         this._currentLyricIndex = -1;
         this._trackOffsetMs = 0;
@@ -185,7 +185,8 @@ export default class LyricGlanceExtension extends Extension {
         this._state = null;
         this._lyricsDocument = null;
         this._lyricsLoaded = false;
-        this._translationDocument = null;
+        this._translationLines.clear();
+        this._translationLines = null;
         this._currentTrackKey = null;
         this._currentTrackIdentity = null;
         this._currentLyricIndex = -1;
@@ -318,7 +319,7 @@ export default class LyricGlanceExtension extends Extension {
     }
 
     _panelBox(boxName) {
-        // GNOME Shell 50 has no public API for moving an existing status-area
+        // GNOME Shell 50/51 have no public API for moving an existing status-area
         // item. Keep the private panel-box compatibility risk isolated here.
         return Main.panel[`_${boxName}Box`];
     }
@@ -351,7 +352,7 @@ export default class LyricGlanceExtension extends Extension {
             this._currentTrackIdentity = null;
             this._lyricsDocument = null;
             this._lyricsLoaded = false;
-            this._translationDocument = null;
+            this._translationLines.clear();
             this._currentLyricIndex = -1;
             this._trackOffsetMs = 0;
             this._lyricsProvider.cancelPending();
@@ -373,7 +374,7 @@ export default class LyricGlanceExtension extends Extension {
             this._currentTrackKey = key;
             this._lyricsDocument = null;
             this._lyricsLoaded = false;
-            this._translationDocument = null;
+            this._translationLines.clear();
             this._currentLyricIndex = -1;
             this._trackOffsetMs = this._offsetStore.get(state.metadata);
             this._indicator.setOffsets(
@@ -417,11 +418,13 @@ export default class LyricGlanceExtension extends Extension {
             state.positionUs,
             state.metadata.durationUs,
             {playing: state.playbackStatus === 'Playing'});
+        this._startProgressTimer();
         this._updateIndicatorAndSchedule(true);
     }
 
     _onPopupOpenChanged(open) {
         if (open) {
+            this._updateProgress();
             this._startProgressTimer();
             this._updateWordAndSchedule();
         } else {
@@ -455,7 +458,7 @@ export default class LyricGlanceExtension extends Extension {
     }
 
     _clearTranslation(status = TranslationStatus.IDLE) {
-        this._translationDocument = null;
+        this._translationLines.clear();
         this._indicator?.setTranslation(null);
         this._indicator?.setTranslationState(status);
     }
@@ -539,7 +542,8 @@ export default class LyricGlanceExtension extends Extension {
                 return;
 
             if (translation) {
-                this._translationDocument = translation;
+                this._translationLines = new Map(
+                    translation.lines.map(line => [line.lineId, line.text]));
                 this._indicator?.setTranslation(translation);
             }
             if (result.status !== TranslationStatus.CANCELED)
@@ -585,7 +589,10 @@ export default class LyricGlanceExtension extends Extension {
     }
 
     _startProgressTimer() {
-        this._updateProgress();
+        if (!this._indicator?.isPopupOpen() || this._state?.playbackStatus !== 'Playing') {
+            this._stopProgressTimer();
+            return;
+        }
         if (this._progressTimerId)
             return;
 
@@ -593,7 +600,7 @@ export default class LyricGlanceExtension extends Extension {
             GLib.PRIORITY_DEFAULT,
             PROGRESS_UPDATE_INTERVAL_MS,
             () => {
-                if (!this._indicator || !this._indicator.isPopupOpen()) {
+                if (!this._indicator?.isPopupOpen() || this._state?.playbackStatus !== 'Playing') {
                     this._progressTimerId = 0;
                     return GLib.SOURCE_REMOVE;
                 }
@@ -650,8 +657,7 @@ export default class LyricGlanceExtension extends Extension {
             currentLine = index >= 0 ? document.lines[index] : null;
             const translated = currentLine &&
                 this._panelLyricsLanguage === 'translated'
-                ? this._translationDocument?.lines?.find(line =>
-                    line.lineId === currentLine.lineId)?.text
+                ? this._translationLines.get(currentLine.lineId)
                 : null;
             const line = translated || currentLine?.text || null;
             if (line) {
@@ -755,7 +761,7 @@ export default class LyricGlanceExtension extends Extension {
 
         this._lineTimerId = GLib.timeout_add(
             GLib.PRIORITY_DEFAULT,
-            Math.max(1, Math.ceil(delayMs)),
+            Math.min(2_147_483_647, Math.max(1, Math.ceil(delayMs))),
             () => {
                 this._lineTimerId = 0;
                 if (this._indicator)
@@ -796,7 +802,7 @@ export default class LyricGlanceExtension extends Extension {
 
         this._wordTimerId = GLib.timeout_add(
             GLib.PRIORITY_DEFAULT,
-            Math.max(1, Math.ceil(delayMs)),
+            Math.min(2_147_483_647, Math.max(1, Math.ceil(delayMs))),
             () => {
                 this._wordTimerId = 0;
                 if (this._indicator)

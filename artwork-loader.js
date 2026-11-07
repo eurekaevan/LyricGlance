@@ -2,34 +2,12 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
+import {closeStream, readLimited, USER_AGENT} from './network-utils.js';
+
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_LOCAL_FILE_BYTES = 32 * 1024 * 1024;
-const READ_CHUNK_BYTES = 64 * 1024;
-
-Gio._promisify(Gio.File.prototype,
-    'query_info_async', 'query_info_finish');
-Gio._promisify(Gio.File.prototype,
-    'replace_contents_async', 'replace_contents_finish');
-Gio._promisify(Gio.File.prototype,
-    'make_directory_async', 'make_directory_finish');
-Gio._promisify(Gio.File.prototype,
-    'enumerate_children_async', 'enumerate_children_finish');
-Gio._promisify(Gio.File.prototype,
-    'delete_async', 'delete_finish');
-Gio._promisify(Gio.File.prototype,
-    'set_attributes_async', 'set_attributes_finish');
-Gio._promisify(Gio.FileEnumerator.prototype,
-    'next_files_async', 'next_files_finish');
-Gio._promisify(Gio.FileEnumerator.prototype,
-    'close_async', 'close_finish');
-Gio._promisify(Gio.InputStream.prototype,
-    'read_bytes_async', 'read_bytes_finish');
-Gio._promisify(Gio.InputStream.prototype,
-    'close_async', 'close_finish');
-Gio._promisify(Soup.Session.prototype,
-    'send_async', 'send_finish');
 
 function isIoError(error, code) {
     return error.matches?.(Gio.IOErrorEnum, code);
@@ -59,14 +37,6 @@ async function ensureDirectory(directory, cancellable = null) {
     }
 }
 
-async function closeStream(stream) {
-    try {
-        await stream.close_async(GLib.PRIORITY_DEFAULT, null);
-    } catch {
-        // The original request/decode error is more useful than close errors.
-    }
-}
-
 function defaultArtworkCacheDirectory() {
     return GLib.build_filenamev([
         GLib.get_user_cache_dir(),
@@ -90,7 +60,7 @@ export class ArtworkLoader {
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
             'idle-timeout': timeoutSeconds,
-            'user-agent': 'LyricGlance/0.9.0 (lyric-glance@eureka)',
+            'user-agent': USER_AGENT,
         });
         this._maintenanceCancellable = new Gio.Cancellable();
     }
@@ -177,7 +147,9 @@ export class ArtworkLoader {
             if (contentType && !contentType.toLowerCase().startsWith('image/'))
                 throw new Error(`artwork response is not an image: ${contentType}`);
 
-            const contents = await this._readLimited(stream, cancellable);
+            const contents = await readLimited(stream, this._maxResponseBytes, cancellable);
+            if (contents.length === 0)
+                throw new Error('artwork response is empty');
             await ensureDirectory(this._cacheDirectory, cancellable);
             await cacheFile.replace_contents_async(
                 contents,
@@ -191,34 +163,6 @@ export class ArtworkLoader {
 
         await this._evictOldest(cancellable);
         return {file: cacheFile, fromCache: false, remote: true};
-    }
-
-    async _readLimited(stream, cancellable) {
-        const chunks = [];
-        let total = 0;
-        while (true) {
-            const bytes = await stream.read_bytes_async(
-                READ_CHUNK_BYTES,
-                GLib.PRIORITY_DEFAULT,
-                cancellable);
-            const size = bytes.get_size();
-            if (size === 0)
-                break;
-            total += size;
-            if (total > this._maxResponseBytes)
-                throw new Error('artwork response exceeds the size limit');
-            chunks.push(bytes.get_data());
-        }
-
-        if (total === 0)
-            throw new Error('artwork response is empty');
-        const contents = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            contents.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return contents;
     }
 
     async _isUsableCacheFile(file, cancellable) {

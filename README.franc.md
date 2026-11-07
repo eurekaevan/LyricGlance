@@ -3,8 +3,11 @@
 `franc.mjs` bundles [franc-min 6.2.0](https://github.com/wooorm/franc/tree/6.2.0/packages/franc-min)
 and its three runtime dependencies as readable, self-contained ESM. The upstream
 82-language model and detection algorithm are unchanged. esbuild bundles and
-formats the source without minification; the only added content is a provenance
-banner. Detection runs offline in GJS, with no runtime Node.js, npm, network,
+formats the source without minification. The build adds a provenance banner and
+wraps trigram dictionary construction in a lazy initializer: importing the module
+keeps the model compressed, and the first input meeting `minLength` expands it.
+Later detections reuse those dictionaries for the lifetime of the module.
+Detection runs offline in GJS, with no runtime Node.js, npm, network,
 external imports, or native library dependencies.
 
 All bundled packages are MIT licensed. `LICENSE.franc` retains the complete
@@ -41,7 +44,7 @@ SHA-256: `f5e0c5c44706ddda7ac2f9096f848222f1e0e90f88643955041c2735be84592b`.
 
 ## Reproduce and verify
 
-On Linux x86-64, with Bash, curl, tar, GNU coreutils, and network access:
+On Linux x86-64, with Bash, awk, curl, tar, GNU coreutils, and network access:
 
 ```sh
 tools/update-franc.sh /tmp/lyric-glance-franc-6.2.0
@@ -54,7 +57,8 @@ build inputs live under `/tmp` and are removed on exit; the output directory is
 retained. Node.js and npm are not needed. Linux x86-64 is a reproduction
 requirement for the pinned build tool, not a runtime requirement for the ESM.
 
-The exact bundling command, from the temporary build directory, is:
+After applying the lazy-initialization transformation in `tools/update-franc.sh`,
+the bundling command, from the temporary build directory, is:
 
 ```sh
 node_modules/@esbuild/linux-x64/bin/esbuild node_modules/franc-min/index.js \
@@ -66,7 +70,7 @@ node_modules/@esbuild/linux-x64/bin/esbuild node_modules/franc-min/index.js \
 
 Output SHA-256:
 
-- `franc.mjs` (113,894 bytes):
-  `5b46d265b606806441574a8fb4f2d354e8ba4ae487cf4cbfe055628780915ace`
+- `franc.mjs` (114,003 bytes):
+  `f78c65834337342648bd4f9c69023f50028d1829f552f6edc267b35d5baafdde`
 - `LICENSE.franc` (4,632 bytes):
   `1309f7d0f603e5a26241e1836f4b56df67a2f9417cea2a51d005b066fd7f782f`

@@ -1,7 +1,9 @@
+import './io-promisify.js';
+
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import {defaultCacheRoot, readJson, removeTree, writeJson} from './storage.js';
+import {CACHE_ACCESS_REFRESH_INTERVAL_MS, defaultCacheRoot, readJson, removeTree, writeJson} from './storage.js';
 import {
     createTranslationDocument,
     TRANSLATION_DOCUMENT_VERSION,
@@ -9,15 +11,6 @@ import {
 } from './translation-document.js';
 
 const MAX_TRANSLATION_CACHE_ENTRIES = 500;
-
-Gio._promisify(Gio.File.prototype,
-    'enumerate_children_async', 'enumerate_children_finish');
-Gio._promisify(Gio.File.prototype,
-    'delete_async', 'delete_finish');
-Gio._promisify(Gio.FileEnumerator.prototype,
-    'next_files_async', 'next_files_finish');
-Gio._promisify(Gio.FileEnumerator.prototype,
-    'close_async', 'close_finish');
 
 function isNotFound(error) {
     return error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND);
@@ -81,6 +74,8 @@ export class TranslationDiskCache {
             defaultTranslationCacheDirectory(cacheRoot));
         this._maxEntries = Math.max(1, Math.floor(maxEntries));
         this._now = now;
+        this._cancellable = new Gio.Cancellable();
+        this._pendingWrites = new Set();
     }
 
     _fileFor(options) {
@@ -92,6 +87,8 @@ export class TranslationDiskCache {
         let record;
         try {
             record = await readJson(file, cancellable);
+            if (this._cancellable.is_cancelled() || cancellable?.is_cancelled())
+                return {hit: false};
             if (record.version !== TRANSLATION_DOCUMENT_VERSION ||
                 record.sourceLyricsHash !== options.sourceLyricsHash ||
                 record.targetLanguage !== options.targetLanguage ||
@@ -104,8 +101,16 @@ export class TranslationDiskCache {
                 ...record,
                 trackKey,
             });
-            record.lastAccessed = this._now();
-            writeJson(file, record, cancellable).catch(() => {});
+            const now = this._now();
+            if (!Number.isFinite(record.lastAccessed) ||
+                now - record.lastAccessed > CACHE_ACCESS_REFRESH_INTERVAL_MS) {
+                record.lastAccessed = now;
+                this._trackWrite(writeJson(
+                    file, record, this._cancellable)).catch(error => {
+                    if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                        console.debug('LyricGlance: could not refresh translation cache entry');
+                });
+            }
             return {hit: true, document};
         } catch (error) {
             if (!isNotFound(error) &&
@@ -115,7 +120,13 @@ export class TranslationDiskCache {
         }
     }
 
-    async put(document, cancellable = null) {
+    put(document, cancellable = null) {
+        // Explicit request tokens are canceled by TranslationService.cancelAll().
+        return this._trackWrite(this._put(
+            document, cancellable ?? this._cancellable));
+    }
+
+    async _put(document, cancellable) {
         const file = this._fileFor(document);
         await writeJson(file, {
             ...document,
@@ -125,12 +136,21 @@ export class TranslationDiskCache {
         await this._evictOldest(cancellable);
     }
 
-    async clear(cancellable = null) {
+    async clear(cancellable = this._cancellable) {
+        await Promise.allSettled([...this._pendingWrites]);
         await removeTree(this._directory, cancellable);
     }
 
-    async count(cancellable = null) {
-        return (await listFiles(this._directory, cancellable)).length;
+    destroy() {
+        this._cancellable.cancel();
+    }
+
+    _trackWrite(promise) {
+        this._pendingWrites.add(promise);
+        promise.then(
+            () => this._pendingWrites.delete(promise),
+            () => this._pendingWrites.delete(promise));
+        return promise;
     }
 
     async _evictOldest(cancellable = null) {

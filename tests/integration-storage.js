@@ -92,6 +92,106 @@ async function run() {
         'clearing persisted lyrics should reset the count');
     reopened.destroy();
 
+    const accessIntervalMs = 12 * 60 * 60 * 1000;
+    const accessCacheRoot = GLib.build_filenamev([tempRoot, 'access-cache']);
+    const accessConfigRoot = GLib.build_filenamev([tempRoot, 'access-offsets']);
+    let accessNow = 100;
+    const accessCache = new LyricsDiskCache({
+        cacheRoot: accessCacheRoot,
+        now: () => accessNow,
+    });
+    const accessOffsets = new OffsetStore({
+        configRoot: accessConfigRoot,
+        now: () => accessNow,
+    });
+    await accessOffsets.ready();
+    const accessLyricsPath = GLib.build_filenamev([
+        accessCacheRoot, 'lyrics', `${trackHash(trackA)}.json`,
+    ]);
+    const accessOffsetsPath = GLib.build_filenamev([accessConfigRoot, 'offsets.json']);
+    const accessWrites = new Map([[accessLyricsPath, 0], [accessOffsetsPath, 0]]);
+    const originalReplace = Gio.File.prototype.replace_contents_async;
+    Gio.File.prototype.replace_contents_async = function (...args) {
+        const path = this.get_path();
+        if (accessWrites.has(path))
+            accessWrites.set(path, accessWrites.get(path) + 1);
+        return originalReplace.apply(this, args);
+    };
+    try {
+        await accessCache.put(trackA, {syncedLyrics: '[00:01.00] throttled access'});
+        accessOffsets.set(trackA, 1000);
+        await accessOffsets.flush();
+        assert(accessWrites.get(accessLyricsPath) === 1 &&
+            accessWrites.get(accessOffsetsPath) === 1,
+        'initial lyrics and offset values must each be written once');
+
+        for (const elapsed of [1, accessIntervalMs - 1, accessIntervalMs]) {
+            accessNow = 100 + elapsed;
+            for (let repeat = 0; repeat < 3; repeat++) {
+                assert((await accessCache.get(trackA)).hit && accessOffsets.get(trackA) === 1000,
+                    'repeated access within twelve hours must retain the cached lyrics and offset');
+            }
+            await Promise.all([...accessCache._pendingWrites]);
+            await accessOffsets.flush();
+            assert(accessWrites.get(accessLyricsPath) === 1 &&
+                accessWrites.get(accessOffsetsPath) === 1,
+            'access before or exactly at twelve hours must not rewrite lyrics or offsets');
+        }
+
+        accessNow = 100 + accessIntervalMs + 1;
+        assert((await accessCache.get(trackA)).hit && accessOffsets.get(trackA) === 1000,
+            'access beyond twelve hours must still return the stored values');
+        await Promise.all([...accessCache._pendingWrites]);
+        await accessOffsets.flush();
+        assert(accessWrites.get(accessLyricsPath) === 2 &&
+            accessWrites.get(accessOffsetsPath) === 2,
+        'access beyond twelve hours must refresh lyrics and offsets exactly once');
+        for (let repeat = 0; repeat < 3; repeat++) {
+            assert((await accessCache.get(trackA)).hit && accessOffsets.get(trackA) === 1000,
+                'a refreshed access time must preserve the stored values');
+        }
+        await Promise.all([...accessCache._pendingWrites]);
+        await accessOffsets.flush();
+        assert(accessWrites.get(accessLyricsPath) === 2 &&
+            accessWrites.get(accessOffsetsPath) === 2,
+        'repeated access after a refresh must not immediately rewrite either file');
+
+        accessOffsets.set(trackA, 1500);
+        await accessOffsets.flush();
+        const [, lyricsBytes] = GLib.file_get_contents(accessLyricsPath);
+        const [, offsetBytes] = GLib.file_get_contents(accessOffsetsPath);
+        const lyricsRecord = JSON.parse(new TextDecoder().decode(lyricsBytes));
+        const offsetRecord = JSON.parse(new TextDecoder().decode(offsetBytes));
+        assert(lyricsRecord.version === 2 && lyricsRecord.lastAccessed === accessNow &&
+            offsetRecord.version === 1 &&
+            offsetRecord.entries[trackHash(trackA)].lastAccessed === accessNow &&
+            offsetRecord.entries[trackHash(trackA)].offsetMs === 1500 &&
+            accessWrites.get(accessOffsetsPath) === 3,
+        'changing an offset must persist immediately within the refresh interval without changing file formats');
+    } finally {
+        await Promise.allSettled([...accessCache._pendingWrites]);
+        await accessOffsets.flush();
+        Gio.File.prototype.replace_contents_async = originalReplace;
+        accessCache.destroy();
+        accessOffsets.destroy();
+    }
+
+    const destroyedRoot = GLib.build_filenamev([tempRoot, 'destroyed-read']);
+    let destroyedNow = 100;
+    const destroyedCache = new LyricsDiskCache({cacheRoot: destroyedRoot, now: () => destroyedNow});
+    await destroyedCache.put(trackA, {syncedLyrics: '[00:01.00] keep persisted access'});
+    destroyedNow += accessIntervalMs + 1;
+    const pendingDestroyedRead = destroyedCache.get(trackA);
+    destroyedCache.destroy();
+    assert(!(await pendingDestroyedRead).hit,
+        'destroying a cache during its disk read must prevent a late cache hit');
+    await Promise.allSettled([...destroyedCache._pendingWrites]);
+    const [, destroyedBytes] = GLib.file_get_contents(GLib.build_filenamev([
+        destroyedRoot, 'lyrics', `${trackHash(trackA)}.json`,
+    ]));
+    assert(JSON.parse(new TextDecoder().decode(destroyedBytes)).lastAccessed === 100,
+        'a disk read completed after destruction must not rewrite the persisted access time');
+
     let now = 10_000;
     const directRoot = GLib.build_filenamev([tempRoot, 'direct-cache']);
     const diskCache = new LyricsDiskCache({

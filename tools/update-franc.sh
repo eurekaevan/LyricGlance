@@ -36,6 +36,25 @@ printf '%s  %s\n' \
     f5e0c5c44706ddda7ac2f9096f848222f1e0e90f88643955041c2735be84592b \
     node_modules/franc-min/license | sha256sum -c -
 
+# Keep the model compressed until the first detection instead of expanding it
+# when GNOME Shell imports the module. The pinned input and output are hashed.
+awk '
+    /^let script$/ {next}
+    /^const numericData = \{\}$/ {
+        print "let numericData\n\nfunction initializeData() {"
+        print "  if (numericData) return\n  numericData = {}"
+        next
+    }
+    /^for \(script in data\) \{$/ {
+        sub("for \\(script", "for (const script")
+        building = 1
+    }
+    {print}
+    building && /^}$/ {print "}"; building = 0}
+    /^  value = value.slice\(0, MAX_LENGTH\)$/ {print "  initializeData()"}
+' node_modules/franc-min/index.js > node_modules/franc-min/lazy.js
+mv node_modules/franc-min/lazy.js node_modules/franc-min/index.js
+
 node_modules/@esbuild/linux-x64/bin/esbuild node_modules/franc-min/index.js \
     --bundle --format=esm --platform=neutral --target=es2020 --charset=utf8 \
     --legal-comments=inline --tree-shaking=true \
@@ -51,7 +70,7 @@ node_modules/@esbuild/linux-x64/bin/esbuild node_modules/franc-min/index.js \
 } > "${OUTPUT_PATH}/LICENSE.franc"
 
 printf '%s  %s\n' \
-    5b46d265b606806441574a8fb4f2d354e8ba4ae487cf4cbfe055628780915ace "${OUTPUT_PATH}/franc.mjs" \
+    f78c65834337342648bd4f9c69023f50028d1829f552f6edc267b35d5baafdde "${OUTPUT_PATH}/franc.mjs" \
     1309f7d0f603e5a26241e1836f4b56df67a2f9417cea2a51d005b066fd7f782f "${OUTPUT_PATH}/LICENSE.franc" \
     | sha256sum -c -
 

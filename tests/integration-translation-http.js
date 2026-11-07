@@ -71,6 +71,7 @@ const mixedTranslations = ['明天也想与你同行', '今晚留在我身边', 
 const server = new Soup.Server();
 let mode = 'success';
 let requestCount = 0;
+let retryAfter = '0';
 let observed = null;
 let cancelDuringRequest = null;
 let httpError = null;
@@ -101,7 +102,7 @@ server.add_handler(null, (_server, message) => {
     }
     if (mode === 'rate-limit' && requestCount === 1) {
         message.set_status(429, null);
-        message.get_response_headers().append('Retry-After', '0');
+        message.get_response_headers().append('Retry-After', retryAfter);
         return;
     }
     if (mode === 'authentication') {
@@ -467,6 +468,82 @@ async function run() {
     assert(result.length === 2 && requestCount === 2 && elapsedMs >= 900,
         'HTTP 429 should respect Retry-After and retry only after a delay');
     provider.destroy();
+
+    // Cancel only after the real retry source has been armed.
+    mode = 'rate-limit';
+    requestCount = 0;
+    const backoffCancellable = new Gio.Cancellable();
+    const backoffTimeoutAdd = GLib.timeout_add;
+    let backoffTimerId = 0;
+    let cancelBackoffIdleId = 0;
+    GLib.timeout_add = (priority, milliseconds, callback) => {
+        backoffTimerId = backoffTimeoutAdd(priority, milliseconds, callback);
+        cancelBackoffIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            cancelBackoffIdleId = 0;
+            backoffCancellable.cancel();
+            return GLib.SOURCE_REMOVE;
+        });
+        return backoffTimerId;
+    };
+    provider = new OpenAITranslationProvider({endpoint});
+    try {
+        await expectCode(() => provider.checkConnection('connection-test-token', backoffCancellable),
+            'canceled', 'canceling during Retry-After must finish without deadlocking the main loop');
+        assert(backoffTimerId !== 0 && requestCount === 1 &&
+            GLib.MainContext.default().find_source_by_id(backoffTimerId) === null,
+        'canceling an armed backoff must remove its timer and prevent a second request');
+    } finally {
+        GLib.timeout_add = backoffTimeoutAdd;
+        if (cancelBackoffIdleId)
+            GLib.source_remove(cancelBackoffIdleId);
+        provider.destroy();
+    }
+
+    // Keep boundary tests fast while observing whether a retry was scheduled.
+    const originalTimeoutAdd = GLib.timeout_add;
+    const retryTimers = [];
+    GLib.timeout_add = (priority, milliseconds, callback) => {
+        retryTimers.push(milliseconds);
+        return originalTimeoutAdd(priority, 1, callback);
+    };
+    try {
+        for (const [header, timeoutSeconds, shouldRetry] of [
+            ['5000000', 120, false],
+            ['3600', 15, false],
+            ['31', 120, false],
+            ['30', 120, true],
+            ['16', 15, false],
+            ['15', 15, true],
+            ['31', 0, false],
+            ['30', 0, true],
+            ['1e308', 120, false],
+            [new Date(Date.now() + 3_600_000).toUTCString(), 15, false],
+        ]) {
+            mode = 'rate-limit';
+            retryAfter = header;
+            requestCount = 0;
+            retryTimers.length = 0;
+            provider = new OpenAITranslationProvider({endpoint, timeoutSeconds});
+            try {
+                if (shouldRetry) {
+                    await provider.checkConnection('connection-test-token', null);
+                    assert(requestCount === 2 && retryTimers.length === 1 &&
+                        retryTimers[0] === Number(header) * 1000,
+                    'Retry-After at the allowed limit must be respected with one retry');
+                } else {
+                    await expectCode(() => provider.checkConnection('connection-test-token', null),
+                        'rate_limited', `${header}: excessive Retry-After must remain rate_limited`);
+                    assert(requestCount === 1 && retryTimers.length === 0,
+                        `${header}: excessive Retry-After must not start a timer or another request`);
+                }
+            } finally {
+                provider.destroy();
+            }
+        }
+    } finally {
+        GLib.timeout_add = originalTimeoutAdd;
+        retryAfter = '0';
+    }
 
     mode = 'slow';
     requestCount = 0;

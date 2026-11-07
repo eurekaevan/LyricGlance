@@ -2,28 +2,20 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
+import {closeStream, readLimited, ResponseTooLargeError, USER_AGENT} from './network-utils.js';
+
 import {validateTranslationLines} from './translation-document.js';
 
 const OPENAI_PROVIDER_ID = 'openai';
 const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-const USER_AGENT = 'LyricGlance/0.9.0 (lyric-glance@eureka)';
 const MAX_RATE_LIMIT_RETRIES = 1;
+const MAX_RATE_LIMIT_DELAY_MS = 30_000;
 const DEFAULT_REASONING_EFFORT = 'none';
 // Bump when translation instructions or output policy change to avoid stale results.
 const TRANSLATION_PROMPT_VERSION = 3;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-const READ_CHUNK_BYTES = 64 * 1024;
-
-Gio._promisify(Gio.InputStream.prototype,
-    'read_bytes_async', 'read_bytes_finish');
-Gio._promisify(Gio.InputStream.prototype,
-    'close_async', 'close_finish');
-Gio._promisify(Soup.Session.prototype,
-    'send_async', 'send_finish');
-
-class ResponseTooLargeError extends Error {}
 
 export function translationNetworkReason(error) {
     if (error.domain === Gio.tls_error_quark())
@@ -90,36 +82,10 @@ async function readResponse(session, message, limit, cancellable) {
         if (!errorResponse && contentLength > limit)
             throw new ResponseTooLargeError();
 
-        const chunks = [];
-        let total = 0;
-        while (true) {
-            if (errorResponse && total >= limit)
-                break;
-            const bytes = await stream.read_bytes_async(
-                errorResponse ? Math.min(READ_CHUNK_BYTES, limit - total) : READ_CHUNK_BYTES,
-                GLib.PRIORITY_DEFAULT, cancellable);
-            const size = bytes.get_size();
-            if (size === 0)
-                break;
-            total += size;
-            if (total > limit)
-                throw new ResponseTooLargeError();
-            chunks.push(bytes.get_data());
-        }
-
-        const contents = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            contents.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return GLib.Bytes.new(contents);
+        return GLib.Bytes.new(await readLimited(
+            stream, limit, cancellable, errorResponse));
     } finally {
-        try {
-            await stream.close_async(GLib.PRIORITY_DEFAULT, null);
-        } catch {
-            // The request error is more useful than a stream-close error.
-        }
+        await closeStream(stream);
     }
 }
 
@@ -154,38 +120,33 @@ function canceledError() {
     return new TranslationProviderError('canceled', 'Translation canceled');
 }
 
-function delay(milliseconds, cancellable) {
+async function delay(milliseconds, cancellable) {
     if (cancellable?.is_cancelled())
-        return Promise.reject(canceledError());
+        throw canceledError();
 
-    return new Promise((resolve, reject) => {
-        let signalId = 0;
-        let timerId = GLib.timeout_add(
-            GLib.PRIORITY_DEFAULT,
-            Math.max(1, Math.ceil(milliseconds)),
-            () => {
-                timerId = 0;
-                if (signalId) {
-                    cancellable.disconnect(signalId);
-                    signalId = 0;
-                }
-                resolve();
-                return GLib.SOURCE_REMOVE;
-            });
-        if (cancellable) {
-            signalId = cancellable.connect(() => {
-                if (timerId) {
-                    GLib.source_remove(timerId);
+    let signalId = 0;
+    let timerId = 0;
+    try {
+        await new Promise((resolve, reject) => {
+            timerId = GLib.timeout_add(
+                GLib.PRIORITY_DEFAULT,
+                Math.max(1, Math.ceil(milliseconds)),
+                () => {
                     timerId = 0;
-                }
-                if (signalId) {
-                    cancellable.disconnect(signalId);
-                    signalId = 0;
-                }
-                reject(canceledError());
-            });
-        }
-    });
+                    resolve();
+                    return GLib.SOURCE_REMOVE;
+                });
+            GLib.Source.set_name_by_id(timerId, '[LyricGlance] translation retry delay');
+            signalId = cancellable?.connect(() => reject(canceledError())) ?? 0;
+        });
+    } finally {
+        if (timerId)
+            GLib.source_remove(timerId);
+        // Disconnect after the cancellation callback has returned: disconnect()
+        // waits for an active callback and would deadlock from inside it.
+        if (signalId)
+            cancellable.disconnect(signalId);
+    }
 }
 
 function outputText(response) {
@@ -389,7 +350,9 @@ export class OpenAITranslationProvider {
         if (status === 429) {
             const retryAfterMs = translationRetryAfterMs(
                 message.get_response_headers().get_one('Retry-After'));
-            if (attempt < MAX_RATE_LIMIT_RETRIES) {
+            const retryDelayLimitMs = Math.min(MAX_RATE_LIMIT_DELAY_MS,
+                (this._session.timeout || Infinity) * 1000);
+            if (attempt < MAX_RATE_LIMIT_RETRIES && retryAfterMs <= retryDelayLimitMs) {
                 await delay(retryAfterMs, cancellable);
                 return this._request(
                     document, options, cancellable, attempt + 1);
@@ -467,34 +430,4 @@ export class OpenAITranslationProvider {
         this._session.abort();
         this._session = null;
     }
-}
-
-export class MockTranslationProvider {
-    constructor({
-        id = 'mock',
-        model = 'mock-v1',
-        configurationId = id,
-        delayMs = 0,
-    } = {}) {
-        this.id = id;
-        this.model = model;
-        this.configurationId = configurationId;
-        this.requiresCredential = false;
-        this.delayMs = delayMs;
-        this.requestCount = 0;
-    }
-
-    async translate(_document, options, cancellable) {
-        this.requestCount++;
-        if (this.delayMs > 0)
-            await delay(this.delayMs, cancellable);
-        if (cancellable?.is_cancelled())
-            throw canceledError();
-        return options.chunk.lines.map(line => ({
-            lineId: line.id,
-            text: `[${options.targetLanguage}] ${line.text}`,
-        }));
-    }
-
-    destroy() {}
 }

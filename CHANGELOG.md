@@ -4,6 +4,7 @@
 
 ### Added
 
+- GNOME Shell 51 support alongside 50, with packaged Shell regressions in the Fedora 44/45 CI matrix and the Fedora 45 release workflow. `make shell-check` runs the same isolated runtime check locally.
 - Offline language detection for unmarked lyrics skips translation only when sufficiently long, consistent samples confidently match the target language. Explicit source language takes precedence; uncertain and mixed-language text still reaches the configured translator.
 - Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics that omit credentials and request contents.
 - Translation settings can check the entered endpoint/model with the saved key using a small synthetic Responses API request, with localized outcomes and cancellation on edits or window close.
@@ -26,6 +27,10 @@
 
 ### Fixed
 
+- Cancelling a translation rate-limit wait no longer disconnects its own active cancellation callback. Closing Preferences during credential lookup cannot open a later dialog, and destroying the lyrics cache prevents a pending read from refreshing its disk record.
+- Very large lyric timestamps are bounded before creating native timeouts and pan transitions. The readable bundled js-yaml distribution is updated to upstream 4.1.1 with its prototype-pollution fix; Lyricsfile schema and alias restrictions remain unchanged.
+- Panel edge fading uses the native `Clutter.ShaderEffect` snippet hook on Shell 51, where `Shell.GLSLEffect` was removed, while retaining the Shell 50 implementation. Shell 51's reduced-motion preference switches lyrics to timed pages, stops title loops and skips artwork crossfades independently of the animation switch.
+- The optional Preferences screenshot check waits for the paintable's rendered frame instead of immediately snapshotting an empty GTK render cache, with a bounded timeout and signal cleanup.
 - Playback controls retain valid status readbacks when newer position feedback arrives, preserve newer per-property state, and reset the old clock on track changes. Seek previews remain visible until reconciliation settles, including when a newer read supersedes the original; rejected controls restore current progress and show the existing error hint without adding polling.
 - Offset resets made while saved offsets are loading now override the old entry, while preserving subsequent adjustments and other tracks; no offset-file format change.
 - Translation requests explicitly name the required JSON shape and accept the observed `translations` array alias only when `lines` is absent. ID/completeness checks remain strict; incomplete Responses outputs are rejected and privacy-safe format diagnostics distinguish failure stages. The configured endpoint passed a real connection check and a two-line synthetic Japanese/English request after this fix.
@@ -73,4 +78,4 @@ Packaged Shell regressions cover these scrolling changes; fresh-session desktop 
 - Preferences cancels outstanding Secret Service and cache operations and disconnects its settings signals when closed.
 - Translation rate-limit waits now remove their timeout and cancellation signal on every completion path.
 
-[0.9.0]: https://github.com/eurekaevan/lyric-glance/releases/tag/v0.9.0
+[0.9.0]: https://github.com/eurekaevan/LyricGlance/releases/tag/v0.9.0

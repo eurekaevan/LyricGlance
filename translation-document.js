@@ -1,5 +1,4 @@
 import GLib from 'gi://GLib';
-import {francAll} from './franc.mjs';
 
 export const TRANSLATION_DOCUMENT_VERSION = 2;
 
@@ -38,59 +37,6 @@ export function translationCacheKey({
         requiredString(providerConfiguration, 'provider configuration'),
         requiredString(model, 'model'),
     ]));
-}
-
-function primaryLanguage(language) {
-    if (typeof language !== 'string')
-        return null;
-    try {
-        const code = Intl.getCanonicalLocales(language.trim().replaceAll('_', '-'))[0]
-            ?.split('-')[0];
-        return !code || ['und', 'mul', 'zxx', 'unknown'].includes(code) ? null : code;
-    } catch {
-        return null;
-    }
-}
-
-export function languagesEquivalent(sourceLanguage, targetLanguage) {
-    const source = primaryLanguage(sourceLanguage);
-    return source !== null && source === primaryLanguage(targetLanguage);
-}
-
-export function sourceLyricsLanguage(document) {
-    const explicit = primaryLanguage(document?.metadata?.language);
-    if (explicit)
-        return explicit;
-    // Repeated refrains must not turn a tiny sample into false confidence.
-    const text = [...new Set(document?.lines?.map(line => line.text.trim()) ?? [])].join('\n');
-    if (text.length > 8192 || (text.match(/\p{L}/gu)?.length ?? 0) < 80)
-        return 'unknown';
-    const latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
-    const eastAsian = text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)
-        ?.length ?? 0;
-    if (latin >= 24 && eastAsian >= 24)
-        return 'unknown';
-    // franc considers at most 2048 UTF-16 units. Cover the entire bounded
-    // text with smaller samples rather than trusting just the opening verse.
-    const samples = [];
-    const size = Math.ceil(text.length / Math.max(2, Math.ceil(text.length / 1024)));
-    for (let start = 0; start < text.length; start += size)
-        samples.push(text.slice(start, start + size));
-    if (text.length <= 2048)
-        samples.push(text);
-    let language = null;
-    for (const sample of samples) {
-        if ((sample.match(/\p{L}/gu)?.length ?? 0) < 30)
-            return 'unknown';
-        const candidates = francAll(sample, {minLength: 30});
-        const best = primaryLanguage(candidates[0]?.[0]);
-        // Scores are relative ranks, not calibrated probabilities.
-        if (!best || (candidates[1] && candidates[0][1] - candidates[1][1] < 0.1) ||
-            (language && best !== language))
-            return 'unknown';
-        language = best;
-    }
-    return language ?? 'unknown';
 }
 
 export function validateTranslationLines(document, response) {
@@ -157,10 +103,4 @@ export function createTranslationDocument({
         createdAt: created.toISOString(),
         lines: Object.freeze(normalizedLines),
     });
-}
-
-export function alignTranslation(document, translation) {
-    const translations = new Map(
-        translation?.lines?.map(line => [line.lineId, line.text]) ?? []);
-    return document.lines.map(line => translations.get(line.lineId) ?? null);
 }

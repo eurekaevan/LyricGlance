@@ -27,15 +27,6 @@ export function formatDuration(seconds) {
     return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
-export function progressFraction(positionUs, durationUs) {
-    const position = Number(positionUs);
-    const duration = Number(durationUs);
-    if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0)
-        return 0;
-
-    return Math.min(1, Math.max(0, position / duration));
-}
-
 const PANEL_PAN_LEAD_FRACTION = 0.12;
 const PANEL_PAN_END_HOLD_FRACTION = 0.20;
 const PANEL_PAN_MAX_LEAD_MS = 600;

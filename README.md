@@ -24,11 +24,11 @@ LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原
 ## 兼容性
 
 - Fedora Linux
-- GNOME Shell 50（历史验证覆盖 50.4／50.5，近期打包回归使用 50.6）
+- GNOME Shell 50／51（50 的历史验证覆盖 50.4～50.6；51 的运行验证使用 51.1）
 - Wayland
 - GJS ES Modules
 
-`metadata.json` 只声明 GNOME Shell 50。GNOME 49 和 51 未验证，也未声明支持。播放器只需
+`metadata.json` 声明 GNOME Shell 50 和 51。GNOME 49 未验证，也未声明支持。播放器只需
 正确实现 MPRIS 2；不会为 Spotify 或浏览器使用专用 API。详细手工验证状态和未来升级
 风险见 [`docs/compatibility.md`](docs/compatibility.md)。
 
@@ -47,16 +47,23 @@ gnome-extensions install --force lyric-glance@eureka.shell-extension.zip
 gnome-extensions enable lyric-glance@eureka
 ```
 
-首次安装或更新 JavaScript 后请注销并重新登录。GNOME Shell 50 会在当前 Shell 进程中
+首次安装或更新 JavaScript 后请注销并重新登录。GNOME Shell 50／51 会在当前 Shell 进程中
 缓存已导入的 ESM，单纯 disable / enable 不能证明新模块已经 fresh-import。
 
 项目提交到 extensions.gnome.org 前不会在这里放置不存在的商店链接。
 
 ### 开发者
 
+静态检查使用 Python 3.14 和 venv；Fedora 需安装 `python3.14`、`python-pip-wheel`。
+
 ```sh
 git clone https://github.com/eurekaevan/LyricGlance.git
 cd LyricGlance
+python3.14 -m venv /tmp/lyricglance-shexli
+. /tmp/lyricglance-shexli/bin/activate
+python -m pip install \
+  'shexli @ https://github.com/GNOME/extensions-web/archive/56e6799ac01e39c0b31d83d350a8b4c15326efd8.tar.gz#subdirectory=shexli' \
+  tree-sitter==0.25.2 tree-sitter-javascript==0.25.0
 make check
 make install
 gnome-extensions enable lyric-glance@eureka
@@ -138,8 +145,9 @@ API 返回的本批结果必须覆盖全部请求行且译文非空，否则报�
 401 或明确的无效密钥提示归为认证错误；未知 403 显示为访问被拒绝；安全白名单中明确的
 额度或消费限额错误单独显示，不凭 403 猜测余额状态，也不显示原始错误文本。
 
-端点和模型在点击“应用”或关闭设置窗口时一并保存；无效输入会阻止关闭并提示修正，
-不会覆盖已有配置。API 密钥仍需在凭据对话框中点击“保存”，不会以明文回显；
+端点和模型在点击“应用”或关闭设置窗口时一并保存；“应用”会校验输入并提示错误。
+关窗时只保存合法输入，非法草稿直接丢弃，不阻止关闭，也不覆盖已保存的端点或模型。
+API 密钥仍需在凭据对话框中点击“保存”，不会以明文回显；
 再次打开时留空并保存会保留原密钥，只有“移除”才删除已保存密钥。
 存储区分别显示歌词缓存结果数（包含未找到结果）和成功翻译的缓存数；翻译鉴权失败、
 连接检查成功但尚未翻译歌曲时，翻译缓存为零是正常情况，并不代表歌词缓存没有保存。
@@ -161,8 +169,14 @@ MPRIS signals
 ```
 
 播放器发现使用 `NameOwnerChanged`，状态更新使用 `PropertiesChanged`，跳转使用 `Seeked`。
-歌词只为下一行、下一字或分段显示边界安排一次性 timer；popup 打开时每 500 ms 从现有 monotonic
-clock 刷新纯 UI 进度，关闭后立即移除，不额外读取 D-Bus Position。
+歌词只为下一行、下一字或分段显示边界安排一次性 timer；popup 打开且正在播放时，每 500 ms
+从现有 monotonic clock 刷新纯 UI 进度。暂停或关闭后立即移除，暂停跳转由播放器信号即时更新，
+不额外读取 D-Bus Position。
+
+歌词、译文和偏移的纯读取只在上次访问时间超过 12 小时时刷新访问元数据，磁盘淘汰时间也采用
+这一粗粒度记录；歌词有效期不变，新的歌词/译文和用户修改的偏移仍立即保存。
+翻译服务另保留最近 20 项有效结果的内存 LRU，按曲目、歌词内容、目标语言和完整提供方配置隔离。
+手动刷新绕过内存和磁盘缓存，清空缓存或销毁服务会释放内存结果。
 
 popup 中的媒体按钮控制当前选中的播放器，按 MPRIS 能力禁用不支持的操作。
 进度滑块支持点击、拖动和键盘左右键；拖动时预览时间，释放后提交一次 `SetPosition`。
@@ -229,7 +243,7 @@ popup 使用 Shell 原生滑块和主题。
 视口约 60% 的阅读位置。双向文字、拆分字形、重叠词时间或不匹配的文本退回逐行滚动。
 译文始终使用原行时间轴，不复用原文的逐字位置。高分屏的字形测量会换算为逻辑像素。
 
-关闭 GNOME Shell 动画后，超宽同步歌词按时间切换有重叠的文字片段，不做连续滑动；
+关闭 GNOME Shell 动画，或在 51 中选择“减少动态效果”后，超宽同步歌词按时间切换有重叠的文字片段，不做连续滑动；
 暂停、跳转和悬停仍然生效，重新打开动画会恢复连续滚动。超宽弹窗标题在此模式下保留
 静态省略显示；正常动画模式下向左无缝循环，关闭弹窗即停止循环并隐藏副本。
 短标题和放得下的歌词保持静止。
@@ -260,6 +274,8 @@ popup 使用 Shell 原生滑块和主题。
 - `translation-*`、`credentials.js`：独立翻译文档、provider、cache 和 Secret Service。
 - `indicator.js`、`artwork-*`、`ui-utils.js`：Shell UI、封面和纯 UI 计算。
 - `storage.js`：有界缓存和歌曲偏移持久化。
+- `network-utils.js`：统一版本/User-Agent、有界流读取及关闭；不同 HTTP 错误策略留在各调用方。
+- `shell-ui-utils.js`：仅供 Shell 进程使用的动画偏好和音乐图标回退。
 - `prefs.js`、`schemas/`：Preferences 和 GSettings。
 
 ## LrcAPI 备用歌词源
@@ -344,32 +360,47 @@ make translations-update
 make clean
 make check
 make integration
+make shell-check
+make shell-presentation-check
+make prefs-check
 ```
 
-`make check` 验证 schema、gettext、纯逻辑测试、打包、zip 内容和所有相对 runtime imports；
+`make check` 验证 schema、gettext、纯逻辑测试、打包、zip 内容和所有相对 runtime imports，
+并对 ZIP 运行 `make shexli-check` 所用的官方静态分析命令。
+首次运行前按上面的开发者步骤安装固定提交的 shexli；CI 和发布流程使用同一组合。
+官方上游提交 `56e6799` 已修复 PyPI 0.2.1 错误拒绝 Shell 51 的版本规则；
+源码包仍标记为 0.2.1，因此仅安装同名 PyPI 版本不能替代该提交。
+tree-sitter 0.26.0 在完整分析时会崩溃，因此固定解析库为 0.25.2。
+shexli 即使报告 error 也返回 0，不能将命令成功视作零问题；当前 ZIP 的报告为零诊断，
+修复与验证说明见 [EGO 审查记录](docs/EGO-AUDIT.md#static-analysis-and-reviewer-notes--2026-11-06)。
+
 `make integration` 使用隔离 D-Bus 和本地 HTTP server 验证 MPRIS 事件、切歌防抖、429/503
 冷却及有限重试、网络错误、响应大小限制、取消、缓存和存储，不访问 Spotify、LRCLIB
 或真实翻译 API。
 
-滚动涉及实际 Shell 布局和生命周期，还需使用已打包的当前代码运行隔离 Shell 回归：
+`make shell-check` 会重新打包并运行隔离 Shell 回归，覆盖实际布局和生命周期；
+`make shell-presentation-check` 运行深浅主题与字体布局回归，`make prefs-check` 在隔离 Shell
+提供的显示会话中启动 GTK 设置窗口测试。三者均使用各自的临时目录及包副本，结束后自动清理。
+CI 在 Fedora 44／45 上分别执行三项回归以验证 Shell 50／51，发布流程使用 Fedora 45。
+以下为手动运行同一 Shell 回归的命令，便于调整环境或替换测试入口：
 
 ```sh
 make pack
-cp lyric-glance@eureka.shell-extension.zip /tmp/lyric-glance@eureka.shell-extension.zip
-mkdir -p /tmp/lyricglance-media-runtime
-chmod 700 /tmp/lyricglance-media-runtime
-dbus-run-session -- env XDG_RUNTIME_DIR=/tmp/lyricglance-media-runtime \
+shell_runtime=$(mktemp -d /tmp/lyricglance-media-runtime-XXXXXX)
+trap 'rm -rf -- "$shell_runtime"' EXIT
+cp lyric-glance@eureka.shell-extension.zip "$shell_runtime/lyric-glance@eureka.shell-extension.zip"
+dbus-run-session -- env XDG_RUNTIME_DIR="$shell_runtime" \
   GIO_USE_VFS=local GSETTINGS_BACKEND=memory \
   gnome-shell-test-tool --headless \
-  --extension /tmp/lyric-glance@eureka.shell-extension.zip tests/shell-extension.js
+  --extension "$shell_runtime/lyric-glance@eureka.shell-extension.zip" tests/shell-extension.js
 ```
 
-需要本机已安装 GNOME Shell 测试工具及相关运行库。每次重建后必须覆盖 `/tmp` 中的包，
+需要本机已安装 GNOME Shell 测试工具及相关运行库。每次重建后必须重新复制包到本次临时目录，
 否则可能测试到旧代码。该测试覆盖结束时间选择、同行重同步、字体和视口变化、隐藏后显示、
-标题循环，以及原生动画开关下的分页、暂停、悬停和跳转；它不证明当前桌面已加载新版，
+标题循环，以及原生动画开关和 51 减少动态效果设置下的分页、暂停、悬停和跳转；它不证明当前桌面已加载新版，
 也不替代真实播放器、物理鼠标操作、高分屏视觉检查和长时间日志观察。
 
-另用相同的隔离 Shell 命令运行 `tests/shell-presentation.js`，验证深浅主题、100%/150% 字体、
+`make shell-presentation-check` 运行 `tests/shell-presentation.js`，验证深浅主题、100%/150% 字体、
 双语分组、偏移值居中、阿拉伯文/希伯来文及 RTL 方向、边缘渐隐、小屏滚动、键盘焦点与关闭清理。
 此入口使用固定测试数据，不查询歌词或翻译 API。
 
@@ -388,8 +419,8 @@ git tag 2026-10-09
 git push origin 2026-10-09
 ```
 
-请将示例日期替换为实际发布日期。Release 工作流会校验日期、执行 `make check` 和
-`make integration`，通过后自动创建该日期的 GitHub Release，并上传 ZIP 和 SHA-256
+请将示例日期替换为实际发布日期。Release 工作流会校验日期、执行 `make check`、
+`make integration` 以及上述三项 UI 回归，通过后自动创建该日期的 GitHub Release，并上传 ZIP 和 SHA-256
 校验文件。普通分支推送只上传 Actions artifact；版本号标签不再触发 Release 工作流。
 同一天需要重试时，在 Actions 中重新运行该日期标签的工作流，会更新已有 Release
 的附件；重跑仍使用该标签对应的 commit，不会自动包含后来提交的改动。
@@ -421,12 +452,12 @@ make integration-secret
 
 ## 已知限制
 
-- 顶栏五种位置需要 GNOME Shell 50 的 `Main.panel._leftBox/_centerBox/_rightBox`；Shell 50
+- 顶栏五种位置需要 GNOME Shell 50／51 的 `Main.panel._leftBox/_centerBox/_rightBox`；这两个版本
   没有提供等价的公开运行时移动 API。访问已集中在一个兼容函数中。
 - Firefox Spotify Web 可能复用 TrackId，因此歌曲 identity 同时包含 bus、TrackId、
   title、artist 和 duration。
 - LRCLIB 或翻译服务不可用时会优雅 fallback，但无法提供未缓存的新内容。
-- 新 JavaScript 在当前 GNOME Shell 50 会话中需要注销/登录后才能得到 fresh ESM 证明。
+- 新 JavaScript 在当前 GNOME Shell 50／51 会话中需要注销/登录后才能得到 fresh ESM 证明。
 
 ## 隐私与网络访问
 
@@ -450,7 +481,12 @@ make integration-secret
 浏览器或 Spotify 文件系统，不上传播放历史。AI 翻译默认关闭。网络响应有大小上限，
 请求可取消。歌词查询的 429/503 每阶段最多额外重试 4 次，详见“快速切歌、限流与重试”；
 翻译请求遇到 429 最多额外重试 1 次。两者均尊重 `Retry-After`。
+翻译限流的单次等待最多为 30 秒与当前请求超时中的较小值；请求未设置超时时仍以
+30 秒为限。超过上限直接返回限流状态，不缩短服务端要求的等待时间后提前重试。
 Authorization header 和 API key 不会写入 journal。
+歌词上游 HTTP、网络和格式失败仍向界面报告不可用，详细消息保留为 debug 诊断，避免每首歌
+重复产生 warning；配置错误、响应超限和缓存写入失败继续记录 warning。调试时可通过
+`G_MESSAGES_DEBUG=Gjs-Console` 启用这些诊断。
 
 持久数据只写入扩展自己的 namespace：
 
@@ -463,7 +499,10 @@ Authorization header 和 API key 不会写入 journal。
 ## License
 
 LyricGlance 采用 [GPL-2.0-or-later](LICENSE)。随包提供的 readable ESM
-`js-yaml` 4.1.0 采用 MIT License；来源、固定 SHA-256、是否修改和复现方式见
+`js-yaml` 4.1.1 采用 MIT License；来源、固定 SHA-256、是否修改和复现方式见
 [`README.js-yaml.md`](README.js-yaml.md) 与 [`LICENSE.js-yaml`](LICENSE.js-yaml)。
 离线语种识别使用 MIT License 的 franc-min 6.2.0 及其依赖，完整许可和固定版本复现信息
 见 [`LICENSE.franc`](LICENSE.franc)、[`README.franc.md`](README.franc.md)。
+
+发布 ZIP 包保留运行时代码与完整 LICENSE 文件；两份依赖 README 和构建复现脚本
+仅保留在源码仓库，供审核和复现使用。

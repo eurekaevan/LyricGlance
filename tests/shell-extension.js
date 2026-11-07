@@ -9,6 +9,7 @@ import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
 
 import {ArtworkView} from '../artwork-view.js';
 import {sourceLyricsHash} from '../translation-document.js';
+import {getLineVisualLevel} from '../ui-utils.js';
 
 const UUID = 'lyric-glance@eureka';
 const EFFECTIVE_LOCALE = GLib.getenv('LC_ALL') ??
@@ -213,7 +214,7 @@ export async function run() {
     const extension = Main.extensionManager.lookup(UUID);
     assert(extension, 'the extension was not discovered');
     assert(extension.metadata.url ===
-        'https://github.com/eurekaevan/lyric-glance' &&
+        'https://github.com/eurekaevan/LyricGlance' &&
         extension.metadata['gettext-domain'] === UUID &&
         !Object.hasOwn(extension.metadata, 'version'),
     'the packaged metadata should expose URL/gettext and omit deprecated version');
@@ -431,6 +432,43 @@ export async function run() {
     assert(view._panelPanLabel.visible &&
         view._panelPanLabel.get_transition('translation-x'),
     'a font change that restores overflow must restart the pan');
+    const realLaters = view._laters;
+    const pendingPanLaters = new Set();
+    view._cancelPanelPan();
+    view._laters = {
+        add(type, callback) {
+            const id = realLaters.add(type, () => {
+                pendingPanLaters.delete(id);
+                return callback();
+            });
+            pendingPanLaters.add(id);
+            return id;
+        },
+        remove(id) {
+            pendingPanLaters.delete(id);
+            realLaters.remove(id);
+        },
+    };
+    try {
+        view._queuePanelPanRestart();
+        view._queuePanelPan();
+        assert(pendingPanLaters.size === 1,
+            'queuing panel panning must replace the pending restart callback');
+        view._queuePanelPanRestart();
+        view._panelLabelLayout.setPanWidth(1);
+        view._startPanelPan();
+        assert(pendingPanLaters.size === 1 &&
+            pendingPanLaters.has(view._panelPanLaterId),
+        'a pan completion or word timeout during a pending restart must retain only one Later');
+        view._cancelPanelPan();
+        assert(pendingPanLaters.size === 0 && view._panelPanLaterId === 0,
+            'canceling panel panning must remove every pending Later');
+    } finally {
+        for (const id of pendingPanLaters)
+            realLaters.remove(id);
+        view._panelPanLaterId = 0;
+        view._laters = realLaters;
+    }
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
@@ -971,6 +1009,31 @@ export async function run() {
     'the current lyric should drive centralized distance-based visual levels');
     assert(!view._lyricRows[20].has_style_pseudo_class('selected'),
         'lyric focus must not depend on a card-like selected background');
+    const styledRows = new Set();
+    const removeStyleMethods = view._lyricRows.map(row => row.remove_style_class_name);
+    for (const [index, row] of view._lyricRows.entries()) {
+        row.remove_style_class_name = function (name) {
+            styledRows.add(index);
+            return removeStyleMethods[index].call(this, name);
+        };
+    }
+    try {
+        for (const index of [21, 3, -1, 20]) {
+            styledRows.clear();
+            const previous = view._activeLyricIndex;
+            view.setCurrentLyricIndex(index);
+            assert(styledRows.size <= (previous < 0 || index < 0 ? lines.length : 10),
+                'line changes must update at most the two five-row neighborhoods');
+            for (const [rowIndex, row] of view._lyricRows.entries()) {
+                assert(row.has_style_class_name(
+                    `lyric-glance-line-${getLineVisualLevel(rowIndex, index).name}`),
+                'adjacent lines, distant seeks and entering/leaving no selection must retain every visual level');
+            }
+        }
+    } finally {
+        for (const [index, row] of view._lyricRows.entries())
+            row.remove_style_class_name = removeStyleMethods[index];
+    }
     assert(view._label.text.startsWith('Synchronized lyric'),
         'the top-bar lyric should still update');
 
@@ -1018,8 +1081,8 @@ export async function run() {
         'the native PanelMenu popup should open');
     assert(view._progressView._slider.width > 0,
         'the native progress slider should have an allocated hit area');
-    assert(instance._progressTimerId !== 0,
-        'an open popup should run one low-frequency progress timer');
+    assert(Boolean(instance._progressTimerId) === (instance._state?.playbackStatus === 'Playing'),
+        'an open popup should run a progress timer only while playing');
     assert(view._scrollView.vadjustment.value > 0,
         'opening the popup should scroll a later current row into view');
     const anchorRow = view._lyricRows[20];
@@ -1096,6 +1159,14 @@ export async function run() {
     slider.value = 0.5;
     slider.value = 0.6;
     view.setProgress(61_000_000, 220_000_000);
+    const requestBeforeEquivalentTarget = view._mediaRequest;
+    view.setMediaState({...mediaState, controlTarget: {
+        trackKey: mediaState.controlTarget.trackKey,
+        generation: mediaState.controlTarget.generation,
+        busName: mediaState.controlTarget.busName,
+    }});
+    assert(progress._dragTarget && view._mediaRequest === requestBeforeEquivalentTarget,
+        'equivalent control targets with reordered properties must preserve the active drag and request');
     assert(slider.value === 0.6 && progress._currentLabel.text === '2:12' &&
         mediaCommands.length === beforeDrag,
     'dragging should preview time, resist clock updates, and send no command');
@@ -1184,8 +1255,20 @@ export async function run() {
     pendingView.setMediaState(mediaState);
     pendingView.setProgress(20_000_000, 220_000_000);
     const pendingProgress = pendingView._progressView;
+    const progressDestroyed = new Set();
+    for (const [name, actor] of [
+        ['container', pendingProgress.actor],
+        ['slider', pendingProgress._slider],
+        ['current', pendingProgress._currentLabel],
+        ['duration', pendingProgress._durationLabel],
+    ]) {
+        actor.connect('destroy', () => progressDestroyed.add(name));
+    }
     pendingProgress._slider.value = 0.5;
     assert(pendingProgress._seekPending, 'the lifecycle fixture must have an active seek');
+    pendingProgress.destroy();
+    assert(progressDestroyed.size === 4,
+        'destroying the progress view must destroy its container, slider and labels before its parent');
     pendingView.destroy();
     finishDestroyedSeek(true);
     await Scripting.sleep(10);
@@ -1554,6 +1637,12 @@ export async function run() {
         view._lyricRows.every((row, index) => row === stableRows[index]) &&
         view._albumLabel.text === 'Corrected Album',
     'artUrl and display-only metadata changes must not refetch or rebuild lyrics');
+    indicator.menu.open();
+    assert(instance._progressTimerId === 0, 'an open paused popup must have no progress source');
+    instance._onPlayerStateChanged({...instance._state, positionUs: 14_000_000});
+    assert(instance._progressTimerId === 0 &&
+        Math.abs(view._progressView._slider.value - 14_000_000 / stableMetadata.durationUs) < 0.0001,
+    'paused seek feedback must update progress immediately without starting a timer');
 
     instance._onPlayerStateChanged({
         busName: 'org.mpris.MediaPlayer2.test',
@@ -1572,6 +1661,12 @@ export async function run() {
         view._artistLabel.text === 'Replacement Artist' &&
         view._lyricRows.some((row, index) => row !== stableRows[index]),
     'changed track metadata must refetch lyrics when Firefox reuses TrackId');
+    assert(instance._progressTimerId !== 0, 'resuming playback in an open popup must start progress updates');
+    const resumedState = instance._state;
+    instance._onPlayerStateChanged({...resumedState, playbackStatus: 'Paused'});
+    assert(instance._progressTimerId === 0, 'pausing must stop the progress source immediately');
+    instance._onPlayerStateChanged(resumedState);
+    assert(instance._progressTimerId !== 0, 'playing again must restore exactly one progress source');
 
     const immediateLyricsProvider = instance._lyricsProvider;
     const delayedLookups = [];
@@ -1645,6 +1740,71 @@ export async function run() {
     instance._trackOffsetMs = 0;
     instance._currentLyricIndex = -1;
 
+    const distantBoundaryMs = 5_000_000_000;
+    const assertBoundedSource = (id, message) => {
+        const source = GLib.MainContext.default().find_source_by_id(id);
+        const remainingMs = source &&
+            (source.get_ready_time() - GLib.get_monotonic_time()) / 1000;
+        assert(remainingMs > 0 && remainingMs <= 2_147_483_647, message);
+    };
+    fakePositionUs = 0;
+    instance._state = {playbackStatus: 'Playing', metadata: offsetMetadata};
+    instance._lyricsDocument = {...offsetDocument,
+        lines: [{...offsetLines[0], startMs: distantBoundaryMs}]};
+    view.setLyrics(instance._lyricsDocument);
+    instance._updateIndicatorAndSchedule(true);
+    const distantLineSource = instance._lineTimerId;
+    assertBoundedSource(distantLineSource,
+        'a distant lyric line must schedule a bounded native timeout');
+    instance._stopLineTimer();
+    assert(!GLib.MainContext.default().find_source_by_id(distantLineSource),
+        'a distant lyric line source must remain cancellable');
+
+    instance._lyricsDocument = {...offsetDocument, syncLevel: 'word', lines: [{
+        lineId: 'distant-word', text: panningText, startMs: 0,
+        endMs: distantBoundaryMs + 1000,
+        words: [{text: panningText, startMs: distantBoundaryMs,
+            endMs: distantBoundaryMs + 1000}],
+    }]};
+    view.setLyrics(instance._lyricsDocument);
+    instance._updateIndicatorAndSchedule(true);
+    instance._updateProgress();
+    await Scripting.sleep(100);
+    const distantWordSource = instance._wordTimerId;
+    const distantPanelSource = view._panelWordTimeoutId;
+    assertBoundedSource(distantWordSource,
+        'a distant lyric word must schedule a bounded native timeout');
+    assertBoundedSource(distantPanelSource,
+        'a distant panel word must schedule a bounded native timeout');
+    instance._stopWordTimer();
+    view._cancelPanelPan();
+    assert(!GLib.MainContext.default().find_source_by_id(distantWordSource) &&
+        !GLib.MainContext.default().find_source_by_id(distantPanelSource),
+    'distant word and panel sources must remain cancellable');
+
+    const longWordEndMs = 30_000_000_000;
+    instance._lyricsDocument = {...offsetDocument, syncLevel: 'word', lines: [{
+        lineId: 'long-word', text: panningText, startMs: 0, endMs: longWordEndMs,
+        words: [{text: panningText, startMs: 0, endMs: longWordEndMs}],
+    }]};
+    view.setLyrics(instance._lyricsDocument);
+    instance._updateIndicatorAndSchedule(true);
+    await Scripting.sleep(100);
+    const longWordPan = view._panelPanState(view._panelPanPositionAt());
+    const longWordTransition = view._panelPanLabel.get_transition('translation-x');
+    assert(longWordPan?.durationMs > 4_294_967_295 && longWordTransition &&
+        longWordTransition.get_duration() <= 2_147_483_647 &&
+        longWordTransition.get_duration() > 0 &&
+        longWordTransition.get_delay() <= 2_147_483_647,
+    'a word spanning beyond guint duration must retain a bounded native pan transition');
+    instance._stopWordTimer();
+    view._cancelPanelPan();
+    assert(!view._panelPanLabel.get_transition('translation-x') &&
+        view._panelWordTimeoutId === 0,
+    'cancelling a long word must remove its native transition and panel timeout');
+    // The ordinary fixture below restores its document, track and playing state.
+    fakePositionUs = 1_750_000;
+
     instance._state = {
         playbackStatus: 'Playing',
         metadata: offsetMetadata,
@@ -1662,16 +1822,16 @@ export async function run() {
         view._panelWords === wordDocument.lines[0].words,
         'a synchronized line should arm its word timer and panel timeline');
     const originalPanelLanguage = instance._panelLyricsLanguage;
-    const originalPanelTranslation = instance._translationDocument;
+    const originalPanelTranslation = instance._translationLines;
     instance._panelLyricsLanguage = 'translated';
-    instance._translationDocument = {lines: [{lineId: wordDocument.lines[0].lineId,
-        text: 'Translated word-synchronized lyric'}]};
+    instance._translationLines = new Map([[wordDocument.lines[0].lineId,
+        'Translated word-synchronized lyric']]);
     instance._updateIndicatorAndSchedule(true);
     assert(view._label.text === 'Translated word-synchronized lyric' &&
         view._panelWords === null,
         'the extension must not attach original word timing to translated panel text');
     instance._panelLyricsLanguage = originalPanelLanguage;
-    instance._translationDocument = originalPanelTranslation;
+    instance._translationLines = originalPanelTranslation;
     instance._updateIndicatorAndSchedule(true);
     fakePositionUs = 2_250_000;
     instance._updateWordAndSchedule();
@@ -1889,6 +2049,42 @@ export async function run() {
     assert(view._animationsEnabled() && view._panelWordTimeoutId === 0 &&
         view._panelPanLabel.get_transition('translation-x'),
     'restoring native animations must replace the page timer with continuous movement');
+    if (St.ReducedMotion) {
+        const motionSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.a11y.interface'});
+        const originalMotion = motionSettings.get_string('reduced-motion');
+        const nativeReducedArtwork = new ArtworkView({loader: raceLoader});
+        Main.uiGroup.add_child(nativeReducedArtwork.actor);
+        try {
+            motionSettings.set_string('reduced-motion', 'reduce');
+            await Scripting.sleep(80);
+            assert(reducedMotionSettings.enable_animations && !view._animationsEnabled() &&
+                !view._panelPanLabel.get_transition('translation-x') &&
+                view._panelWordTimeoutId !== 0 &&
+                !view._titleLabel.get_transition('translation-x') &&
+                !view._titleCopy.visible && !view._panelFadeEffect.enabled,
+            'Shell 51 reduced motion must stop active title/lyric movement while animations stay enabled');
+            const reducedPageX = view._panelPanLabel.translation_x;
+            await Scripting.sleep(1700);
+            assert(view._panelPanLabel.translation_x < reducedPageX &&
+                !view._panelPanLabel.get_transition('translation-x'),
+            'Shell 51 reduced motion must advance timed lyric pages');
+            nativeReducedArtwork.setArtwork('file:///fast/b', 'native-reduced-a');
+            await Scripting.sleep(80);
+            nativeReducedArtwork.setArtwork('file:///fast/b', 'native-reduced-b');
+            await Scripting.sleep(80);
+            assert(nativeReducedArtwork._displayedTrackKey === 'native-reduced-b' &&
+                !nativeReducedArtwork._outgoingTextureActor &&
+                !nativeReducedArtwork._textureActor.get_transition('opacity'),
+            'the native reduced-motion preference must replace artwork without a crossfade');
+        } finally {
+            nativeReducedArtwork.destroy();
+            motionSettings.set_string('reduced-motion', originalMotion);
+        }
+        await Scripting.sleep(80);
+        assert(view._animationsEnabled() && view._panelWordTimeoutId === 0 &&
+            view._panelPanLabel.get_transition('translation-x'),
+        'clearing Shell 51 reduced motion must restore continuous lyric movement');
+    }
     view.updateMetadataDisplay({title: reducedMotionTitle,
         artist: view._artistLabel.text, album: view._albumLabel.text});
     view.setText('First');

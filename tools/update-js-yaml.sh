@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly VERSION=4.1.0
-readonly DIST_SHA256=16f210b939b359b6ec8dde581eb62c157185711dc7b719b33779c43db5c31a91
+readonly VERSION=4.1.1
+readonly DIST_SHA256=efbc45850bf15f0c8ee3434983f512be656002d7507dc292c7ade4449b5d57fa
 readonly LICENSE_SHA256=a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550
 readonly OUTPUT_DIR=${1:-/tmp/lyric-glance-js-yaml-${VERSION}}
 

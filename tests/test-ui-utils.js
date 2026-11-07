@@ -5,7 +5,6 @@ import {
     normalizePanelTimeline,
     panelPanState,
     panelTimelinesEqual,
-    progressFraction,
     wordPanState,
 } from '../ui-utils.js';
 
@@ -21,15 +20,6 @@ assert(formatDuration(3599) === '59:59', 'sub-hour duration should omit hours');
 assert(formatDuration(3733) === '1:02:13', 'hours should include padded minutes');
 assert(formatDuration(-1) === '0:00' && formatDuration(Number.NaN) === '0:00',
     'invalid duration should clamp to zero');
-
-assert(progressFraction(30, 100) === 0.3,
-    'progress should return a normal fraction');
-assert(progressFraction(-10, 100) === 0 &&
-    progressFraction(150, 100) === 1,
-    'progress should clamp to the closed unit interval');
-assert(progressFraction(10, 0) === 0 &&
-    progressFraction(Number.NaN, 100) === 0,
-    'invalid progress inputs should be safe');
 
 const normalizedTimeline = normalizePanelTimeline({
     startMs: 0,
@@ -206,4 +196,4 @@ assert(panelPanState({...pageTimeline, playbackRate: 2}, 1000, 500, 160).nextMs 
     panelPanState(pageTimeline, 12000, 500, 160).initialX === -500,
     'page timing must support faster playback and seeks beyond the line end');
 
-print('UI duration, progress, panel pan and lyric layout tests passed');
+print('UI duration, panel pan and lyric layout tests passed');

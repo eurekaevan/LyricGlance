@@ -4,22 +4,11 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {ArtworkLoader} from './artwork-loader.js';
+import {animationsEnabled, musicIcon} from './shell-ui-utils.js';
 
 const ARTWORK_SIZE = 80;
 const DECODE_TIMEOUT_MS = 3000;
 const ARTWORK_CROSSFADE_MS = 220;
-
-function animationsEnabled() {
-    return St.Settings.get().enable_animations;
-}
-
-function fallbackIcon() {
-    return Gio.ThemedIcon.new_from_names([
-        'music-note-symbolic',
-        'audio-x-generic-symbolic',
-        'media-playback-start-symbolic',
-    ]);
-}
 
 export class ArtworkView {
     constructor({
@@ -54,7 +43,7 @@ export class ArtworkView {
             y_expand: true,
             child: new St.Icon({
                 style_class: 'lyric-glance-artwork-fallback-icon',
-                gicon: fallbackIcon(),
+                gicon: musicIcon(),
                 x_align: Clutter.ActorAlign.CENTER,
                 y_align: Clutter.ActorAlign.CENTER,
             }),

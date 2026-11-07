@@ -1,13 +1,13 @@
 import Gio from 'gi://Gio';
 
+import {francAll} from './franc.mjs';
 import {TranslationCredentialStore} from './credentials.js';
 import {TranslationDiskCache} from './translation-cache.js';
 import {buildTranslationChunks} from './translation-batching.js';
 import {
     createTranslationDocument,
-    languagesEquivalent,
     sourceLyricsHash,
-    sourceLyricsLanguage,
+    translationCacheKey,
     validateTranslationLines,
 } from './translation-document.js';
 import {
@@ -16,6 +16,7 @@ import {
 } from './translation-provider.js';
 
 const MAX_CONCURRENT_CHUNKS = 3;
+const MAX_MEMORY_CACHE_ENTRIES = 20;
 
 export const TranslationStatus = Object.freeze({
     IDLE: 'idle',
@@ -35,6 +36,59 @@ export const TranslationStatus = Object.freeze({
     SKIPPED: 'skipped',
 });
 
+function primaryLanguage(language) {
+    if (typeof language !== 'string')
+        return null;
+    try {
+        const code = Intl.getCanonicalLocales(language.trim().replaceAll('_', '-'))[0]
+            ?.split('-')[0];
+        return !code || ['und', 'mul', 'zxx', 'unknown'].includes(code) ? null : code;
+    } catch {
+        return null;
+    }
+}
+
+export function languagesEquivalent(sourceLanguage, targetLanguage) {
+    const source = primaryLanguage(sourceLanguage);
+    return source !== null && source === primaryLanguage(targetLanguage);
+}
+
+export function sourceLyricsLanguage(document) {
+    const explicit = primaryLanguage(document?.metadata?.language);
+    if (explicit)
+        return explicit;
+    // Repeated refrains must not turn a tiny sample into false confidence.
+    const text = [...new Set(document?.lines?.map(line => line.text.trim()) ?? [])].join('\n');
+    if (text.length > 8192 || (text.match(/\p{L}/gu)?.length ?? 0) < 80)
+        return 'unknown';
+    const latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
+    const eastAsian = text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)
+        ?.length ?? 0;
+    if (latin >= 24 && eastAsian >= 24)
+        return 'unknown';
+    // franc considers at most 2048 UTF-16 units. Cover the entire bounded
+    // text with smaller samples rather than trusting just the opening verse.
+    const samples = [];
+    const size = Math.ceil(text.length / Math.max(2, Math.ceil(text.length / 1024)));
+    for (let start = 0; start < text.length; start += size)
+        samples.push(text.slice(start, start + size));
+    if (text.length <= 2048)
+        samples.push(text);
+    let language = null;
+    for (const sample of samples) {
+        if ((sample.match(/\p{L}/gu)?.length ?? 0) < 30)
+            return 'unknown';
+        const candidates = francAll(sample, {minLength: 30});
+        const best = primaryLanguage(candidates[0]?.[0]);
+        // Scores are relative ranks, not calibrated probabilities.
+        if (!best || (candidates[1] && candidates[0][1] - candidates[1][1] < 0.1) ||
+            (language && best !== language))
+            return 'unknown';
+        language = best;
+    }
+    return language ?? 'unknown';
+}
+
 export class TranslationService {
     constructor({
         providers = null,
@@ -52,6 +106,7 @@ export class TranslationService {
         this._cache = cache;
         this._batchingOptions = batchingOptions;
         this._inFlight = new Map();
+        this._memoryCache = new Map();
         this._maintenanceCancellable = null;
     }
 
@@ -127,13 +182,22 @@ export class TranslationService {
                 options.provider.id,
             model: options.provider.model,
         };
+        const memoryKey = `${options.trackKey}\u0000${translationCacheKey(cacheOptions)}`;
         if (!options.forceRefresh) {
-            const cached = await this._cache.get(
-                cacheOptions, options.trackKey, options.cancellable);
-            if (cached.hit) {
+            let translation = this._memoryCache.get(memoryKey);
+            if (!translation) {
+                const cached = await this._cache.get(
+                    cacheOptions, options.trackKey, options.cancellable);
+                if (cached.hit)
+                    translation = cached.document;
+            }
+            if (options.cancellable.is_cancelled())
+                return notify({status: TranslationStatus.CANCELED});
+            if (translation) {
+                this._rememberTranslation(memoryKey, translation);
                 return notify({
                     status: TranslationStatus.AVAILABLE,
-                    document: cached.document,
+                    document: translation,
                     fromCache: true,
                 });
             }
@@ -184,6 +248,9 @@ export class TranslationService {
             } catch {
                 console.warn('LyricGlance: could not save translation cache');
             }
+            if (options.cancellable.is_cancelled())
+                return notify({status: TranslationStatus.CANCELED});
+            this._rememberTranslation(memoryKey, translation);
             return notify({
                 status: TranslationStatus.AVAILABLE,
                 document: translation,
@@ -204,6 +271,13 @@ export class TranslationService {
         } finally {
             credential = null;
         }
+    }
+
+    _rememberTranslation(key, document) {
+        this._memoryCache.delete(key);
+        this._memoryCache.set(key, document);
+        if (this._memoryCache.size > MAX_MEMORY_CACHE_ENTRIES)
+            this._memoryCache.delete(this._memoryCache.keys().next().value);
     }
 
     _validateChunk(chunk, lines) {
@@ -276,6 +350,7 @@ export class TranslationService {
 
     async clearCache() {
         this.cancelAll();
+        this._memoryCache.clear();
         this._maintenanceCancellable?.cancel();
         const cancellable = new Gio.Cancellable();
         this._maintenanceCancellable = cancellable;
@@ -289,8 +364,10 @@ export class TranslationService {
 
     destroy() {
         this.cancelAll();
+        this._memoryCache.clear();
         this._maintenanceCancellable?.cancel();
         this._maintenanceCancellable = null;
+        this._cache.destroy();
         for (const provider of this._providers.values())
             provider.destroy?.();
         this._providers.clear();
