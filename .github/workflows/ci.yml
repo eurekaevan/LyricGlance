@@ -23,6 +23,13 @@ jobs:
           dbus-daemon gettext gjs glib2 gnome-shell libsecret libsoup3
           make mesa-dri-drivers python3.14 python-pip-wheel unzip xorg-x11-server-Xwayland
 
+      - name: Start system D-Bus for Shell tests
+        run: |
+          mkdir -p /run/dbus
+          dbus-daemon --system --fork --nopidfile
+          timeout 5s gdbus call --system --dest org.freedesktop.DBus \
+            --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.ListNames
+
       - name: Install shexli review analyzer
         run: |
           python3.14 -m venv /tmp/lyricglance-shexli

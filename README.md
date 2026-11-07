@@ -382,6 +382,8 @@ shexli 即使报告 error 也返回 0，不能将命令成功视作零问题；�
 `make shell-presentation-check` 运行深浅主题与字体布局回归，`make prefs-check` 在隔离 Shell
 提供的显示会话中启动 GTK 设置窗口测试。三者均使用各自的临时目录及包副本，结束后自动清理。
 CI 在 Fedora 44／45 上分别执行三项回归以验证 Shell 50／51，发布流程使用 Fedora 45。
+两个流程在容器内显式启动并检查系统 D-Bus；`dbus-run-session` 只创建测试用会话总线，
+不能替代 GNOME Shell 初始化所需的系统总线。
 以下为手动运行同一 Shell 回归的命令，便于调整环境或替换测试入口：
 
 ```sh
