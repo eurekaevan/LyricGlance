@@ -1,5 +1,9 @@
 # LyricGlance
 
+<img src="icon.svg" alt="LyricGlance icon" width="128" height="128">
+
+图标：[彩色 SVG](icon.svg) · [512px PNG](icon.png) · [顶栏单色 SVG](icons/lyric-glance-symbolic.svg)。
+
 LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原生 Shell 弹出菜单中查看封面、
 播放进度、逐行/逐字歌词和可选的行级翻译。
 
@@ -275,7 +279,7 @@ popup 使用 Shell 原生滑块和主题。
 - `indicator.js`、`artwork-*`、`ui-utils.js`：Shell UI、封面和纯 UI 计算。
 - `storage.js`：有界缓存和歌曲偏移持久化。
 - `network-utils.js`：统一版本/User-Agent、有界流读取及关闭；不同 HTTP 错误策略留在各调用方。
-- `shell-ui-utils.js`：仅供 Shell 进程使用的动画偏好和音乐图标回退。
+- `shell-ui-utils.js`：仅供 Shell 进程使用的动画偏好和顶栏／封面占位单色图标。
 - `prefs.js`、`schemas/`：Preferences 和 GSettings。
 
 ## LrcAPI 备用歌词源

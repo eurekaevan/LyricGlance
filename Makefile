@@ -5,7 +5,7 @@ PACKAGE := $(UUID).shell-extension.zip
 SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
 POT_FILE := po/$(GETTEXT_DOMAIN).pot
 PO_FILES := $(wildcard po/*.po)
-RUNTIME_SOURCES := network-utils.js shell-ui-utils.js io-promisify.js indicator.js artwork-loader.js artwork-view.js ui-utils.js \
+RUNTIME_SOURCES := icons network-utils.js shell-ui-utils.js io-promisify.js indicator.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics.js lyrics-document.js lyrics-matcher.js lyrics-normalizer.js \
 	lyrics-parser.js lyrics-synchronizer.js lyricsfile-parser.js mpris.js \
 	storage.js credentials.js translation-batching.js translation-cache.js \

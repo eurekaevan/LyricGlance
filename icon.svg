@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>LyricGlance</title>
+  <desc>A music note beside three lyric lines, with the current line highlighted.</desc>
+  <defs>
+    <linearGradient id="background" x1="20" y1="8" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a577ee"/>
+      <stop offset="1" stop-color="#7041ba"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="12" width="112" height="112" rx="28" fill="#50308a"/>
+  <rect x="8" y="4" width="112" height="112" rx="28" fill="url(#background)"/>
+  <path d="M36 5h56a27 27 0 0 1 27 27v2A27 27 0 0 0 92 7H36A27 27 0 0 0 9 34v-2A27 27 0 0 1 36 5Z" fill="#fff" opacity=".16"/>
+  <g fill="#fff">
+    <rect x="27" y="34" width="38" height="8" rx="4" opacity=".5"/>
+    <rect x="27" y="52" width="46" height="8" rx="4"/>
+    <rect x="27" y="70" width="27" height="8" rx="4" opacity=".5"/>
+    <path d="M85 28a4 4 0 0 1 6-3l15 9v15l-13-8v41c0 8-8 14-17 14-8 0-13-4-13-10 0-7 7-12 16-12 2 0 4 .3 6 1Z"/>
+  </g>
+</svg>

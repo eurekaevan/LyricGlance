@@ -13,6 +13,7 @@ readonly REQUIRED_FILES=(
     extension.js
     prefs.js
     stylesheet.css
+    icons/lyric-glance-symbolic.svg
     schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
     js-yaml.mjs
     LICENSE.js-yaml

@@ -8,9 +8,7 @@ export function animationsEnabled() {
 }
 
 export function musicIcon() {
-    return Gio.ThemedIcon.new_from_names([
-        'music-note-symbolic',
-        'audio-x-generic-symbolic',
-        'media-playback-start-symbolic',
-    ]);
+    const file = Gio.File.new_for_uri(import.meta.url).get_parent()
+        .get_child('icons').get_child('lyric-glance-symbolic.svg');
+    return new Gio.FileIcon({file});
 }
