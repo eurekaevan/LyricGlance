@@ -72,6 +72,22 @@ export async function checkTextGeometry(view) {
     const wasOpen = view.actor.menu.isOpen;
     const text = 'jf 中文 e\u0301 👩‍🚀 complete glyph bounds '.repeat(4);
     const baselineStyle = 'font-size: 20px; padding: 0; border-width: 0;';
+    const waitForGeometry = async name => {
+        const deadlineUs = GLib.get_monotonic_time() + 2_000_000;
+        const ready = () => !view._panelPanLaterId && !view._panelGeometryLaterId &&
+            !view._titlePanLaterId && view._labelViewport.mapped && view._titleViewport.mapped &&
+            view._labelViewport.has_allocation() && view._titleViewport.has_allocation() &&
+            [view._label, view._panelPanLabel, view._panelTitleCopy,
+                view._titleLabel, view._titleCopy].every(label =>
+                !label.visible || label.has_allocation());
+        do {
+            await Scripting.sleep(20);
+        } while (!ready() && GLib.get_monotonic_time() < deadlineUs);
+        assert(ready(), `${name}: text layout did not settle before its deadline ` +
+            `(panelLater=${view._panelPanLaterId}, geometryLater=${view._panelGeometryLaterId}, ` +
+            `titleLater=${view._titlePanLaterId}, titleMapped=${view._titleViewport.mapped}, ` +
+            `titlePeriod=${view._titlePanPeriod})`);
+    };
     view.setVisible(true);
     view.setProgress(0, 60_000_000, {playing: false});
     view.actor.menu.open();
@@ -87,7 +103,7 @@ export async function checkTextGeometry(view) {
             view._titleLabel.set_style(baselineStyle + style);
             view.setText(sample, {loop: true});
             view.updateMetadataDisplay({...metadata, title: sample});
-            await Scripting.sleep(200);
+            await waitForGeometry(name);
             for (const [label, copy, measured] of [
                 [view._panelPanLabel, view._panelTitleCopy, view._panelNaturalWidth],
                 [view._titleLabel, view._titleCopy, view._titlePanPeriod - 32],
@@ -115,7 +131,7 @@ export async function checkTextGeometry(view) {
         view._titleLabel.set_style(baselineStyle + 'min-width: 1800px;');
         view.setText('Short', {loop: true});
         view.updateMetadataDisplay({...metadata, title: 'Short'});
-        await Scripting.sleep(200);
+        await waitForGeometry('fitting text');
         assert(view._label.visible && !view._panelTitleCopy.visible &&
             !view._titleCopy.visible && view._titlePanPeriod === 0,
         'a minimum actor width must not make fitting text scroll');
@@ -413,7 +429,20 @@ export async function run() {
         positionMs,
         playbackRate,
     });
-    await checkTextGeometry(view);
+    // Reproduce a slow popup mapping/layout without relying on runner speed.
+    view._titleViewport.hide();
+    let delayedTitleMapId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
+        delayedTitleMapId = 0;
+        view._titleViewport.show();
+        return GLib.SOURCE_REMOVE;
+    });
+    try {
+        await checkTextGeometry(view);
+    } finally {
+        if (delayedTitleMapId)
+            GLib.source_remove(delayedTitleMapId);
+        view._titleViewport.show();
+    }
     view.setVisible(false);
     view.setText(panningText, {
         scrollable: true,

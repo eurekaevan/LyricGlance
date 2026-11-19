@@ -4,6 +4,18 @@ Last updated: 2026-11-19
 
 The dated checklists below are historical records, including their package file counts and tool results. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
 
+## CI text-geometry readiness — 2026-11-19
+
+- [x] inspected both variants in `logs_120383417216.zip` for commit `e5c1094`: Fedora 44/Shell 50 passed all checks; Fedora 45/Shell 51 passed deterministic checks (including zero shexli findings) and integration, then failed the first text-geometry assertion with an uninitialized title period (`0 - 32`)
+- [x] a controlled delayed title-viewport mapping reproduces the same negative measurement on the old fixed-200-ms test
+- [x] geometry checks now wait up to two seconds for pending layout callbacks, mapped viewports and valid visible-label allocations; original size, glyph-bound and copy-spacing assertions remain unchanged, and a timeout reports readiness state
+- [x] local Shell 51 packaged regression, presentation and Preferences tests pass under the workflow's isolated system D-Bus setup, including the delayed-mapping case; no allocation warnings
+- [x] local schema/gettext, all nine unit entry points, package/runtime-import checks and `git diff --check` pass
+- [ ] local official shexli remains blocked by the missing Python module; the supplied remote run passed shexli on both variants
+- [ ] remote rerun of the fix on Fedora 44/45, and the release workflow
+
+This changes the existing Shell test and its verification record only. No runtime code, workflow, dependency or package format changed; no new files were added. The remote Shell 50 success belongs to the attached pre-fix run, not a rerun of this change.
+
 ## Documentation/source alignment — 2026-11-19
 
 - [x] source and existing Preferences assertions agree: invalid endpoint/model drafts allow closing and preserve the saved backend; corrected the stale checklist wording below
