@@ -258,6 +258,55 @@ async function run() {
     assert(!result.fromCache && alternateEndpoint.requestCount === 1,
         'different provider endpoints should not share cached translations');
 
+    const refreshDisk = new TranslationDiskCache({
+        cacheRoot: GLib.build_filenamev([tempRoot, 'refresh-in-flight']),
+    });
+    await refreshDisk.put(cachedTranslation);
+    const refreshProvider = new MockTranslationProvider();
+    const refreshTranslate = refreshProvider.translate.bind(refreshProvider);
+    refreshProvider.translate = async (...args) => (await refreshTranslate(...args))
+        .map(line => ({...line, text: `Fresh ${line.text}`}));
+    const refreshService = new TranslationService({
+        providers: [refreshProvider], credentialStore: noCredential, cache: refreshDisk,
+    });
+    const readCached = refreshDisk.get.bind(refreshDisk);
+    let releaseCachedRead;
+    let cachedReadStarted;
+    const cachedReadBlocked = new Promise(resolve => (releaseCachedRead = resolve));
+    const cachedReadReady = new Promise(resolve => (cachedReadStarted = resolve));
+    refreshDisk.get = async (...args) => {
+        const hit = await readCached(...args);
+        assert(hit.hit, 'the refresh race must start with a real cached translation');
+        cachedReadStarted();
+        await cachedReadBlocked;
+        return hit;
+    };
+    const ordinaryRead = refreshService.translate(lyrics, options());
+    await cachedReadReady;
+    try {
+        const forced = refreshService.translate(lyrics, options({forceRefresh: true}));
+        assert(forced !== ordinaryRead,
+            'a forced refresh must not reuse an in-flight ordinary cache read');
+        assert(forced === refreshService.translate(lyrics, options({forceRefresh: true})) &&
+            forced === refreshService.translate(lyrics, options()),
+        'equivalent callers should join the pending forced refresh instead of duplicating it');
+        const fresh = await forced;
+        assert(fresh.status === TranslationStatus.AVAILABLE && !fresh.fromCache &&
+            refreshProvider.requestCount === 1 && fresh.document.lines[0].text.startsWith('Fresh '),
+        'refresh must contact the provider once even while a cache hit is waiting');
+        releaseCachedRead();
+        assert((await ordinaryRead).status === TranslationStatus.CANCELED,
+            'the superseded cache read must settle as canceled');
+        const remembered = await refreshService.translate(lyrics, options());
+        assert(remembered.fromCache && remembered.document === fresh.document &&
+            refreshService._inFlight.size === 0,
+        'a late superseded cache read must not replace the refreshed memory entry or leak a job');
+    } finally {
+        releaseCachedRead();
+        refreshService.destroy();
+        await ordinaryRead;
+    }
+
     const delayed = new MockTranslationProvider({delayMs: 100});
     const dedupService = new TranslationService({
         providers: [delayed],
@@ -266,13 +315,52 @@ async function run() {
             cacheRoot: GLib.build_filenamev([tempRoot, 'dedup']),
         }),
     });
-    const first = dedupService.translate(lyrics, options());
-    const duplicate = dedupService.translate(lyrics, options());
+    const firstStatuses = [];
+    const duplicateStatuses = [];
+    const lateStatuses = [];
+    let reportLoading;
+    const loading = new Promise(resolve => (reportLoading = resolve));
+    const first = dedupService.translate(lyrics, options({onStatus: value => {
+        firstStatuses.push(value.status);
+        if (value.status === TranslationStatus.LOADING)
+            reportLoading();
+    }}));
+    const duplicate = dedupService.translate(lyrics, options({
+        onStatus: value => duplicateStatuses.push(value.status),
+    }));
     assert(first === duplicate,
         'identical translation calls should await the same promise');
-    await Promise.all([first, duplicate]);
+    await loading;
+    const late = dedupService.translate(lyrics, options({
+        onStatus: value => lateStatuses.push(value.status),
+    }));
+    assert(late === first && lateStatuses.join() === TranslationStatus.LOADING,
+        'a caller joining after loading must immediately receive the current status');
+    await Promise.all([first, duplicate, late]);
     assert(delayed.requestCount === 1,
         'request deduplication should consume one provider request');
+    for (const statuses of [firstStatuses, duplicateStatuses, lateStatuses])
+        assert(statuses.join() === [TranslationStatus.LOADING, TranslationStatus.AVAILABLE].join(),
+            'every joined caller must receive loading and completion exactly once');
+
+    let reportNetworkStarted;
+    const networkStarted = new Promise(resolve => (reportNetworkStarted = resolve));
+    const requestsBeforeRefresh = delayed.requestCount;
+    const ordinaryNetwork = dedupService.translate(lyrics, options({targetLanguage: 'ja',
+        onStatus: value => {
+            if (value.status === TranslationStatus.LOADING)
+                reportNetworkStarted();
+        }}));
+    await networkStarted;
+    const forcedNetwork = dedupService.translate(lyrics,
+        options({targetLanguage: 'ja', forceRefresh: true}));
+    assert(forcedNetwork !== ordinaryNetwork,
+        'force refresh must supersede ordinary provider work as well as cache reads');
+    const [oldNetwork, freshNetwork] = await Promise.all([ordinaryNetwork, forcedNetwork]);
+    assert(oldNetwork.status === TranslationStatus.CANCELED &&
+        freshNetwork.status === TranslationStatus.AVAILABLE && !freshNetwork.fromCache &&
+        delayed.requestCount === requestsBeforeRefresh + 2 && dedupService._inFlight.size === 0,
+    'the superseded network job must cancel without deleting its successful forced replacement');
 
     const cancelProvider = new MockTranslationProvider({delayMs: 500});
     const cancelService = new TranslationService({
@@ -282,11 +370,25 @@ async function run() {
             cacheRoot: GLib.build_filenamev([tempRoot, 'cancel']),
         }),
     });
-    const canceledPromise = cancelService.translate(lyrics, options());
+    const canceledStatuses = [];
+    const canceledDuplicateStatuses = [];
+    const canceledPromise = cancelService.translate(lyrics, options({
+        onStatus: value => canceledStatuses.push(value.status),
+    }));
+    assert(canceledPromise === cancelService.translate(lyrics, options({
+        onStatus: value => canceledDuplicateStatuses.push(value.status),
+    })), 'cancellation subscribers must join the same work');
     cancelService.cancelAll();
+    const replacement = cancelService.translate(lyrics, options());
+    assert(replacement !== canceledPromise,
+        'a new caller must not join an already canceled in-flight promise');
     result = await canceledPromise;
-    assert(result.status === TranslationStatus.CANCELED,
-        'track changes should cancel stale translation work');
+    assert(result.status === TranslationStatus.CANCELED &&
+        canceledStatuses.at(-1) === TranslationStatus.CANCELED &&
+        canceledDuplicateStatuses.at(-1) === TranslationStatus.CANCELED,
+    'track changes should cancel stale translation work and notify every subscriber');
+    assert((await replacement).status === TranslationStatus.AVAILABLE,
+        'completion of canceled work must not remove or cancel its replacement');
 
     const requestsBeforeSkip = provider.requestCount;
     result = await service.translate(lyricsDocument({instrumental: true}),

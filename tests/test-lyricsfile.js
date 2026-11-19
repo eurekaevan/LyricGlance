@@ -103,6 +103,31 @@ assert(normalizeLyricsPayload({plainLyrics: ' \n\t '}) === null,
     'whitespace-only plain text must not count as usable lyrics');
 assert(normalizeLyricsPayload({syncedLyrics: '[00:01] \n[00:02]\t'}) === null,
     'timestamps without any lyric text must not block a fallback lookup');
+const blankLrc = '[00:01.00] \n[00:02.00]\t';
+for (const payload of [
+    {syncedLyrics: blankLrc, plainLyrics: blankLrc},
+    {syncedLyrics: null, plainLyrics: blankLrc},
+]) {
+    assert(normalizeLyricsPayload({provider: 'lrcapi', ...payload}) === null,
+        'timestamp-only LrcAPI text must not become plain lyrics, including cached aliases');
+}
+for (const [first, second] of [
+    [blankLrc, '[00:01]First\n[00:02]\n[00:03]Last'],
+    ['[00:01]First\n[00:02]\n[00:03]Last', blankLrc],
+]) {
+    const document = normalizeLyricsPayload({provider: 'lrcapi',
+        syncedLyrics: first, plainLyrics: second});
+    assert(document?.source === 'lrcapi-synced' && document.lines.length === 3 &&
+        document.lines[0].text === 'First' && document.lines[1].text === '' &&
+        document.lines[2].text === 'Last',
+    'both LrcAPI fields must be checked for lyric content while preserving timed blank lines');
+}
+for (const [first, second] of [[blankLrc, 'Real plain lyrics'], ['Real plain lyrics', blankLrc]]) {
+    const document = normalizeLyricsPayload({provider: 'lrcapi',
+        syncedLyrics: first, plainLyrics: second});
+    assert(document?.source === 'lrcapi-plain' && document.lines[0].text === 'Real plain lyrics',
+        'timestamp-only LRC must not hide real plain lyrics in the other LrcAPI field');
+}
 assert(normalizeLyricsPayload({lyricsfile:
     "version: '1.0'\nmetadata:\n  title: Blank\n  artist: Test\nlines: []\nplain: '   '\n"}) === null,
     'whitespace-only Lyricsfile plain text must not count as usable lyrics');

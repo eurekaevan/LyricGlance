@@ -301,8 +301,20 @@ export default class LyricGlanceExtension extends Extension {
                 this._mprisManager?.getPlayers() ?? [], preferred);
         });
         connect('cache-clear-generation', () => {
-            this._lyricsProvider?.clearCaches().catch(error => {
-                console.warn(`LyricGlance: could not clear runtime cache: ${error.message}`);
+            const provider = this._lyricsProvider;
+            const generation = this._settings.get_int('cache-clear-generation');
+            provider?.clearCaches().catch(error => {
+                if (this._lyricsProvider === provider)
+                    console.warn(`LyricGlance: could not clear runtime cache: ${error.message}`);
+            }).then(() => {
+                if (this._lyricsProvider !== provider || !this._state ||
+                    this._settings.get_int('cache-clear-generation') !== generation)
+                    return;
+                // A song change may have started another lookup during the
+                // clear. Replace it before registering the fresh callbacks.
+                provider.cancelPending();
+                this._currentTrackIdentity = null;
+                this._onPlayerStateChanged(this._state);
             });
         });
     }
@@ -712,24 +724,11 @@ export default class LyricGlanceExtension extends Extension {
             if (panelContentIsLyric && currentLine &&
                 Number.isFinite(lineEndMs) &&
                 lineEndMs > currentLine.startMs) {
-                let playbackRate = 1;
-                const remainingLyricMs = lineEndMs - effectivePositionMs;
-                if (this._state.playbackStatus === 'Playing' &&
-                    remainingLyricMs > 0) {
-                    const offsetMs = this._globalOffsetMs +
-                        this._trackOffsetMs;
-                    const wallRemainingMs = this._mprisManager
-                        .getDelayUntilPositionUs(
-                            (lineEndMs - offsetMs) * 1000);
-                    if (Number.isFinite(wallRemainingMs) &&
-                        wallRemainingMs > 0)
-                        playbackRate = remainingLyricMs / wallRemainingMs;
-                }
                 panelTimeline = {
                     startMs: currentLine.startMs,
                     endMs: lineEndMs,
                     positionMs: effectivePositionMs,
-                    playbackRate,
+                    playbackRate: this._state.playbackRate,
                 };
             }
             this._indicator.setText(panelContent, {

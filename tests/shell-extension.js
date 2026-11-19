@@ -9,7 +9,7 @@ import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
 
 import {ArtworkView} from '../artwork-view.js';
 import {sourceLyricsHash} from '../translation-document.js';
-import {getLineVisualLevel} from '../ui-utils.js';
+import {getLineVisualLevel, panelTimelinesEqual} from '../ui-utils.js';
 
 const UUID = 'lyric-glance@eureka';
 const EFFECTIVE_LOCALE = GLib.getenv('LC_ALL') ??
@@ -548,6 +548,104 @@ export async function run() {
     assert(view._panelPanLabel.visible &&
         view._panelPanLabel.width > view._labelViewport.width,
     'restoring the panel width should keep the active pan allocated');
+    const panelAllocationStarts = [];
+    const panelEase = view._panelPanLabel.ease;
+    view._panelPanLabel.ease = function (params) {
+        panelAllocationStarts.push({allocated: this.has_allocation(),
+            viewportAllocated: view._labelViewport.has_allocation(),
+            width: this.get_allocation_box().get_width(),
+            natural: referenceLabelWidth(this)});
+        return panelEase.call(this, params);
+    };
+    try {
+        view.setText('Short', {scrollable: true,
+            timeline: panelTimeline(5000), contentKey: 'allocation-short'});
+        await Scripting.sleep(100);
+        assert(!view._panelPanLabel.visible,
+            'the fitting middle lyric must remove the moving label from layout');
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(5000, 1000), contentKey: 'allocation-repeat'});
+        await Scripting.sleep(180);
+        assert(panelAllocationStarts.length > 0 && panelAllocationStarts.every(start =>
+            start.allocated && start.viewportAllocated && start.width >= start.natural - 0.5),
+        'a repeated same-width lyric must be fully allocated before starting a transition: ' +
+            JSON.stringify(panelAllocationStarts));
+    } finally {
+        view._panelPanLabel.ease = panelEase;
+    }
+    const hoverPopupWasOpen = indicator.menu.isOpen;
+    const hoverLabelStyle = view._panelPanLabel.get_style();
+    indicator.menu.close();
+    try {
+        view.setProgress(0, 220_000_000, {playing: false});
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(8000, 2000), contentKey: 'hover-refresh'});
+        await Scripting.sleep(120);
+        view.setProgress(0, 220_000_000, {playing: true});
+        await Scripting.sleep(80);
+        view._panelHovered = true;
+        view._pausePanelPan();
+        const heldX = view._panelPanLabel.translation_x;
+        for (const positionMs of [4000, 7900]) {
+            view.setText(panningText, {scrollable: true,
+                timeline: panelTimeline(8000, positionMs), contentKey: 'hover-refresh'});
+            await Scripting.sleep(100);
+            assert(Math.abs(view._panelPanLabel.translation_x - heldX) < 0.5 &&
+                view._panelPanPaused && view._panelWordTimeoutId === 0 &&
+                !view._panelPanLabel.get_transition('translation-x'),
+            'same-content background refreshes must preserve hover position, including the ending hold');
+        }
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(8000, 7800), contentKey: 'hover-refresh'});
+        view._panelHovered = false;
+        view._resumePanelPan();
+        assert(Math.abs(view._panelPanLabel.translation_x - heldX) < 0.5,
+            'leaving hover during a queued refresh must not jump immediately');
+        await Scripting.sleep(320);
+        assert(view._panelPanLabel.translation_x < heldX && !view._panelPanPaused,
+            'leaving hover must catch up to the newest ending even without a next boundary');
+
+        view._panelHovered = true;
+        view._pausePanelPan();
+        const heldEndX = view._panelPanLabel.translation_x;
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(8000, 1000), contentKey: 'hover-refresh'});
+        view._panelPanLabel.set_style('font-size: 10px;');
+        await Scripting.sleep(180);
+        const resizedMinimumX = -(Math.ceil(view._panelNaturalWidth - view._panelViewportWidth) + 8);
+        const clampedX = Math.max(resizedMinimumX, heldEndX);
+        assert(resizedMinimumX < 0 &&
+            Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5 &&
+            view._panelPanPaused,
+        'hovered font changes must clamp the old offset to the new range rather than seek to lyric time');
+        settings.set_int('max-panel-width', 200);
+        assert(view._panelPanLabel.visible &&
+            Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5,
+        'a hovered width change must retain the visible reading position before layout');
+        await Scripting.sleep(180);
+        assert(Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5 &&
+            view._panelPanPaused && !view._panelPanLabel.get_transition('translation-x'),
+        'hovered viewport reallocation must not restart motion');
+        settings.set_int('max-panel-width', 500);
+        await Scripting.sleep(180);
+        view.setText(panningText, {scrollable: true,
+            timeline: panelTimeline(8000, 0), contentKey: 'hover-next-line'});
+        await Scripting.sleep(120);
+        assert(Math.abs(view._panelPanLabel.translation_x -
+            view._panelPanState(view._panelPanPositionAt()).initialX) < 0.5 &&
+            view._panelPanPaused,
+        'a new content key must initialize its own position while remaining hover-paused');
+        view._panelPanLabel.set_style('font-size: 1px;');
+        await Scripting.sleep(120);
+        assert(view._label.visible && !view._panelPanLabel.visible && !view._panelPanPaused,
+            'removing overflow must release the paused pan and show the fitted label');
+    } finally {
+        view._panelHovered = false;
+        view._panelPanLabel.set_style(hoverLabelStyle);
+        settings.set_int('max-panel-width', 500);
+        if (hoverPopupWasOpen)
+            indicator.menu.open();
+    }
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(8000),
@@ -789,18 +887,33 @@ export async function run() {
     await Scripting.sleep(120);
     assert(view._panelWordTimeoutId !== 0,
         'word follow should schedule a one-shot word boundary while playing');
+    const wordHoverPopupWasOpen = indicator.menu.isOpen;
+    indicator.menu.close();
+    view._panelHovered = true;
     view._pausePanelPan();
     const hoveredWordX = view._panelPanLabel.translation_x;
     await Scripting.sleep(220);
     assert(view._panelWordTimeoutId === 0 &&
         Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
     'hover should stop both word motion and its boundary callback');
+    view.setText(panelWordText, {scrollable: true,
+        words: panelWords.map(word => ({...word})),
+        timeline: panelTimeline(6000, 5900), contentKey: 'panel-words'});
+    await Scripting.sleep(100);
+    assert(Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5 &&
+        view._panelPanPaused && view._panelWordTimeoutId === 0,
+    'new word timing must not move hovered text or lose the pause at the final word');
+    view.setText(panelWordText, {scrollable: true, words: panelWords,
+        timeline: panelTimeline(6000, 2400), contentKey: 'panel-words'});
+    view._panelHovered = false;
     view._resumePanelPan();
     assert(Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
         'word follow should catch up from the held position without an immediate jump');
     await Scripting.sleep(280);
     assert(view._panelWordTimeoutId !== 0 && view._panelPanLabel.translation_x < hoveredWordX,
         'word catch-up should reconnect across the next word boundary');
+    if (wordHoverPopupWasOpen)
+        indicator.menu.open();
     settings.set_int('max-panel-width', 200);
     await Scripting.sleep(100);
     assert(view._panelWordTimeoutId !== 0 &&
@@ -901,6 +1014,47 @@ export async function run() {
         'leaving the popup title must resume without a jump');
     await checkTitleWrap(view._titleLabel, view._titleCopy, titlePeriod,
         () => view._continueTitlePan());
+    const titleAllocationStarts = [];
+    const titleEase = view._titleLabel.ease;
+    view._titleLabel.ease = function (params) {
+        titleAllocationStarts.push({allocated: this.has_allocation(),
+            viewportAllocated: view._titleViewport.has_allocation(),
+            width: this.get_allocation_box().get_width(),
+            copyWidth: view._titleCopy.get_allocation_box().get_width(),
+            natural: referenceLabelWidth(this)});
+        return titleEase.call(this, params);
+    };
+    try {
+        for (let index = 0; index < 2; index++) {
+            St.Settings.get().inhibit_animations();
+            await Scripting.sleep(100);
+            assert(!view._titleCopy.visible &&
+                view._titleLabel.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END,
+            'animation inhibition must return the popup title to a fitted allocation');
+            St.Settings.get().uninhibit_animations();
+            await Scripting.sleep(180);
+        }
+        if (St.ReducedMotion) {
+            const motionSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.a11y.interface'});
+            const originalMotion = motionSettings.get_string('reduced-motion');
+            try {
+                motionSettings.set_string('reduced-motion', 'reduce');
+                await Scripting.sleep(100);
+                assert(!view._titleCopy.visible,
+                    'reduced motion must hide the popup title copy before restoring it');
+            } finally {
+                motionSettings.set_string('reduced-motion', originalMotion);
+            }
+            await Scripting.sleep(180);
+        }
+        assert(titleAllocationStarts.length >= 2 && titleAllocationStarts.every(start =>
+            start.allocated && start.viewportAllocated &&
+            start.width >= start.natural - 0.5 && start.copyWidth >= start.natural - 0.5),
+        'restoring title animation must allocate both copies before transitioning: ' +
+            JSON.stringify(titleAllocationStarts));
+    } finally {
+        view._titleLabel.ease = titleEase;
+    }
     indicator.menu.close();
     assert(view._titleLabel.translation_x === 0 && view._titlePanLaterId === 0 &&
         !view._titleLabel.get_transition('translation-x') && !view._titleCopy.visible,
@@ -1545,12 +1699,14 @@ export async function run() {
         },
     };
     let translationRequests = 0;
+    const translationForceRequests = [];
     let translationCacheClears = 0;
     instance._translationService = {
         cancelAll() {},
         clearCache: async () => translationCacheClears++,
         translate(document, request) {
             translationRequests++;
+            translationForceRequests.push(request.forceRefresh);
             request.onStatus?.({status: 'loading'});
             return Promise.resolve({
                 status: 'available',
@@ -1674,10 +1830,14 @@ export async function run() {
 
     const immediateLyricsProvider = instance._lyricsProvider;
     const delayedLookups = [];
+    const delayedCacheClears = [];
     instance._lyricsProvider = {
         cancelPending() {},
-        fetch(_metadata, callback, onStatus) {
-            delayedLookups.push({callback, onStatus});
+        clearCaches() {
+            return new Promise((resolve, reject) => delayedCacheClears.push({resolve, reject}));
+        },
+        fetch(metadata, callback, onStatus) {
+            delayedLookups.push({metadata, callback, onStatus});
         },
     };
     const delayedState = title => ({
@@ -1709,10 +1869,82 @@ export async function run() {
     delayedLookups[3].callback(null, 'complete');
     assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         'a successful empty lookup must retain the confirmed-missing message');
+    for (const phase of ['loading', 'retrying', 'loaded']) {
+        instance._onPlayerStateChanged(delayedState(`Cache Clear ${phase}`));
+        if (phase === 'retrying')
+            delayedLookups.at(-1).onStatus({status: 'retrying', document: null});
+        else if (phase === 'loaded')
+            delayedLookups.at(-1).callback(lineDocument);
+        const beforeClear = delayedLookups.length;
+        settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+        assert(delayedLookups.length === beforeClear,
+            'cache clearing must finish before restarting the current lookup');
+        delayedCacheClears.at(-1).resolve();
+        await Scripting.sleep(10);
+        assert(delayedLookups.length === beforeClear + 1 && !instance._lyricsLoaded,
+            `${phase}: clearing lyrics caches must restart the current lookup`);
+        delayedLookups.at(-1).callback(null, 'complete');
+        assert(instance._lyricsLoaded && view._panelPanLooping &&
+            view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
+        `${phase}: a cleared lookup must reach a terminal state and restore title looping`);
+    }
+    instance._onPlayerStateChanged(delayedState('Cache Clear Old Track'));
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+    instance._onPlayerStateChanged(delayedState('Cache Clear Current Track'));
+    delayedCacheClears.at(-1).resolve();
+    await Scripting.sleep(10);
+    assert(delayedLookups.at(-1).metadata.title === 'Cache Clear Current Track',
+        'finishing cache clearing must reload the current song rather than the captured old song');
+    delayedLookups.at(-1).callback(lineDocument);
+    assert(instance._lyricsDocument === lineDocument && instance._currentLyricIndex === 23,
+        'reloaded lyrics must align with the current playback clock');
+
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+    delayedCacheClears.at(-1).reject(new Error('Expected runtime cache clear failure'));
+    await Scripting.sleep(10);
+    assert(!instance._lyricsLoaded,
+        'a failed clear must still restart the cancelled lyric lookup');
+    delayedLookups.at(-1).callback(null, 'unavailable');
+    assert(view._messageLabel.text === uiText(
+        'Lyrics service temporarily unavailable', '歌词服务暂不可用', '歌詞服務暫時無法使用'),
+    'a failed clear must not leave a loading/retrying message permanently displayed');
+
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+    const firstClear = delayedCacheClears.at(-1);
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+    delayedCacheClears.at(-1).resolve();
+    await Scripting.sleep(10);
+    const afterLatestClear = delayedLookups.length;
+    firstClear.resolve();
+    await Scripting.sleep(10);
+    assert(delayedLookups.length === afterLatestClear,
+        'an older cache clear must not cancel or restart the newest lookup');
+    delayedLookups.at(-1).callback(null, 'complete');
+    assert(instance._lyricsLoaded && view._panelPanLooping,
+        'overlapping cache clears must leave a completable current lookup');
+
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
+    instance._onPlayerStateChanged(null);
+    const beforeNoPlayer = delayedLookups.length;
+    delayedCacheClears.at(-1).resolve();
+    await Scripting.sleep(10);
+    assert(delayedLookups.length === beforeNoPlayer && !indicator.visible,
+        'cache clearing must not restart a lookup after the player disappears');
+    instance._onPlayerStateChanged(delayedState('Cache Clear Provider Replacement'));
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
     instance._lyricsProvider = immediateLyricsProvider;
+    const fetchesBeforeReplacement = lyricFetches;
+    delayedCacheClears.at(-1).resolve();
+    await Scripting.sleep(10);
+    assert(lyricFetches === fetchesBeforeReplacement,
+        'an old provider finishing cache clearing must not restart the replacement provider');
+    view.setLyrics(null);
     delayedLookups[3].onStatus({status: 'retrying', document: null});
     assert(view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         'replacing the provider must invalidate its status callbacks');
+    // Removing the player hid the panel and closed its menu. Restore the
+    // open popup required by the following word-synchronization fixtures.
+    indicator.menu.open();
     fakePositionUs = 1_750_000;
 
     const offsetMetadata = {
@@ -1811,6 +2043,7 @@ export async function run() {
 
     instance._state = {
         playbackStatus: 'Playing',
+        playbackRate: 1,
         metadata: offsetMetadata,
     };
     instance._lyricsDocument = wordDocument;
@@ -1825,6 +2058,64 @@ export async function run() {
         view._panelPanTimeline?.playbackRate === 1 &&
         view._panelWords === wordDocument.lines[0].words,
         'a synchronized line should arm its word timer and panel timeline');
+    const savedRateState = instance._state;
+    const savedRatePosition = fakePositionUs;
+    const savedDelay = instance._mprisManager.getDelayUntilPositionUs;
+    const rateLine = {...wordDocument.lines[0], text: panningText, endMs: 10_000,
+        words: [{text: panningText, startMs: 0, endMs: 10_000}]};
+    try {
+        instance._mprisManager.getDelayUntilPositionUs = targetUs =>
+            instance._state.playbackStatus === 'Playing'
+                ? Math.max(0, (targetUs - fakePositionUs) / 1000 / instance._state.playbackRate)
+                : null;
+        for (const syncLevel of ['line', 'word']) {
+            instance._lyricsDocument = {...wordDocument, syncLevel, lines: [rateLine]};
+            view.setLyrics(instance._lyricsDocument);
+            fakePositionUs = 2_500_000;
+            instance._updateIndicatorAndSchedule(true);
+            await Scripting.sleep(100);
+            for (const rate of [0.75, 1.25, 1.5, 2]) {
+                instance._state = {...savedRateState, playbackStatus: 'Playing', playbackRate: rate};
+                instance._updateIndicatorAndSchedule(true);
+                const playingPan = view._panelPanState(2500);
+                assert(view._panelPanTimeline?.playbackRate === rate && playingPan,
+                    `${syncLevel}: panel timing must use the explicit player rate`);
+                instance._state = {...instance._state, playbackStatus: 'Paused'};
+                instance._updateIndicatorAndSchedule(true);
+                const pausedPan = view._panelPanState(2500);
+                assert(view._panelPanTimeline.playbackRate === rate &&
+                    Math.abs(pausedPan.initialX - playingPan.initialX) < 0.001,
+                `${syncLevel}: pausing at non-default speed must preserve the horizontal position`);
+                instance._state = {...instance._state, playbackStatus: 'Playing'};
+                instance._updateIndicatorAndSchedule(true);
+                assert(view._panelPanTimeline.playbackRate === rate,
+                    `${syncLevel}: resuming must retain the same timing rate`);
+            }
+        }
+        instance._lyricsDocument = {...wordDocument, syncLevel: 'line', lines: [rateLine]};
+        view.setLyrics(instance._lyricsDocument);
+        instance._state = {...savedRateState, playbackRate: 2};
+        fakePositionUs = 9_999_000;
+        let delayReads = 0;
+        instance._mprisManager.getDelayUntilPositionUs = () => {
+            delayReads++;
+            return 0.001;
+        };
+        instance._updateIndicatorAndSchedule(true);
+        const nearEndTimeline = {...view._panelPanTimeline};
+        for (let repeat = 0; repeat < 3; repeat++)
+            instance._updateIndicatorAndSchedule(true);
+        assert(nearEndTimeline.playbackRate === 2 &&
+            panelTimelinesEqual(nearEndTimeline, view._panelPanTimeline) && delayReads === 0,
+        'near-ending resynchronization must not infer rate from a later clock/delay sample');
+    } finally {
+        instance._mprisManager.getDelayUntilPositionUs = savedDelay;
+        instance._state = savedRateState;
+        instance._lyricsDocument = wordDocument;
+        fakePositionUs = savedRatePosition;
+        view.setLyrics(wordDocument);
+        instance._updateIndicatorAndSchedule(true);
+    }
     const originalPanelLanguage = instance._panelLyricsLanguage;
     const originalPanelTranslation = instance._translationLines;
     instance._panelLyricsLanguage = 'translated';
@@ -1964,12 +2255,75 @@ export async function run() {
     settings.set_string('translation-display-mode', 'bilingual');
     view._translationActionButton.emit('clicked', 1);
     await Scripting.sleep(50);
-    assert(translationRequests === 2,
+    assert(translationRequests === 2 && translationForceRequests[1] === true,
         'the popup Refresh action should issue one forced translation request');
     settings.set_int('translation-cache-clear-generation', 1);
     await Scripting.sleep(50);
     assert(translationCacheClears === 1 && translationRequests === 3,
         'translation cache clearing should remain separate and reload automatically');
+    const mockTranslationService = instance._translationService;
+    const translationStateSetter = view.setTranslationState;
+    let releaseTranslationRead;
+    let finishJoinedTranslation;
+    let joinedProviderRequests = 0;
+    let joinedLoadingUpdates = 0;
+    const translationReadBlocked = new Promise(resolve => (releaseTranslationRead = resolve));
+    const joinedService = new realTranslationService.constructor({
+        providers: [{id: settings.get_string('translation-provider'), model: 'joined-fixture',
+            requiresCredential: false,
+            translate(_document, {chunk}) {
+                joinedProviderRequests++;
+                return new Promise(resolve => {
+                    finishJoinedTranslation = () => resolve(chunk.lines.map(line => ({
+                        lineId: line.id, text: `Joined ${line.text}`,
+                    })));
+                });
+            }}],
+        cache: {
+            async get() {
+                await translationReadBlocked;
+                return {hit: false};
+            },
+            async put() {},
+            destroy() {},
+        },
+    });
+    try {
+        instance._translationService = joinedService;
+        view.setTranslationState = function (...args) {
+            if (args[0] === 'loading')
+                joinedLoadingUpdates++;
+            return translationStateSetter.apply(this, args);
+        };
+        instance._clearTranslation();
+        instance._requestTranslation({allowNetwork: true});
+        assert(view._translationStatus === 'idle' && view._translationActionButton.reactive,
+            'an initial cache read must leave the manual Translate action available');
+        const pendingGeneration = instance._translationGeneration;
+        view._translationActionButton.emit('clicked', 1);
+        assert(instance._translationGeneration === pendingGeneration + 1,
+            'the popup action must create a new subscriber generation while the cache read is pending');
+        releaseTranslationRead();
+        await Scripting.sleep(50);
+        assert(joinedProviderRequests === 1 && joinedLoadingUpdates === 1 &&
+            view._translationStatus === 'loading' && !view._translationActionButton.reactive,
+        'the current generation must receive Loading and disable the button after joining pending work');
+        instance._requestTranslation({allowNetwork: true});
+        assert(joinedLoadingUpdates === 2 && joinedProviderRequests === 1,
+            'a generation joining an already loading job must receive its status immediately');
+        finishJoinedTranslation();
+        await Scripting.sleep(50);
+        assert(view._translationStatus === 'available' && view._translationActionButton.reactive &&
+            view._translationLabels[0].text === 'Joined First' && joinedProviderRequests === 1,
+        'joined completion must update the current generation and re-enable its action');
+    } finally {
+        releaseTranslationRead();
+        finishJoinedTranslation?.();
+        instance._cancelTranslation();
+        joinedService.destroy();
+        instance._translationService = mockTranslationService;
+        view.setTranslationState = translationStateSetter;
+    }
     settings.set_string('panel-lyrics-language', 'original');
     settings.set_boolean('translation-enabled', false);
     assert(!view._translationItem.visible && view._label.text === 'First',
@@ -2039,6 +2393,8 @@ export async function run() {
     assert(view._panelPanLabel.translation_x < firstPageX &&
         !view._panelPanLabel.get_transition('translation-x'),
     'reduced-motion lyrics must advance to a later page using the playback clock');
+    const pageHoverPopupWasOpen = indicator.menu.isOpen;
+    indicator.menu.close();
     view._panelHovered = true;
     view._pausePanelPan();
     const hoveredPageX = view._panelPanLabel.translation_x;
@@ -2046,11 +2402,21 @@ export async function run() {
     assert(view._panelWordTimeoutId === 0 &&
         view._panelPanLabel.translation_x === hoveredPageX,
     'hovering must freeze the reduced-motion page and cancel its boundary timer');
+    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
+    await Scripting.sleep(80);
+    assert(view._panelPanLabel.translation_x === hoveredPageX && view._panelPanPaused &&
+        view._panelWordTimeoutId === 0,
+    'background resynchronization must not advance a hovered reduced-motion page');
+    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 2000)});
     view._panelHovered = false;
     view._resumePanelPan();
     await Scripting.sleep(80);
     assert(view._panelWordTimeoutId !== 0,
         'leaving hover must resume page scheduling from the playback clock');
+    if (pageHoverPopupWasOpen) {
+        indicator.menu.open();
+        view.setProgress(10_010_000, 220_000_000, {playing: true});
+    }
     view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
     await Scripting.sleep(80);
     const finalPageX = view._panelPanLabel.translation_x;
@@ -2172,12 +2538,24 @@ export async function run() {
         metadata: {...offsetMetadata, title: panelLoopTitle}};
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
     instance._updateIndicatorAndSchedule(true);
-    await Scripting.sleep(2300);
+    await Scripting.sleep(150);
+    assert(view._panelPanLabel.translation_x === 0 &&
+        view._panelFadeEffect.enabled && view._panelFadeEffect._edges[1] === 0 &&
+        view._panelFadeEffect._edges[2] === 1,
+    'the initial title hold must fade only the overflowing right edge');
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
+    await Scripting.sleep(80);
+    assert(view._panelPanLabel.translation_x === 0 && view._panelFadeEffect._edges[1] === 0,
+        'pausing a title at its start must preserve the complete first glyph');
+    view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
+    await Scripting.sleep(2150);
     const panelTitlePeriod = referenceLabelWidth(view._panelPanLabel) + 32;
     assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
         !view._panelPanTimeline && view._panelWordTimeoutId === 0 &&
         view._panelPanLabel.translation_x < 0 && view._panelTitleCopy.visible,
     'a missing-lyrics title should scroll left without a lyric boundary timer');
+    assert(view._panelFadeEffect._edges[1] > 0 && view._panelFadeEffect._edges[2] === 1,
+        'a moving title loop must fade its clipped left edge and the incoming copy on the right');
 
     const instrumentalDocument = {source: 'test-instrumental', sourceId: null,
         instrumental: true, metadata: {}, syncLevel: 'none', lines: []};
@@ -2214,6 +2592,11 @@ export async function run() {
     await Scripting.sleep(80);
     assert(view._panelPanLabel.translation_x === hoveredTitleX && view._panelPanPaused,
         'hover must freeze a panel title loop');
+    view._queuePanelPanRestart();
+    await Scripting.sleep(80);
+    assert(view._panelPanLabel.translation_x === hoveredTitleX && view._panelPanPaused &&
+        !view._panelPanLabel.get_transition('translation-x'),
+    'a queued layout restart must preserve the hovered title loop position');
     view._panelHovered = false;
     view._resumePanelPan();
     assert(view._panelPanLabel.translation_x === hoveredTitleX &&
@@ -2336,8 +2719,14 @@ export async function run() {
 
     indicator.menu.close();
 
+    const clearOnDisable = realLyricsProvider.clearCaches;
+    let finishClearOnDisable;
+    realLyricsProvider.clearCaches = () => new Promise(resolve => (finishClearOnDisable = resolve));
+    settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
     assert(Main.extensionManager.disableExtension(UUID),
         'the extension could not be disabled');
+    finishClearOnDisable();
+    realLyricsProvider.clearCaches = clearOnDisable;
 
     await Scripting.sleep(500);
     assert(!Main.panel.statusArea[UUID],

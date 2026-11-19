@@ -130,10 +130,26 @@ export class TranslationService {
             allowNetwork ? 'network' : 'cache-only',
         ].join('\u0000');
         const existing = this._inFlight.get(requestKey);
-        if (existing)
+        if (existing && !existing.cancellable.is_cancelled() &&
+            (!forceRefresh || existing.forceRefresh)) {
+            if (onStatus) {
+                existing.listeners.add(onStatus);
+                if (existing.lastStatus)
+                    onStatus(existing.lastStatus);
+            }
             return existing.promise;
+        }
+        // A forced request replaces ordinary work, including a pending cache
+        // hit, so its late result cannot overwrite the refreshed memory entry.
+        existing?.cancellable.cancel();
 
         const cancellable = new Gio.Cancellable();
+        const request = {
+            cancellable,
+            forceRefresh,
+            listeners: new Set(onStatus ? [onStatus] : []),
+            lastStatus: null,
+        };
         const promise = this._translate(document, {
             trackKey,
             targetLanguage,
@@ -141,14 +157,20 @@ export class TranslationService {
             lyricsHash,
             forceRefresh,
             allowNetwork,
-            onStatus,
+            onStatus: status => {
+                request.lastStatus = status;
+                for (const listener of request.listeners)
+                    listener(status);
+            },
             cancellable,
         }).finally(() => {
             const current = this._inFlight.get(requestKey);
             if (current?.promise === promise)
                 this._inFlight.delete(requestKey);
+            request.listeners.clear();
         });
-        this._inFlight.set(requestKey, {promise, cancellable});
+        request.promise = promise;
+        this._inFlight.set(requestKey, request);
         return promise;
     }
 

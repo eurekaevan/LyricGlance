@@ -1,6 +1,6 @@
 # LyricGlance EGO Review Audit for 0.9.0
 
-Initial audit: 2026-08-23. Latest source/package recheck: 2026-11-07.
+Initial audit: 2026-08-23. Latest full source/package recheck: 2026-11-07. Latest targeted follow-ups: 2026-11-19.
 
 Sources checked:
 
@@ -12,6 +12,50 @@ Sources checked:
 - [GNOME Shell 51 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)
 
 This document retains dated source and package audits. “PASS” refers to the recorded checkout and date, not automatic verification of later changes. Current automated results and remaining live desktop gates are tracked in [EGO-CHECKLIST.md](EGO-CHECKLIST.md); runtime behavior and test entry points are documented in the [README](../README.md).
+
+Documentation/source alignment rechecked on 2026-11-19: invalid Preferences drafts allow closing without replacing saved backend values; the current ZIP has 35 files and installation adds one compiled schema (36 total). Older file counts and successful shexli results below remain evidence for their dated archive only. LrcAPI timestamp-only rejection and title allocation guards are covered by the targeted fixes below. The README diagnostic table now includes every fixed invalid-response reason emitted by the provider, including response-size and non-completed-status failures.
+
+## Translation coalescing and forced refresh — 2026-11-19
+
+The new service regression holds a real disk cache hit before its return. Before the fix, a forced refresh receives that same ordinary promise instead of contacting the provider. Each in-flight record now retains its refresh policy, a subscriber set and the latest status. A forced request cancels and replaces equivalent ordinary work; callers join an existing forced request, while canceled entries are replaced. The existing promise-identity cleanup guard preserves replacements, and the existing cancellation check prevents a late old read from repopulating memory. Network/cache-only identity and persistent cache formats are unchanged.
+
+Every merged caller receives the latest status immediately and then subsequent statuses; subscriptions are released when the task settles. Packaged Shell coverage uses the real service with controlled cache/provider boundaries to press Translate during a pending cache read, advance the extension generation and verify Loading disables the button. A later generation receives Loading immediately, then receives completion and re-enables the action, with one provider request. The extension's generation/track/hash guards remain unchanged; no button-side global cancellation was added.
+
+## Full allocations and title edge fading — 2026-11-19
+
+The popup title still read `Actor.width` in an allocation observer and a readiness guard. Both now read allocation boxes. Full title/panel cancellation resets the existing layout's pan width and repeat offset; display-preserving cancellation retains them. The new regression reproduces a long-short-same-width-long sequence starting its transition while both label and viewport report no valid allocation. Resetting desired widths alone does not allocate hidden labels, so both scroll paths make moving labels/copies visible and wait for valid full-width allocations before transitions. Popup title restarts retain the visible copy while waiting instead of hiding it again on every deferred attempt.
+
+The panel loop previously forced its left fade to full strength even at zero displacement. It now supplies the actual offset and accounts for the repeating copy on the right. Coverage checks initial hold, pause at zero, scrolling and restoration after native animation/reduced-motion changes. These checks use real packaged Shell actors and record their allocation state when transitions start; physical input and a fresh user desktop import remain separate gates.
+
+## Hover-held panel position — 2026-11-19
+
+The packaged Shell regression reproduces the reported jump before the fix: a same-content timeline refresh clears the pause flag and writes a new clock-derived offset. Display-preserving cancellation now retains the existing pause flag. Restarts retain that held offset within the full new overflow range, while new content or removal of overflow still performs a full reset. Hovering also records a hold at the final resting position, without requiring a transition or boundary timer.
+
+Leaving hover while a restart is queued waits for its allocation, then uses the existing catch-up path and latest clock. Reduced-motion pages resume without sliding; title loops retain their phase across hovered layout restarts. The change reuses existing state and introduces no polling or additional lifecycle resources. Controlled Shell coverage does not establish physical pointer behavior in the user's running desktop session.
+
+## MPRIS initial discovery and cleanup — 2026-11-19
+
+A real D-Bus fixture held delivery of an initial `ListNames` snapshot until after the player departed. Before the fix, the resulting `GetNameOwner` failure left an unresolved record behind. Discovery now removes that record on `NameHasNoOwner`; unrelated lookup errors retain their existing diagnostic behavior. Each ownership-change notification removes any previous record before adding its new owner, including when the notification has an empty old owner. The existing per-player identity guard prevents a delayed failure from removing a replacement.
+
+The fixture controls both reply-before-restart and restart-before-reply orderings, verifies same-session rediscovery and subscription cleanup, and checks destruction during bus acquisition. A separate regression reproduces and fixes destruction before start and repeated cleanup. No polling, retry manager or extra ownership state was added.
+
+## Playback-rate follow-up — 2026-11-19
+
+The extension inferred panel rate by dividing a remaining lyric duration sampled before UI updates by a delay sampled afterward. Paused playback instead forced 1x. State snapshots now expose the already-normalized player rate as `playbackRate`, and the panel timeline consumes it for both playing and paused states. The line/word scroll algorithms and deadline calculations are unchanged; only the erroneous inference is removed. Invalid-rate fallback remains at the MPRIS input boundary.
+
+D-Bus regressions cover the normalized initial snapshot, rate notifications, paused clock/rate retention, changing rate while paused and resuming. Controlled Shell regressions check line/word horizontal plans at 0.75x, 1.25x, 1.5x and 2x, plus stable near-ending resynchronization despite a biased delay query. These are deterministic tests, not real-player speed-control or physical-input evidence.
+
+## Lyrics cache-clear follow-up — 2026-11-19
+
+Clearing caches cancelled the provider's pending callbacks without reconnecting the extension's current lookup. A packaged Shell regression reproduced the resulting stuck loading state before the fix. The settings handler now resumes through the existing current-track loading path after success or failure, guarded by provider identity, current player state and the existing cache-clear generation. It cancels any lookup started during removal before attaching fresh callbacks, while retaining the provider's debounce and cooldown policy. Loaded lyrics and their translation state also reload after a clear.
+
+Controlled Shell fixtures cover loading/retrying/loaded UI states, terminal empty/error results, playback-clock alignment, track changes, overlapping clears, player disappearance, provider replacement and completion after disable. These fixtures do not establish a live public-service clear-during-HTTP/backoff run.
+
+## LrcAPI timestamp-only follow-up — 2026-11-19
+
+The October 15 blank-content finding below did not cover LrcAPI's duplicated synced/plain aliases. A regression reproduced a timestamp-only LRC being accepted as plain lyrics; selecting the first field with any parsed timestamp could also hide real lyrics in the other field.
+
+Both raw fields now reach the normalizer independently. It prefers timed lines containing lyric text and accepts plain text only when that field contains no parseable timeline. The same normalization applies to disk reads, so legacy timestamp-only entries cannot render or suppress a retry. Existing cache formats and provider signatures remain unchanged; no bulk cache deletion is required. The HTTP regressions check absent disk writes for empty results, retryability, both field orders, synchronized cache reloads, preservation of primary plain text, and recovery from legacy entries.
 
 ## Source and behavior recheck — 2026-10-15
 
@@ -174,8 +218,9 @@ run while the main Shell and Preferences regressions passed.
 
 Final verification passed: `make check`, all six `make integration` entry
 points, packaged Shell lifecycle/timing, popup presentation and GTK Preferences
-targets. The final ZIP has zero pinned-shexli findings; all 34 installed files
-and the compiled schema match. The installation checksum and fresh-session
+targets. That 2026-11-07 ZIP had zero pinned-shexli findings; its 34 packaged files
+and the compiled schema matched installation. These counts and tool results apply
+to that dated archive, not the current package. The installation checksum and fresh-session
 boundary are recorded in [EGO-CHECKLIST.md](EGO-CHECKLIST.md). No new runtime
 dependency, file or abstraction was introduced by this follow-up audit.
 

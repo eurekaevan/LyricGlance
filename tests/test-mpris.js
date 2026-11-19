@@ -1,6 +1,6 @@
 import GLib from 'gi://GLib';
 
-import {parseMetadata} from '../mpris.js';
+import {MprisManager, parseMetadata} from '../mpris.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -28,4 +28,10 @@ assert(parsed.artUrl === 'file:///home/test/.cache/player/cover.png',
     'artwork URL should be unpacked');
 assert(parsed.durationUs === 220_000_000, 'duration should stay in microseconds');
 
-print('MPRIS metadata tests passed');
+const unstartedManager = new MprisManager(() => {});
+unstartedManager.destroy();
+unstartedManager.destroy();
+assert(unstartedManager._cancellable === null && unstartedManager.getPlayers().length === 0,
+    'destroy must be safe before start and on repeated calls');
+
+print('MPRIS metadata and unstarted lifecycle tests passed');

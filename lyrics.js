@@ -5,7 +5,6 @@ import Soup from 'gi://Soup?version=3.0';
 import {closeStream, readLimited, ResponseTooLargeError, USER_AGENT} from './network-utils.js';
 
 import {rankLyricsCandidates} from './lyrics-matcher.js';
-import {LrcParser} from './lyrics-parser.js';
 import {normalizeLyricsPayload} from './lyrics-normalizer.js';
 import {LyricsDiskCache, trackKey} from './storage.js';
 
@@ -461,30 +460,17 @@ export class LyricsProvider {
                         .filter(item => item && typeof item.title === 'string' &&
                             typeof item.artist === 'string' &&
                             (typeof item.lyrics === 'string' || typeof item.lrc === 'string'))
-                        .map(item => {
-                            const texts = [item.lyrics, item.lrc].filter(text =>
-                                typeof text === 'string' && text.trim());
-                            const text = texts.length > 1
-                                ? texts.find(value => LrcParser.parse(value).length) ?? texts[0]
-                                : texts[0];
-                            return {
-                                provider: 'lrcapi',
-                                trackName: item.title,
-                                artistName: item.artist,
-                                albumName: typeof item.album === 'string' ? item.album : '',
-                                duration: Number.isFinite(item.duration) && item.duration > 0
-                                    ? item.duration : null,
-                                syncedLyrics: text,
-                                plainLyrics: text,
-                            };
-                        });
+                        .map(item => ({
+                            provider: 'lrcapi',
+                            trackName: item.title,
+                            artistName: item.artist,
+                            albumName: typeof item.album === 'string' ? item.album : '',
+                            duration: Number.isFinite(item.duration) && item.duration > 0
+                                ? item.duration : null,
+                            syncedLyrics: item.lrc,
+                            plainLyrics: item.lyrics,
+                        }));
                     const best = bestLyricsCandidate(track, candidates);
-                    if (best) {
-                        if (best.document.syncLevel === 'none')
-                            best.candidate.syncedLyrics = null;
-                        else
-                            best.candidate.plainLyrics = null;
-                    }
                     if (best && (!this._pendingPlainLyrics || best.document.syncLevel !== 'none' ||
                         !this._pendingPlainLyrics.document.source.startsWith('lrclib'))) {
                         this._remember(key, best.document);

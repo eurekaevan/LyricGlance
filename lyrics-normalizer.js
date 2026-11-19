@@ -46,17 +46,28 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
         });
     }
 
-    const syncedDocument = LrcParser.parseDocument(payload.syncedLyrics, {
-        source: `${provider}-synced`,
-        sourceId,
-        metadata,
-    });
-    if (syncedDocument.syncLevel === SyncLevel.LINE &&
-        syncedDocument.lines.some(line => line.text.trim()))
-        return syncedDocument;
-
-    if (typeof payload.plainLyrics === 'string' && payload.plainLyrics.trim()) {
-        return createPlainLyricsDocument(payload.plainLyrics, {
+    // LrcAPI's lyrics/lrc fields can both contain timed or plain text. Check
+    // them here so network responses and legacy cached aliases use one rule.
+    const texts = provider === 'lrcapi'
+        ? [payload.plainLyrics, payload.syncedLyrics]
+        : [payload.syncedLyrics];
+    let plainLyrics = null;
+    for (const text of texts) {
+        if (typeof text !== 'string' || !text.trim())
+            continue;
+        const syncedDocument = LrcParser.parseDocument(text, {
+            source: `${provider}-synced`, sourceId, metadata,
+        });
+        if (syncedDocument.syncLevel === SyncLevel.LINE &&
+            syncedDocument.lines.some(line => line.text.trim()))
+            return syncedDocument;
+        if (provider === 'lrcapi' && syncedDocument.lines.length === 0 && plainLyrics === null)
+            plainLyrics = text;
+    }
+    if (provider !== 'lrcapi' && typeof payload.plainLyrics === 'string' && payload.plainLyrics.trim())
+        plainLyrics = payload.plainLyrics;
+    if (plainLyrics !== null) {
+        return createPlainLyricsDocument(plainLyrics, {
             source: `${provider}-plain`,
             sourceId,
             metadata,

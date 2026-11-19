@@ -79,6 +79,26 @@ server.add_handler(null, (currentServer, message) => {
             (message.get_uri().get_query() ?? '').match(/(?:^|&)title=([^&]*)/)?.[1] ?? '');
         if (query.includes('Fallback Whitespace Retry') && !whitespaceUpgradeReady) {
             response(message, 200, '[]');
+        } else if (query.includes('Fallback Timestamp')) {
+            const blankLrc = '[00:01.00] \n[00:02.00]\t';
+            let lyrics = blankLrc;
+            let lrc;
+            if (query.includes('Legacy')) {
+                lyrics = '[00:01]recovered timestamp cache';
+            } else if (query.includes('Dual')) {
+                lrc = query.includes('Plain') ? 'real plain lyrics' :
+                    '[00:01]real synchronized lyrics';
+                if (query.includes('Reverse'))
+                    [lyrics, lrc] = [lrc, lyrics];
+            } else if (query.includes('Lrc Only')) {
+                lyrics = undefined;
+                lrc = blankLrc;
+            } else if (query.includes('Both')) {
+                lrc = blankLrc;
+            }
+            response(message, 200, JSON.stringify([{
+                title: requestedTitle, artist: 'LyricGlance', lyrics, lrc,
+            }]));
         } else if (query.includes('Fallback Error') || (query.includes('Fallback Raw') &&
             !query.includes('Fallback Raw Success'))) {
             response(message, 500);
@@ -461,6 +481,47 @@ async function run() {
     let fallback = new LyricsProvider(options);
     const fallbackFetch = title => new Promise(resolve =>
         fallback.fetch({...baseTrack, title}, resolve));
+    for (const suffix of ['Only', 'Lrc Only', 'Both']) {
+        const title = `Fallback Timestamp ${suffix}`;
+        assert(await fallbackFetch(title) === null,
+            'timestamp-only fallback fields must not render as plain lyrics');
+        await Promise.all([...fallback._diskCache._pendingWrites]);
+        assert(!(await fallback._diskCache.get({...baseTrack, title})).hit,
+            'timestamp-only fallback fields must not create positive or negative disk entries');
+        const beforeRetry = receivedRequests.length;
+        assert(await fallbackFetch(title) === null && receivedRequests.length > beforeRetry,
+            'timestamp-only fallback results must remain retryable');
+    }
+    for (const quality of ['Synced', 'Plain']) {
+        for (const order of ['', ' Reverse']) {
+            const title = `Fallback Timestamp Dual ${quality}${order}`;
+            const document = await fallbackFetch(title);
+            assert(document?.source === (quality === 'Synced' ? 'lrcapi-synced' : 'lrcapi-plain') &&
+                document.lines[0].text === (quality === 'Synced'
+                    ? 'real synchronized lyrics' : 'real plain lyrics'),
+            'an empty timed field must not hide real synchronized or plain text in the other field');
+        }
+    }
+    await Promise.all([...fallback._diskCache._pendingWrites]);
+    fallback.destroy();
+    fallback = new LyricsProvider(options);
+    const beforeDualCache = receivedRequests.length;
+    assert((await fallbackFetch('Fallback Timestamp Dual Synced'))?.source === 'lrcapi-synced' &&
+        (await fallbackFetch('Fallback Timestamp Dual Synced Reverse'))?.source === 'lrcapi-synced' &&
+        receivedRequests.length === beforeDualCache,
+    'both field orders must retain synchronized lyrics after a disk-cache reload');
+    for (const suffix of ['Both', 'Plain']) {
+        const title = `Fallback Timestamp Legacy ${suffix}`;
+        const blankLrc = '[00:01.00] \n[00:02.00]\t';
+        await fallback._diskCache.put({...baseTrack, title}, {provider: 'lrcapi',
+            syncedLyrics: suffix === 'Both' ? blankLrc : null, plainLyrics: blankLrc});
+        fallback.destroy();
+        fallback = new LyricsProvider(options);
+        const beforeLegacyRetry = receivedRequests.length;
+        assert((await fallbackFetch(title))?.lines[0].text === 'recovered timestamp cache' &&
+            receivedRequests.length > beforeLegacyRetry,
+        'legacy timestamp-only cache entries must be rejected and retried over HTTP');
+    }
     const plainStates = [];
     const upgraded = await new Promise(resolve => fallback.fetch(
         {...baseTrack, title: 'Plain Priority Fallback Busy'}, resolve,
@@ -516,7 +577,7 @@ async function run() {
         'equally plain fallback lyrics must not replace primary lyrics');
     for (const suffix of ['Fallback Error', 'Fallback Empty', 'Fallback Missing',
         'Fallback Bad JSON', 'Fallback Bad Shape', 'Fallback Reject', 'Fallback Redirect',
-        'Fallback Blank Plain']) {
+        'Fallback Blank Plain', 'Fallback Timestamp Only']) {
         const title = `Plain Priority ${suffix}`;
         const document = await fallbackFetch(title);
         assert(document?.source === 'lrclib-plain' && document.lines[0].text === 'plain from primary',

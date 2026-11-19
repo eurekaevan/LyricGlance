@@ -134,7 +134,7 @@ export class MprisManager {
     }
 
     destroy() {
-        this._cancellable.cancel();
+        this._cancellable?.cancel();
 
         if (this._connection && this._dbusSignalId) {
             this._connection.signal_unsubscribe(this._dbusSignalId);
@@ -275,12 +275,13 @@ export class MprisManager {
             null,
             Gio.DBusSignalFlags.NONE,
             (_connection, _sender, _path, _interface, _signal, parameters) => {
-                const [name, oldOwner, newOwner] = parameters.deepUnpack();
+                const [name, , newOwner] = parameters.deepUnpack();
                 if (!name.startsWith(MPRIS_PREFIX))
                     return;
 
-                if (oldOwner)
-                    this._removePlayer(name);
+                // ListNames may have inserted an unresolved placeholder even
+                // when the name had no previous owner in this notification.
+                this._removePlayer(name);
                 if (newOwner)
                     this._addPlayer(name, newOwner);
             });
@@ -357,8 +358,11 @@ export class MprisManager {
                     try {
                         [currentOwner] = connection.call_finish(result).deepUnpack();
                     } catch (error) {
-                        if (this._cancellable && this._players.get(name) === player)
+                        if (this._cancellable && this._players.get(name) === player) {
                             console.debug(`LyricGlance: owner lookup failed: ${error.message}`);
+                            if (error.matches(Gio.DBusError, Gio.DBusError.NAME_HAS_NO_OWNER))
+                                this._removePlayer(name);
+                        }
                         return;
                     }
                     if (!this._cancellable || this._players.get(name) !== player)
@@ -826,6 +830,7 @@ export class MprisManager {
             capabilities: {...selected.capabilities,
                 CanControl: Boolean(selected.owner) && selected.capabilities.CanControl},
             playbackStatus: selected.playbackStatus,
+            playbackRate: selected.rate,
             positionUs: this._positionAt(selected),
             player: this._descriptor(selected),
             metadata: {...selected.metadata},

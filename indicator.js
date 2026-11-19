@@ -575,7 +575,7 @@ export class LyricsIndicator {
             this._queueTitlePan());
         let titleAllocatedWidth = 0;
         this._titleLabel.connect('notify::allocation', () => {
-            const width = Math.round(this._titleLabel.width);
+            const width = this._titleLabel.get_allocation_box().get_width();
             if (width === titleAllocatedWidth)
                 return;
             titleAllocatedWidth = width;
@@ -1363,7 +1363,8 @@ export class LyricsIndicator {
         // Stop an active translation before width/style invalidation. A
         // running transition can otherwise request a stage-view update while
         // the panel hierarchy is waiting for its new allocation.
-        this._cancelPanelPan();
+        this._cancelPanelPan({preserveDisplay:
+            this._panelPanPaused && this._panelPanLabel.visible});
         const reservedForIcon = this._icon.visible ? 22 : 0;
         const preferredWidth = Math.min(
             this._labelViewport.visible ? PANEL_PREFERRED_WIDTH : 22,
@@ -1422,10 +1423,13 @@ export class LyricsIndicator {
             this._animationsEnabled() && width > 0 && textWidth > width + 1;
         this._panelFadeEffect.enabled = Boolean(active);
         if (active) {
+            const offset = this._panelPanLabel.visible
+                ? this._panelPanLabel.translation_x : 0;
             this._panelFadeEffect.setEdges(width,
-                this._panelPanLooping ? -PANEL_EDGE_FADE_WIDTH : this._panelPanLabel.visible
-                    ? this._panelPanLabel.translation_x : 0,
-                this._panelPanLooping ? width + 2 * PANEL_EDGE_FADE_WIDTH : textWidth);
+                offset,
+                // The repeating copy keeps overflowing on the right, while
+                // the left fade follows the actual displacement from the start.
+                this._panelPanLooping ? width - offset + PANEL_EDGE_FADE_WIDTH : textWidth);
         }
     }
 
@@ -1520,9 +1524,8 @@ export class LyricsIndicator {
         }
 
         // Changing the custom layout invalidates the actor hierarchy. Let
-        // Clutter allocate the full-width pan label before changing visibility
-        // or starting a transition; doing both in one frame floods the Shell
-        // journal with "needs an allocation" warnings.
+        // Clutter process that change before updating visibility, and wait
+        // again for visible labels before starting a transition below.
         const panWidthChanged = this._panelLabelLayout.setPanWidth(naturalWidth);
         const repeatChanged = this._panelPanLooping &&
             this._panelLabelLayout.setRepeatOffset(naturalWidth + TITLE_LOOP_GAP);
@@ -1530,26 +1533,50 @@ export class LyricsIndicator {
             this._queuePanelPan();
             return;
         }
+        // Hidden labels are skipped by the layout manager. Show them first,
+        // then wait for valid full-width allocations before any transition.
+        this._panelPanLabel.show();
+        this._panelTitleCopy.visible = this._panelPanLooping;
+        this._label.hide();
+        if (!this._labelViewport.has_allocation() ||
+            !this._panelPanLabel.has_allocation() ||
+            this._panelPanLabel.get_allocation_box().get_width() < naturalWidth - 0.5 ||
+            (this._panelPanLooping && (!this._panelTitleCopy.has_allocation() ||
+                this._panelTitleCopy.get_allocation_box().get_width() < naturalWidth - 0.5))) {
+            this._queuePanelPan();
+            return;
+        }
+        const preservePosition = this._panelPanPaused && this._panelPanLabel.visible;
         if (this._panelPanLooping) {
             this._panelPanLabel.remove_all_transitions();
-            this._panelPanLabel.translation_x = 0;
-            this._panelPanLabel.show();
-            this._panelTitleCopy.show();
-            this._label.hide();
+            this._panelPanLabel.translation_x = preservePosition
+                ? Math.clamp(this._panelPanLabel.translation_x,
+                    -(naturalWidth + TITLE_LOOP_GAP), 0) : 0;
             this._updatePanelFade();
             this._panelPanTargetX = -(naturalWidth + TITLE_LOOP_GAP);
-            this._continuePanelTitlePan(1000);
+            this._continuePanelTitlePan(preservePosition ? 0 : 1000);
             return;
         }
         const panState = this._panelPanState(this._panelPanPositionAt());
         if (!panState)
             return;
         this._panelPanLabel.remove_all_transitions();
-        this._panelPanLabel.translation_x = panState.initialX;
-        this._panelPanLabel.show();
-        this._label.hide();
+        // A refreshed timeline or layout must not move hovered text. Clamp
+        // only to the full new range, not the current word/page's target.
+        const minimumX = -(overflow <= PANEL_PAN_END_PADDING
+            ? overflow : overflow + PANEL_PAN_END_PADDING);
+        this._panelPanLabel.translation_x = preservePosition
+            ? Math.clamp(this._panelPanLabel.translation_x, minimumX, 0)
+            : panState.initialX;
         this._updatePanelFade();
         this._panelPanTargetX = panState.targetX;
+        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
+        if (hoverPaused || preservePosition) {
+            this._panelPanPaused = true;
+            if (!hoverPaused)
+                this._resumePanelPan();
+            return;
+        }
         const shouldAnimate = this._panelPlaying && panState.shouldAnimate;
         if (shouldAnimate) {
             this._panelPanLabel.ease({
@@ -1559,8 +1586,7 @@ export class LyricsIndicator {
                 mode: Clutter.AnimationMode.LINEAR,
             });
         }
-        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
-        if (this._panelPlaying && panState.nextMs && !hoverPaused) {
+        if (this._panelPlaying && panState.nextMs) {
             this._panelWordTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
                 Math.min(2_147_483_647, Math.max(1, Math.ceil(
                     (panState.nextMs - this._panelPanPositionAt()) /
@@ -1572,10 +1598,6 @@ export class LyricsIndicator {
             GLib.Source.set_name_by_id(
                 this._panelWordTimeoutId, '[LyricGlance] panel word pan');
         }
-        if (hoverPaused && shouldAnimate)
-            this._pausePanelPan();
-        else if (hoverPaused && panState.nextMs)
-            this._panelPanPaused = true;
     }
 
     _panelPanState(positionMs) {
@@ -1657,6 +1679,7 @@ export class LyricsIndicator {
             this._panelPanPaused = true;
             return;
         }
+        this._panelPanPaused = false;
         loopTitle(this._panelPanLabel, -this._panelPanTargetX, delayMs,
             () => this._continuePanelTitlePan());
     }
@@ -1676,8 +1699,6 @@ export class LyricsIndicator {
 
     _startTitlePan() {
         const animate = this._animationsEnabled();
-        const wasEllipsized = this._titleLabel.clutter_text.get_ellipsize() !==
-            Pango.EllipsizeMode.NONE;
         this._titleLabel.clutter_text.set_ellipsize(animate
             ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
         if (!animate || !this.actor.menu.isOpen || !this._titleViewport.mapped) {
@@ -1695,7 +1716,6 @@ export class LyricsIndicator {
         if (restart) {
             this._titleLabel.remove_all_transitions();
             this._titleLabel.translation_x = 0;
-            this._titleCopy.hide();
         }
         const widthChanged = this._titleViewport.layout_manager.setPanWidth(naturalWidth);
         const repeatChanged = this._titleViewport.layout_manager.setRepeatOffset(period);
@@ -1703,14 +1723,17 @@ export class LyricsIndicator {
             this._queueTitlePan();
             return;
         }
-        // Wait for the unellipsized title to receive its full allocation.
-        if (this._titleLabel.width < naturalWidth - 0.5) {
-            if (wasEllipsized)
-                this._queueTitlePan();
+        this._titleCopy.show();
+        // Visibility and ellipsizing changes invalidate layout even when the
+        // desired width is unchanged. Actor.width can report a preferred size.
+        if (!this._titleViewport.has_allocation() ||
+            !this._titleLabel.has_allocation() || !this._titleCopy.has_allocation() ||
+            this._titleLabel.get_allocation_box().get_width() < naturalWidth - 0.5 ||
+            this._titleCopy.get_allocation_box().get_width() < naturalWidth - 0.5) {
+            this._queueTitlePan();
             return;
         }
         this._titlePanPeriod = period;
-        this._titleCopy.show();
         if (!this._titleLabel.get_transition('translation-x'))
             this._continueTitlePan(restart ? 1000 : 0);
     }
@@ -1731,6 +1754,8 @@ export class LyricsIndicator {
         }
         this._titleLabel?.remove_all_transitions();
         this._titleCopy?.hide();
+        this._titleViewport?.layout_manager.setPanWidth(0);
+        this._titleViewport?.layout_manager.setRepeatOffset(0);
         this._titlePanPeriod = 0;
         if (this._titleLabel)
             this._titleLabel.translation_x = 0;
@@ -1766,14 +1791,20 @@ export class LyricsIndicator {
             this._panelPanLabel.translation_x = 0;
             this._panelPanLabel.hide();
             this._panelTitleCopy.hide();
+            this._panelLabelLayout.setPanWidth(0);
+            this._panelLabelLayout.setRepeatOffset(0);
         }
-        if (!preserveDisplay)
+        if (!preserveDisplay) {
             this._label?.show();
+            this._panelPanPaused = false;
+        }
         this._panelPanTargetX = 0;
-        this._panelPanPaused = false;
     }
 
     _pausePanelPan() {
+        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
+        if (hoverPaused && this._panelPanLabel?.visible)
+            this._panelPanPaused = true;
         const hadWordTimer = Boolean(this._panelWordTimeoutId);
         if (hadWordTimer) {
             GLib.source_remove(this._panelWordTimeoutId);
@@ -1788,12 +1819,17 @@ export class LyricsIndicator {
         this._panelPanLabel.remove_transition('translation-x');
         this._panelPanLabel.translation_x = currentX;
         this._panelPanPaused =
-            this._panelPanLooping || hadWordTimer || currentX > this._panelPanTargetX;
+            hoverPaused || this._panelPanLooping || hadWordTimer ||
+            currentX > this._panelPanTargetX;
     }
 
     _resumePanelPan() {
         if (!this._panelPanPaused || !this._panelPlaying ||
             !this._panelPanLabel?.visible)
+            return;
+        // A queued layout restart owns the held position until allocation
+        // settles; it will resume here using the latest geometry and clock.
+        if (this._panelPanLaterId)
             return;
         this._panelPanPaused = false;
         if (!this._animationsEnabled()) {

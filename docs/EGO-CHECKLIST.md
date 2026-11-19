@@ -1,8 +1,104 @@
 # LyricGlance EGO Submission Checklist — 0.9.0
 
-Last updated: 2026-11-07
+Last updated: 2026-11-19
 
-The baseline checklists and August/September evidence below are historical records. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
+The dated checklists below are historical records, including their package file counts and tool results. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
+
+## Documentation/source alignment — 2026-11-19
+
+- [x] source and existing Preferences assertions agree: invalid endpoint/model drafts allow closing and preserve the saved backend; corrected the stale checklist wording below
+- [x] current ZIP contains 35 files: 31 at its root, one symbolic SVG, one XML schema and two compiled translation catalogs; installation contains those 35 plus `schemas/gschemas.compiled` (36 files total), with no other files
+- [x] every current ZIP entry byte-matches installation; the older 34-file statements below refer only to their dated archive, not today's package
+- [x] current LrcAPI normalization rejects timestamp-only fields and legacy cache aliases; popup title allocation checks use allocation boxes, as recorded in the targeted follow-ups below
+- [x] README now lists all ten invalid-response diagnostic reasons emitted by `translation-provider.js`, including `response_too_large` and `response_not_completed`
+- [x] isolated packaged English GTK Preferences close/reopen regression, LRC/Lyricsfile/fallback unit tests, fresh package/runtime-import checks and `git diff --check` pass; the diagnostic table matches all ten reasons in source
+
+This follow-up changes documentation only. The earlier runtime fixes and their verification remain recorded in their own sections; it does not claim a new real-provider or fresh-desktop test.
+
+## Translation coalescing and forced refresh — 2026-11-19
+
+- [x] a regression reproduces a forced refresh incorrectly sharing an ordinary promise while a real cache hit is blocked
+- [x] focused service tests cover forced replacement during cache reads and provider work, repeated refresh/ordinary joins, provider contact despite a pending hit, late-read cancellation, fresh memory retention, all subscribers before/after Loading, shared cancellation and canceled-entry replacement
+- [x] full packaged Shell regression: Translate during a pending read creates a new generation that receives Loading; another generation gets immediate status replay; one provider completion updates the UI and enables its action; no allocation warnings
+- [x] all six local integration entry points, schema/gettext, all nine unit entry points, package/runtime-import checks and `git diff --check`
+- [x] installed locally; all 35 archive/source files and the compiled schema match
+- [ ] official shexli analysis remains blocked by the existing missing Python module; aggregate `make check` does not fully pass
+- [ ] real external translation provider and a fresh desktop import
+
+No files, dependencies or public APIs were added. Existing in-flight records now retain the refresh policy, subscriber set and last status needed for correct coalescing. Persistent cache identity and network permission checks are unchanged.
+
+## Full allocations and title edge fading — 2026-11-19
+
+- [x] new real-actor regression reproduces a repeated same-width lyric starting its transition while both label and viewport still require allocation
+- [x] full packaged Shell regressions: long-short-long allocation, both title copies after native animation/reduced-motion restoration, initial/pause-at-zero fades, moving fades, existing geometry/hover/page/lifecycle coverage; no allocation warnings
+- [x] schema/gettext, all nine unit entry points, package/runtime-import checks, catalog reference-only changes and `git diff --check`
+- [x] installed locally; all 35 archive/source files and the compiled schema match
+- [ ] official shexli analysis remains blocked by the existing missing Python module; aggregate `make check` does not fully pass
+- [ ] physical input and a fresh desktop import
+
+No new files, state fields, dependencies or lifecycle resources were added. Full cancellation resets existing layout values; display-preserving cancellation retains them.
+
+## Hover-held panel position — 2026-11-19
+
+- [x] the new packaged Shell regression fails on the original same-content timeline refresh while hovered
+- [x] full packaged Shell regressions: timeline updates during motion/ending holds, queued refresh then leave, font/width clamping, new content, removal of overflow, word follow, reduced-motion pages and title-loop restarts; no allocation warnings
+- [x] schema/gettext, all nine unit entry points, package/runtime-import checks and `git diff --check`; catalog updates only change source references and template timestamps
+- [x] installed locally; all 35 archive/source files and the compiled schema match
+- [ ] official shexli analysis remains blocked by the existing missing Python module; aggregate `make check` does not fully pass
+- [ ] physical pointer interaction and a fresh desktop import
+
+Unchanged content retains its held pixel offset, clamped only when geometry requires it; changed content is initialized normally. The popup-open override remains in effect. No new state fields, dependencies or runtime files were added.
+
+## MPRIS initial discovery and idempotent cleanup — 2026-11-19
+
+- [x] the new unit regression reproduces `destroy()` before `start()` throwing on a null cancellable; cleanup now also passes repeated calls and destruction during bus acquisition
+- [x] real D-Bus replies are held so a player departure is handled before the initial list snapshot; the old code leaves the resulting missing-owner placeholder behind
+- [x] both failed-owner-reply-before-restart and restart-before-failed-reply pass, including same-session rediscovery, preservation of the replacement and release of both old signal subscriptions
+- [x] independent review found no blocking issue; no polling, retry state or additional manager layer was introduced
+- [x] all six local integration entry points pass, covering D-Bus controls/discovery, artwork, provider errors, lyrics HTTP/cache and translation HTTP
+- [x] installed locally; all 35 package/source files and the compiled schema match
+- [x] schemas/gettext, all nine unit entry points, ZIP/runtime-import checks, packaged Shell regression and `git diff --check` pass; the Shell run has no allocation warnings
+- [ ] official shexli analysis remains blocked by the existing missing Python module; aggregate `make check` does not fully pass
+- [ ] a real player's process restart and a fresh desktop import
+
+The fixture releases and reacquires an actual bus name in an isolated session; it does not claim a real-player restart. Only `NameHasNoOwner` removes an unresolved record on lookup failure; other bus errors keep their original diagnostics. Existing per-player callback identity checks remain intact.
+
+## Explicit MPRIS playback rate — 2026-11-19
+
+- [x] a new D-Bus regression fails before the fix because the normalized paused rate is absent from state snapshots; the old panel inference also fails the new explicit-rate Shell assertion
+- [x] D-Bus regressions pass for normalized snapshot/notification rates, a paused 2x clock, changing rate to 1.25x while paused and resuming with that rate
+- [x] controlled Shell regressions pass for line/word horizontal plans across play/pause/resume at 0.75x, 1.25x, 1.5x and 2x; repeated near-ending synchronization keeps an exact 2x timeline without consulting the biased delay query
+- [x] the complete packaged Shell regression passes without allocation warnings; schemas/gettext, all nine unit entry points, ZIP/runtime-import checks and `git diff --check` pass
+- [x] installed locally; all 35 package/source files and the compiled schema match
+- [ ] official shexli analysis remains blocked by the existing missing Python module; aggregate `make check` does not fully pass
+- [ ] real-player speed changes, physical input and a fresh desktop import
+
+Only rate propagation changed: the existing normalized MPRIS rate is emitted and consumed directly. Scroll geometry, invalid-rate normalization, line/word boundary scheduling, cache formats and dependencies are unchanged.
+
+## Current lookup after lyrics cache clearing — 2026-11-19
+
+- [x] the new packaged Shell regression fails before the fix because a loading query is not restarted after cache clearing
+- [x] settings-driven controlled queries cover loading, retrying and already-loaded lyrics; clear completion restarts the selected track, terminal empty/error results replace loading/retry messages, and late lyrics align with the current playback clock
+- [x] track changes, overlapping clears, clear failure, player disappearance, provider replacement and completion after disable pass; only the latest generation can restart the current provider
+- [x] the full packaged Shell suite passes without allocation warnings; independent review confirms existing request debounce/service cooldowns are retained
+- [x] schemas/gettext, all nine unit entry points, ZIP/runtime-import checks and `git diff --check` pass
+- [x] installed locally; all 35 package/source files and the compiled schema match
+- [ ] official shexli analysis remains blocked by `ModuleNotFoundError: No module named 'shexli'`; aggregate `make check` does not fully pass
+- [ ] a public-service request/backoff interrupted by a real Preferences click and a fresh desktop import
+
+This fix intentionally refreshes already-loaded lyrics and their translation state after cache clearing. Tests use the existing controlled Shell provider fixture, not a live HTTP/backoff service. No logout, real player/provider request, user-cache deletion or credential access was performed during testing.
+
+## LrcAPI timestamp-only fields and cached aliases — 2026-11-19
+
+- [x] new normalizer regression fails before the fix when the same timestamp-only LRC is supplied as both synced/plain text; fixed normalization rejects both that shape and the old plain-only cache alias
+- [x] real local HTTP and temporary disk-cache regressions cover each field alone, both empty fields, both field orders with real synchronized/plain text, no positive or negative disk entries for empty fallback results, and subsequent retryability
+- [x] valid synchronized results survive a new provider reading the disk cache; legacy malformed entries trigger HTTP recovery, and empty fallback timelines retain primary plain lyrics
+- [x] strict schemas/gettext, all nine unit entry points, ZIP/runtime-import checks, local HTTP integration and `git diff --check` pass; an independent source review found no blocking issue
+- [x] installed locally; all 35 packaged files match source/installation, and the compiled schema matches
+- [ ] official shexli analysis: the installed launcher fails with `ModuleNotFoundError: No module named 'shexli'`; the aggregate `make check` therefore does not pass completely
+- [ ] public-provider and fresh-desktop validation for this change
+
+The cache format and provider signature are unchanged. Legacy malformed files are ignored during normalization and retried, not bulk-deleted; a successful lookup can replace them. No real lyrics/translation endpoint, credential or user cache was accessed during these tests.
 
 ## Full source audit and local installation — 2026-11-07
 
@@ -13,7 +109,7 @@ The baseline checklists and August/September evidence below are historical recor
 - [x] packaged Shell lifecycle/timing regression, popup presentation and GTK Preferences close/reopen/cleanup regressions pass on Shell 51.1; no `needs an allocation` warning in these runs
 - [x] fixed the presentation fixture's 700-ms startup assumption after it failed in a concurrent run; the bounded readiness wait retains its original indicator assertion, and the complete presentation target passes on rerun
 - [x] workflow YAML and embedded command syntax, JavaScript syntax, shell script syntax, local documentation links and `git diff --check` pass
-- [x] installed the verified ZIP locally; all 34 packaged files byte-match, the compiled schema matches and no obsolete package files remain; extension remains enabled/ACTIVE
+- [x] installed that audit's ZIP locally (34 files in the 2026-11-07 archive); every packaged file and the compiled schema matched, with no obsolete package files; extension remained enabled/ACTIVE
 - [ ] fresh desktop session importing the newly installed modules, physical input and real-player/provider validation for this package
 
 Installed ZIP SHA-256: `e69864f729b9de2ce6c48a5f4b20dce0c319bd497e5aa2e5d68a5bad63e9c8d3`.
@@ -139,7 +235,7 @@ The initial diagnostics retained the 45-second translation timeout. After a real
 
 ## Preferences and cache persistence — 2026-10-30
 
-- [x] English/Simplified Chinese/Traditional Chinese Preferences: valid endpoint/model edits survive closing without Apply and reopening; invalid pending edits block closing and preserve saved values
+- [x] English/Simplified Chinese/Traditional Chinese Preferences: valid endpoint/model edits survive closing without Apply and reopening; invalid drafts allow closing, are discarded and preserve saved values
 - [x] isolated persistent GSettings backend: a separate process restores endpoint/model after the Preferences test exits
 - [x] real Secret Service: a separate process reads a unique temporary credential, removed afterwards; the user's existing key was not changed or displayed
 - [x] independent processes write and reload lyrics/translation caches; lyrics count tests cover positive/negative results, unrelated files, fresh instances and clear

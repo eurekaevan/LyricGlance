@@ -256,6 +256,8 @@ async function run() {
         'NameOwnerChanged did not discover the new player');
     assert(state.playbackStatus === 'Paused',
         'the initial paused state was not loaded');
+    assert(state.playbackRate === 1,
+        'state snapshots must expose the normalized playback rate even while paused');
     assert(positionGets === 1,
         'initial discovery should read Position exactly once via GetAll');
     await waitUntil(
@@ -600,6 +602,29 @@ async function run() {
     const doubledDelay = manager.getDelayUntilPositionUs(manager.getPositionUs() + 2_000_000);
     assert(doubledDelay > 900 && doubledDelay <= 1000,
         'an older full snapshot overwrote the newer playback rate');
+    assert(state.playbackRate === 2,
+        'rate notifications must expose the same rate used by the playback clock');
+    playbackStatus = 'Paused';
+    propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus)});
+    await waitUntil(() => state.playbackStatus === 'Paused' &&
+        manager._players.get(BUS_NAME).positionReadPromise === null,
+    'non-default-rate pause did not settle');
+    const pausedRatePosition = manager.getPositionUs();
+    await sleep(100);
+    assert(state.playbackRate === 2 && manager.getPositionUs() === pausedRatePosition,
+        'pausing must retain the playback rate while freezing the local clock');
+    currentRate = 1.25;
+    propertiesChanged({Rate: new GLib.Variant('d', currentRate)});
+    await waitUntil(() => state.playbackRate === 1.25 &&
+        manager._players.get(BUS_NAME).positionReadPromise === null,
+    'a rate change while paused was not exposed');
+    playbackStatus = 'Playing';
+    propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus)});
+    await waitUntil(() => state.playbackStatus === 'Playing' &&
+        manager._players.get(BUS_NAME).positionReadPromise === null,
+    'non-default-rate resume did not settle');
+    assert(state.playbackRate === 1.25,
+        'resuming must retain the rate selected while paused');
     playbackStatus = 'Paused';
     currentRate = 0;
     propertiesChanged({PlaybackStatus: new GLib.Variant('s', playbackStatus),
@@ -783,6 +808,92 @@ async function run() {
     assert(callbackCount === callbacksAtReadbackDestroy,
         'destroyed readback owner emitted a stale state callback');
     releaseName();
+
+    // Hold delivery of real D-Bus replies to reproduce a stale ListNames
+    // snapshot and a failed GetNameOwner on either side of a restart.
+    const nativeCall = Gio.DBusConnection.prototype.call;
+    let listReply = null;
+    let ownerReply = null;
+    Gio.DBusConnection.prototype.call = function (...args) {
+        const callback = args.pop();
+        const method = args[3];
+        nativeCall.call(this, ...args, (bus, result) => {
+            const deliver = () => callback(bus, result);
+            if (method === 'ListNames')
+                listReply = deliver;
+            else if (method === 'GetNameOwner' && args[4].deepUnpack()[0] === BUS_NAME)
+                ownerReply = deliver;
+            else
+                deliver();
+        });
+    };
+    try {
+        for (const restartBeforeReply of [false, true]) {
+            requestName();
+            listReply = null;
+            ownerReply = null;
+            state = null;
+            manager = new MprisManager(nextState => {
+                state = nextState;
+                callbackCount++;
+            });
+            let removals = 0;
+            const removePlayer = manager._removePlayer;
+            manager._removePlayer = function (name) {
+                if (name === BUS_NAME)
+                    removals++;
+                removePlayer.call(this, name);
+            };
+            manager.start();
+            await waitUntil(() => listReply !== null,
+                'initial ListNames reply was not held');
+            releaseName();
+            await waitUntil(() => removals > 0,
+                'the player departure must arrive before the stale list reply');
+            listReply();
+            await waitUntil(() => ownerReply !== null,
+                'owner lookup for the vanished name was not held');
+            const placeholder = manager._players.get(BUS_NAME);
+            assert(placeholder && !placeholder.owner,
+                'the stale snapshot must create an unresolved placeholder');
+            if (restartBeforeReply) {
+                requestName();
+                await waitUntil(() => state?.capabilities.CanControl &&
+                    manager._players.get(BUS_NAME) !== placeholder,
+                'a returning owner must replace an unresolved discovery placeholder');
+                const replacement = manager._players.get(BUS_NAME);
+                ownerReply();
+                await sleep(100);
+                assert(manager._players.get(BUS_NAME) === replacement &&
+                    state?.capabilities.CanControl,
+                'a late failed owner lookup must not remove the returning player');
+            } else {
+                ownerReply();
+                await waitUntil(() => !manager._players.has(BUS_NAME),
+                    'NameHasNoOwner must remove the stale discovery placeholder');
+                requestName();
+                await waitUntil(() => state?.capabilities.CanControl,
+                    'a name removed after failed discovery must be discoverable on restart');
+            }
+            assert(placeholder.propertySignalId === 0 && placeholder.seekedSignalId === 0,
+                'discarded discovery placeholders must release both signal subscriptions');
+            manager.destroy();
+            manager.destroy();
+            manager = null;
+            releaseName();
+        }
+        manager = new MprisManager(() => callbackCount++);
+        manager.start();
+        manager.destroy();
+        manager.destroy();
+        manager = null;
+        const afterImmediateDestroy = callbackCount;
+        await sleep(100);
+        assert(callbackCount === afterImmediateDestroy,
+            'destroying during bus acquisition must not emit late callbacks');
+    } finally {
+        Gio.DBusConnection.prototype.call = nativeCall;
+    }
 }
 
 run()
