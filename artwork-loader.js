@@ -3,6 +3,7 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {closeStream, readLimited, USER_AGENT} from './network-utils.js';
+import {removeTree} from './storage.js';
 
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -43,6 +44,46 @@ function defaultArtworkCacheDirectory() {
         'lyric-glance',
         'artwork',
     ]);
+}
+
+export async function clearArtworkCache(
+    cacheDirectory = defaultArtworkCacheDirectory(), cancellable = null) {
+    await removeTree(Gio.File.new_for_path(cacheDirectory), cancellable);
+}
+
+export async function countArtworkCache(
+    cacheDirectory = defaultArtworkCacheDirectory(), cancellable = null) {
+    const directory = Gio.File.new_for_path(cacheDirectory);
+    let enumerator;
+    try {
+        enumerator = await directory.enumerate_children_async(
+            'standard::name,standard::type',
+            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+            GLib.PRIORITY_DEFAULT,
+            cancellable);
+    } catch (error) {
+        if (isIoError(error, Gio.IOErrorEnum.NOT_FOUND))
+            return 0;
+        throw error;
+    }
+
+    let count = 0;
+    try {
+        while (true) {
+            const batch = await enumerator.next_files_async(
+                64, GLib.PRIORITY_DEFAULT, cancellable);
+            if (batch.length === 0)
+                break;
+            for (const info of batch) {
+                if (info.get_file_type() === Gio.FileType.REGULAR &&
+                    info.get_name().endsWith('.image'))
+                    count++;
+            }
+        }
+    } finally {
+        await enumerator.close_async(GLib.PRIORITY_DEFAULT, null);
+    }
+    return count;
 }
 
 export class ArtworkLoader {

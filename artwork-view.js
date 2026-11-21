@@ -31,8 +31,6 @@ export class ArtworkView {
         this.actor = new St.Widget({
             style_class: 'lyric-glance-artwork',
             layout_manager: new Clutter.BinLayout(),
-            width: ARTWORK_SIZE,
-            height: ARTWORK_SIZE,
             clip_to_allocation: true,
             reactive: false,
             can_focus: false,
@@ -110,11 +108,10 @@ export class ArtworkView {
 
     _loadTexture(file, remote, generation, requestTrackKey) {
         const {scaleFactor} = St.ThemeContext.get_for_stage(global.stage);
-        const resourceScale = Math.max(1, Math.ceil(
-            scaleFactor * this.actor.get_resource_scale()));
+        const resourceScale = Math.max(1, this.actor.get_resource_scale());
 
         const texture = St.TextureCache.get_default().load_file_async(
-            file, ARTWORK_SIZE, ARTWORK_SIZE, 1, resourceScale);
+            file, ARTWORK_SIZE, ARTWORK_SIZE, scaleFactor, resourceScale);
         texture.set_x_align(Clutter.ActorAlign.CENTER);
         texture.set_y_align(Clutter.ActorAlign.CENTER);
         texture.opacity = this._textureActor ? 0 : 255;

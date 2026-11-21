@@ -196,4 +196,10 @@ assert(panelPanState({...pageTimeline, playbackRate: 2}, 1000, 500, 160).nextMs 
     panelPanState(pageTimeline, 12000, 500, 160).initialX === -500,
     'page timing must support faster playback and seeks beyond the line end');
 
+const subMsTail = panelPanState(
+    {startMs: 180000, endMs: 180000.4, positionMs: 180000, playbackRate: 1},
+    180000.4, 500, 160);
+assert(subMsTail.initialX === -500 && subMsTail.nextMs === null,
+    'fractional sub-millisecond tail lines must complete paging without spinning');
+
 print('UI duration, panel pan and lyric layout tests passed');

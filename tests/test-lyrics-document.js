@@ -111,4 +111,19 @@ assert(malformedLine.syncLevel === SyncLevel.NONE &&
     malformedLine.lines.every(line => line.startMs === null),
 'invalid line timing should downgrade to static lyrics without fabrication');
 
+const whitespaceBlankWordLine = createLyricsDocument({
+    source: 'test',
+    lines: [
+        {
+            text: 'hello',
+            startMs: 0,
+            endMs: 1000,
+            words: [{text: 'hello', startMs: 0, endMs: 1000}],
+        },
+        {text: '   ', startMs: 1000, endMs: 1500, words: []},
+    ],
+});
+assert(whitespaceBlankWordLine.syncLevel === SyncLevel.WORD,
+    'whitespace-only interlude lines should not downgrade word-synced lyrics');
+
 print('LyricsDocument validation and boundary synchronization tests passed');

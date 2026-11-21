@@ -274,6 +274,25 @@ async function run() {
         (await evictionCache.get(trackC)).hit,
     'disk eviction should remove the oldest entry above the size limit');
 
+    const hysteresisRoot = GLib.build_filenamev([tempRoot, 'hysteresis-cache']);
+    let hysteresisNow = 1;
+    const hysteresisCache = new LyricsDiskCache({
+        cacheRoot: hysteresisRoot,
+        maxEntries: 10,
+        now: () => hysteresisNow++,
+    });
+    for (let index = 0; index < 11; index++) {
+        await hysteresisCache.put(
+            {...trackA, title: `Hysteresis ${index}`},
+            {syncedLyrics: `[00:01.00] line ${index}`});
+    }
+    assert(await countLyricsCache(hysteresisRoot) === 9 &&
+        !(await hysteresisCache.get({...trackA, title: 'Hysteresis 0'})).hit &&
+        !(await hysteresisCache.get({...trackA, title: 'Hysteresis 1'})).hit &&
+        (await hysteresisCache.get({...trackA, title: 'Hysteresis 2'})).hit,
+    'eviction above 10 entries should trim with hysteresis to avoid reading all files on every write');
+    hysteresisCache.destroy();
+
     const malformedRoot = GLib.build_filenamev([tempRoot, 'malformed-cache']);
     const malformedCache = new LyricsDiskCache({cacheRoot: malformedRoot});
     await malformedCache.put(trackA, {
@@ -392,7 +411,7 @@ async function run() {
 
     const noLyricsTrack = {...trackA, title: 'No Lyrics'};
     assert(await providerFetch(secondProvider, noLyricsTrack) === null &&
-        networkRequests === 2,
+        networkRequests === 3,
     'the first no-lyrics lookup should reach LRCLIB');
     const negativePath = GLib.build_filenamev([
         providerRoot, 'lyrics', `${trackHash(noLyricsTrack)}.json`,
@@ -402,14 +421,14 @@ async function run() {
 
     const thirdProvider = new LyricsProvider(providerOptions);
     assert(await providerFetch(thirdProvider, noLyricsTrack) === null &&
-        networkRequests === 2,
+        networkRequests === 3,
     'a fresh provider should reuse a persistent negative result');
 
     await clearLyricsCache(providerRoot);
     await thirdProvider.clearCaches();
     const afterClear = await providerFetch(thirdProvider, trackA);
     assert(afterClear?.lines?.[0]?.text === 'persistent line' &&
-        networkRequests === 3,
+        networkRequests === 4,
         'clearing L1 and L2 should force the next LRCLIB request');
     thirdProvider.destroy();
 

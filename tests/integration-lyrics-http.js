@@ -121,7 +121,7 @@ server.add_handler(null, (currentServer, message) => {
                 {title: 'Wrong Song', artist: 'Wrong Artist', lyrics: '[00:01]wrong'},
                 ...(query.includes('Fallback Modern') ? [{title: requestedTitle,
                     artist: 'LyricGlance', duration: 500, lrc: '[00:01]wrong duration'},
-                    {title: requestedTitle, artist: 'LyricGlance', duration: 120,
+                    {title: requestedTitle, artist: 'LyricGlance', duration: '120',
                         lrc: '[00:01]modern fallback'}] : []),
                 ...(query.includes('Fallback Quality') ? [{title: requestedTitle,
                     artist: 'LyricGlance', album: 'HTTP Integration', duration: 120,
@@ -154,6 +154,34 @@ server.add_handler(null, (currentServer, message) => {
     } else if (query.includes('Plain Priority') && path.endsWith('/api/get')) {
         response(message, 200, instrumentalReady && query.includes('To Instrumental')
             ? '{"instrumental":true}' : '{"plainLyrics":"plain from primary"}');
+    } else if (query.includes('Plain Priority') && path.endsWith('/api/search')) {
+        response(message, 200, '[]');
+    } else if (query.includes('Get Plain Search Upgrade') && path.endsWith('/api/get')) {
+        response(message, 200, '{"plainLyrics":"plain from get"}');
+    } else if (query.includes('Get Plain Search Upgrade') && path.endsWith('/api/search')) {
+        response(message, 200, JSON.stringify([{
+            id: 301, trackName: 'Get Plain Search Upgrade', artistName: 'LyricGlance',
+            albumName: 'HTTP Integration', duration: 120,
+            syncedLyrics: '[00:01.00]synced from search',
+        }]));
+    } else if (query.includes('Get Empty Search Recovery') && path.endsWith('/api/get')) {
+        response(message, 200, '{"syncedLyrics":null,"plainLyrics":null}');
+    } else if (query.includes('Get Empty Search Recovery') && path.endsWith('/api/search')) {
+        response(message, 200, JSON.stringify([{
+            id: 302, trackName: 'Get Empty Search Recovery', artistName: 'LyricGlance',
+            albumName: 'HTTP Integration', duration: 120,
+            syncedLyrics: '[00:01.00]recovered via search',
+        }]));
+    } else if (query.includes('Search Instrumental Priority') && path.endsWith('/api/get')) {
+        response(message, 404);
+    } else if (query.includes('Search Instrumental Priority') && path.endsWith('/api/search')) {
+        response(message, 200, JSON.stringify([
+            {id: 303, trackName: 'Search Instrumental Priority', artistName: 'LyricGlance',
+                albumName: 'HTTP Integration', duration: 120, instrumental: true},
+            {id: 304, trackName: 'Search Instrumental Priority', artistName: 'LyricGlance',
+                albumName: 'Other Album', duration: 125.5,
+                syncedLyrics: '[00:01.00]lower-scored vocal cover'},
+        ]));
     } else if (query.includes('Fallback Raw') && path.endsWith('/api/get')) {
         response(message, 200, JSON.stringify({lyricsfile: 'version: unsupported'}));
     } else if (query.includes('Fallback Unusable') && path.endsWith('/api/get')) {
@@ -362,6 +390,17 @@ async function run() {
     'a /get 404 should search and score all candidates instead of taking the first');
     assert(await fetch('Search Reject') === null,
         'a low-confidence search result should be treated as no lyrics');
+    const getPlainUpgraded = await fetch('Get Plain Search Upgrade');
+    assert(getPlainUpgraded?.source === 'lrclib-synced' &&
+        getPlainUpgraded.lines[0].text === 'synced from search',
+    'a plain-only /api/get result should upgrade via /api/search when synced lyrics exist');
+    const getEmptyRecovered = await fetch('Get Empty Search Recovery');
+    assert(getEmptyRecovered?.source === 'lrclib-synced' &&
+        getEmptyRecovered.lines[0].text === 'recovered via search',
+    'an empty 200 /api/get stub should fall back to /api/search');
+    const instrumentalBest = await fetch('Search Instrumental Priority');
+    assert(instrumentalBest?.instrumental && instrumentalBest.sourceId === 303,
+        'a higher-scoring exact instrumental match must not be beaten by a lower-scoring synced candidate');
 
     const rateLimitStartUs = GLib.get_monotonic_time();
     const rateLimited = await fetch('Rate Limited');
@@ -667,7 +706,7 @@ async function run() {
     fallback = new LyricsProvider(options);
     const beforeRawRetry = receivedRequests.length;
     assert(await fallbackFetch('Fallback Raw') === null &&
-        receivedRequests.length === beforeRawRetry + 2,
+        receivedRequests.length === beforeRawRetry + 3,
     'unrenderable raw disk data must remain retryable after recreation');
     assert(!receivedRequests.some(item => item.path === '/redirect-leak'),
         'redirects must not disclose song metadata to another endpoint');

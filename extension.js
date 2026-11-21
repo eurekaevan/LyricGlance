@@ -81,9 +81,11 @@ export default class LyricGlanceExtension extends Extension {
         this._lineTimerId = 0;
         this._wordTimerId = 0;
         this._progressTimerId = 0;
+        this._replaceTranslationIdleId = 0;
         this._state = null;
         this._currentTrackKey = null;
         this._currentTrackIdentity = null;
+        this._currentTrackMetadata = null;
         this._lyricsDocument = null;
         this._lyricsLoaded = false;
         this._translationLines = new Map();
@@ -159,6 +161,7 @@ export default class LyricGlanceExtension extends Extension {
         this._stopLineTimer();
         this._stopWordTimer();
         this._stopProgressTimer();
+        this._cancelReplaceTranslationIdle();
         this._cancelTranslation();
 
         if (this._settings) {
@@ -189,6 +192,7 @@ export default class LyricGlanceExtension extends Extension {
         this._translationLines = null;
         this._currentTrackKey = null;
         this._currentTrackIdentity = null;
+        this._currentTrackMetadata = null;
         this._currentLyricIndex = -1;
         this._trackOffsetMs = 0;
         this._globalOffsetMs = 0;
@@ -252,10 +256,10 @@ export default class LyricGlanceExtension extends Extension {
             this._restartTranslation();
         });
         connect('translation-api-endpoint', () => {
-            this._replaceTranslationService();
+            this._scheduleReplaceTranslationService();
         });
         connect('translation-model', () => {
-            this._replaceTranslationService();
+            this._scheduleReplaceTranslationService();
         });
         connect('translation-display-mode', () => {
             this._translationDisplayMode = this._settings.get_string(
@@ -277,6 +281,8 @@ export default class LyricGlanceExtension extends Extension {
         });
         connect('translation-cache-clear-generation', () => {
             this._cancelTranslation();
+            this._clearTranslation('idle');
+            this._updateIndicatorAndSchedule(true);
             const service = this._translationService;
             service.clearCache().then(() => {
                 if (this._translationService === service &&
@@ -286,7 +292,6 @@ export default class LyricGlanceExtension extends Extension {
                 if (this._translationService === service)
                     console.warn(`LyricGlance: could not clear translation cache: ${error.message}`);
             });
-            this._clearTranslation('idle');
         });
         connect('global-offset-ms', () => {
             this._globalOffsetMs = this._settings.get_int('global-offset-ms');
@@ -362,6 +367,7 @@ export default class LyricGlanceExtension extends Extension {
         if (!state) {
             this._currentTrackKey = null;
             this._currentTrackIdentity = null;
+            this._currentTrackMetadata = null;
             this._lyricsDocument = null;
             this._lyricsLoaded = false;
             this._translationLines.clear();
@@ -384,11 +390,13 @@ export default class LyricGlanceExtension extends Extension {
             this._stopWordTimer();
             this._currentTrackIdentity = identity;
             this._currentTrackKey = key;
+            this._currentTrackMetadata = {...state.metadata};
             this._lyricsDocument = null;
             this._lyricsLoaded = false;
             this._translationLines.clear();
             this._currentLyricIndex = -1;
-            this._trackOffsetMs = this._offsetStore.get(state.metadata);
+            this._trackOffsetMs = this._offsetStore.get(
+                this._currentTrackMetadata);
             this._indicator.setOffsets(
                 this._trackOffsetMs, this._globalOffsetMs);
             this._indicator.setText(trackInfo(state.metadata));
@@ -454,11 +462,19 @@ export default class LyricGlanceExtension extends Extension {
             players, this._settings.get_string('preferred-player'));
     }
 
+    _offsetTrackMetadata() {
+        if (this._state && this._currentTrackMetadata &&
+            playbackTrackIdentity(this._state) === this._currentTrackIdentity)
+            return this._currentTrackMetadata;
+        return this._state?.metadata ?? null;
+    }
+
     _onOffsetStoreLoaded() {
         if (!this._state || !this._offsetStore)
             return;
 
-        this._trackOffsetMs = this._offsetStore.get(this._state.metadata);
+        this._trackOffsetMs = this._offsetStore.get(
+            this._offsetTrackMetadata());
         this._indicator?.setOffsets(
             this._trackOffsetMs, this._globalOffsetMs);
         this._updateIndicatorAndSchedule(true);
@@ -495,7 +511,34 @@ export default class LyricGlanceExtension extends Extension {
         });
     }
 
+    _cancelReplaceTranslationIdle() {
+        if (!this._replaceTranslationIdleId)
+            return;
+        GLib.source_remove(this._replaceTranslationIdleId);
+        this._replaceTranslationIdleId = 0;
+    }
+
+    _scheduleReplaceTranslationService() {
+        // Coalesce rapid endpoint + model updates (including cross-process
+        // dconf notifications from Preferences) so we never send a request
+        // with the new endpoint and old model.
+        this._cancelTranslation();
+        this._cancelReplaceTranslationIdle();
+        this._replaceTranslationIdleId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            25,
+            () => {
+                this._replaceTranslationIdleId = 0;
+                this._replaceTranslationService();
+                return GLib.SOURCE_REMOVE;
+            });
+        GLib.Source.set_name_by_id(
+            this._replaceTranslationIdleId,
+            '[LyricGlance] replace translation service');
+    }
+
     _replaceTranslationService() {
+        this._cancelReplaceTranslationIdle();
         if (!this._settings)
             return;
 
@@ -510,6 +553,7 @@ export default class LyricGlanceExtension extends Extension {
 
     _requestTranslation({
         forceRefresh = false,
+        ignoreSameLanguage = false,
         allowNetwork = null,
     } = {}) {
         if (!this._translationEnabled ||
@@ -532,6 +576,7 @@ export default class LyricGlanceExtension extends Extension {
             targetLanguage,
             providerId,
             forceRefresh,
+            ignoreSameLanguage,
             allowNetwork: useNetwork,
             onStatus: result => {
                 if (generation === this._translationGeneration &&
@@ -671,12 +716,16 @@ export default class LyricGlanceExtension extends Extension {
                 this._panelLyricsLanguage === 'translated'
                 ? this._translationLines.get(currentLine.lineId)
                 : null;
-            const line = translated || currentLine?.text || null;
+            const rawLine = translated || currentLine?.text || null;
+            const line = rawLine
+                ? rawLine.replace(/\s*\n\s*/g, '  ').trim() || null
+                : null;
             if (line) {
                 panelContent = line;
                 panelContentIsLyric = true;
                 panelContentKey = currentLine.lineId;
-                if (!translated && document.syncLevel === SyncLevel.WORD)
+                if (!translated && document.syncLevel === SyncLevel.WORD &&
+                    line === currentLine.text)
                     panelWords = currentLine.words;
             }
 
@@ -742,7 +791,7 @@ export default class LyricGlanceExtension extends Extension {
 
         const hiddenWhilePaused =
             this._settings.get_boolean('hide-when-paused') &&
-            this._state.playbackStatus === 'Paused';
+            this._state.playbackStatus !== 'Playing';
         this._indicator.setVisible(!hiddenWhilePaused);
 
         this._updateWordAndSchedule(effectivePositionMs);
@@ -824,7 +873,7 @@ export default class LyricGlanceExtension extends Extension {
             return;
 
         this._trackOffsetMs = this._offsetStore.set(
-            this._state.metadata, clamped);
+            this._offsetTrackMetadata(), clamped);
         this._indicator?.setOffsets(
             this._trackOffsetMs, this._globalOffsetMs);
         this._updateIndicatorAndSchedule(true);

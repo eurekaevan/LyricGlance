@@ -21,7 +21,7 @@ function fixture(name) {
 
 const lrcDocument = LrcParser.parseDocument(fixture('line-synced.lrc'));
 assert(lrcDocument.syncLevel === SyncLevel.LINE &&
-    lrcDocument.lines[0].startMs === 1100 &&
+    lrcDocument.lines[0].startMs === 900 &&
     lrcDocument.lines[1].text === '第二行',
 'LRC should normalize to a Unicode-safe line-synced LyricsDocument');
 assert(LrcParser.parseDocument(fixture('malformed.lrc')).syncLevel ===

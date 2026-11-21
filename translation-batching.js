@@ -7,7 +7,8 @@ export function buildTranslationChunks(document, {
     contextLines = 2,
 } = {}) {
     const translatable = document?.lines
-        ?.filter(line => typeof line.text === 'string' && line.text.trim()) ?? [];
+        ?.filter(line => typeof line.text === 'string' &&
+            /[\p{L}\p{N}]/u.test(line.text)) ?? [];
     if (translatable.length === 0)
         return [];
 

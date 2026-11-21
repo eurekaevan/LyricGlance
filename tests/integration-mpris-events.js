@@ -894,6 +894,92 @@ async function run() {
     } finally {
         Gio.DBusConnection.prototype.call = nativeCall;
     }
+
+    // Verify late album metadata, paused Rate=0 retention, duration-bound delay
+    // suppression, stale post-track-change position recovery, and drift resync.
+    playbackStatus = 'Playing';
+    currentRate = 2;
+    positionUs = 45_000_000;
+    currentMetadata = metadata('Album Drift Track', 180_000_000);
+    requestName();
+    state = null;
+    manager = new MprisManager(nextState => {
+        state = nextState;
+        callbackCount++;
+    }, {resyncIntervalMs: 400, stalePositionRetryDelayMs: 80});
+    manager.start();
+    await waitUntil(() => state?.metadata.title === 'Album Drift Track' &&
+        state?.playbackStatus === 'Playing',
+    'resync fixture did not discover the playing player');
+    assert(manager.getDelayUntilPositionUs(180_000_001) === null,
+        'targets beyond track duration must return null instead of spinning timers');
+    seeked(180_000_000);
+    await waitUntil(() => manager.getPositionUs() === 180_000_000,
+        'clamped end-of-track position was not reached');
+    assert(manager.getDelayUntilPositionUs(180_000_000) === null,
+        'clamped end-of-track must not reschedule an already-reached boundary');
+
+    seeked(45_000_000);
+    await waitUntil(() => manager.getPositionUs() >= 45_000_000 &&
+        manager.getPositionUs() < 60_000_000,
+    'seek back to mid-track did not apply');
+    currentMetadata = {
+        ...currentMetadata,
+        'xesam:album': new GLib.Variant('s', 'Late Album Name'),
+    };
+    let albumStatePositionUs = -1;
+    const prevObserver = manager._onStateChanged;
+    manager._onStateChanged = nextState => {
+        if (nextState?.metadata.album === 'Late Album Name' &&
+            albumStatePositionUs < 0)
+            albumStatePositionUs = nextState.positionUs;
+        prevObserver(nextState);
+    };
+    propertiesChanged({Metadata: new GLib.Variant('a{sv}', currentMetadata)});
+    await waitUntil(() => state?.metadata.album === 'Late Album Name',
+        'late album correction was not emitted');
+    manager._onStateChanged = prevObserver;
+    assert(albumStatePositionUs >= 45_000_000,
+        'display-only album updates must not reset the playback clock');
+
+    // Simulate a silent stream stall / jump caught by periodic drift resync.
+    positionUs = 12_000_000;
+    await waitUntil(() => manager.getPositionUs() < 20_000_000,
+        'periodic drift resync did not recover a silent player stall/jump');
+
+    // Simulate a player reporting the previous track's ending position on track change.
+    seeked(175_000_000);
+    await waitUntil(() => manager.getPositionUs() >= 175_000_000,
+        'pre-transition position was not established');
+    currentMetadata = metadata('Fresh Track After Stale', 180_000_000);
+    positionUs = 175_000_000;
+    let settleReadCount = 0;
+    onPositionGet = () => {
+        settleReadCount++;
+        if (settleReadCount === 1)
+            positionUs = 500_000;
+        else
+            onPositionGet = null;
+    };
+    propertiesChanged({Metadata: new GLib.Variant('a{sv}', currentMetadata)});
+    await waitUntil(() => state?.metadata.title === 'Fresh Track After Stale' &&
+        settleReadCount >= 2 && manager.getPositionUs() < 5_000_000,
+    'stale post-track-change position was not suppressed and recalibrated');
+
+    // Pausing with Rate=0 (Firefox behavior) must retain the positive rate.
+    playbackStatus = 'Paused';
+    currentRate = 0;
+    propertiesChanged({
+        PlaybackStatus: new GLib.Variant('s', 'Paused'),
+        Rate: new GLib.Variant('d', 0),
+    });
+    await waitUntil(() => state?.playbackStatus === 'Paused',
+        'paused status update was not observed');
+    assert(state.playbackRate === 2 && manager._resyncTimerId === 0,
+        'pausing with Rate=0 must preserve the positive rate and stop drift resync');
+    manager.destroy();
+    manager = null;
+    releaseName();
 }
 
 run()

@@ -30,7 +30,6 @@ import {
 const OFFSET_STEP_MS = 500;
 const MIN_OFFSET_MS = -10_000;
 const MAX_OFFSET_MS = 10_000;
-const PANEL_PREFERRED_WIDTH = 320;
 const PANEL_TEXT_OPACITY = 150;
 const PANEL_TEXT_FADE_MS = 140;
 const PANEL_PAN_END_PADDING = 8;
@@ -313,15 +312,25 @@ class PlaybackProgressView {
         this.actor.hide();
     }
 
-    setControlState(target, enabled) {
+    setControlState(target, enabled, {busy = false} = {}) {
         if (!sameControlTarget(target, this._target)) {
             this.cancelDrag();
             this.setSeekPending(false);
-        } else if (!enabled) {
+        } else if (!enabled || busy) {
             this.cancelDrag();
         }
         this._target = target;
-        setButtonEnabled(this._slider, Boolean(enabled));
+        if (!enabled) {
+            setButtonEnabled(this._slider, false);
+        } else if (busy) {
+            // Keep keyboard focus on the slider during in-flight seeks so
+            // repeated arrow-key stepping does not jump focus away.
+            this._slider.reactive = false;
+            this._slider.can_focus = true;
+            this._slider.remove_style_pseudo_class('insensitive');
+        } else {
+            setButtonEnabled(this._slider, true);
+        }
     }
 
     setSeekPending(pending) {
@@ -791,7 +800,9 @@ export class LyricsIndicator {
         });
         this._translationActionButton.connect('clicked', () => {
             this._onTranslationAction?.({
-                forceRefresh: this._translationStatus === 'available',
+                forceRefresh: this._translationStatus === 'available' ||
+                    Boolean(this._translationDocument),
+                ignoreSameLanguage: this._translationStatus === 'same_language',
             });
         });
         // Preserve a readable lyrics viewport on small displays. The outer
@@ -963,9 +974,13 @@ export class LyricsIndicator {
         setButtonEnabled(this._mediaButtons.get('Next'),
             enabled && Boolean(capabilities.CanGoNext));
         const trackId = state?.metadata.trackId ?? '';
-        this._progressView.setControlState(target, enabled && capabilities.CanSeek &&
-            state.metadata.durationUs > 0 && GLib.Variant.is_object_path(trackId) &&
+        const canSeek = Boolean(target && capabilities.CanControl &&
+            capabilities.CanSeek && state.metadata.durationUs > 0 &&
+            GLib.Variant.is_object_path(trackId) &&
             trackId !== '/org/mpris/MediaPlayer2/TrackList/NoTrack');
+        this._progressView.setControlState(target, canSeek, {
+            busy: this._mediaBusy,
+        });
     }
 
     async _requestMediaControl(action, target, positionUs = null) {
@@ -1138,7 +1153,11 @@ export class LyricsIndicator {
             rate_limited: [_('Translation rate limited'), _('Retry'), true],
             invalid_response: [_('Translation response was invalid'), _('Retry'), true],
             canceled: [_('Translation canceled'), _('Retry'), true],
-            same_language: [_('Original language matches target language'), '', false],
+            same_language: [
+                _('Original language matches target language'),
+                _('Translate anyway'),
+                true,
+            ],
             skipped: ['', '', false],
         };
         const [text, action, enabled] = states[status] ?? states.provider_error;
@@ -1366,11 +1385,11 @@ export class LyricsIndicator {
         this._cancelPanelPan({preserveDisplay:
             this._panelPanPaused && this._panelPanLabel.visible});
         const reservedForIcon = this._icon.visible ? 22 : 0;
-        const preferredWidth = Math.min(
-            this._labelViewport.visible ? PANEL_PREFERRED_WIDTH : 22,
-            this._maxPanelWidth);
+        const preferredWidth = this._labelViewport.visible
+            ? this._maxPanelWidth
+            : Math.min(22, this._maxPanelWidth);
         const labelWidth = Math.max(1,
-            preferredWidth - reservedForIcon);
+            this._maxPanelWidth - reservedForIcon);
         this._panelBox.natural_width = preferredWidth;
         this._panelBox.set_style(`max-width: ${this._maxPanelWidth}px;`);
         this._labelViewport.set_style(`max-width: ${labelWidth}px;`);
@@ -1600,15 +1619,34 @@ export class LyricsIndicator {
         }
     }
 
+    _isPanelTextRtl() {
+        return !this._panelPanLooping &&
+            Pango.find_base_dir(this._label?.text ?? '', -1) ===
+                Pango.Direction.RTL;
+    }
+
+    _orientPanelPanState(panState, distance) {
+        if (!panState || !this._isPanelTextRtl())
+            return panState;
+        return {
+            ...panState,
+            initialX: -distance - panState.initialX,
+            targetX: -distance - panState.targetX,
+        };
+    }
+
     _panelPanState(positionMs) {
         const naturalWidth = this._panelNaturalWidth;
         const width = this._panelViewportWidth;
         const overflow = Math.ceil(naturalWidth - width);
         const distance = overflow <= PANEL_PAN_END_PADDING
             ? overflow : overflow + PANEL_PAN_END_PADDING;
-        if (!this._animationsEnabled())
-            return panelPanState(this._panelPanTimeline, positionMs,
-                distance, Math.max(1, width * 0.8));
+        if (!this._animationsEnabled()) {
+            return this._orientPanelPanState(
+                panelPanState(this._panelPanTimeline, positionMs,
+                    distance, Math.max(1, width * 0.8)),
+                distance);
+        }
         if (overflow > PANEL_PAN_END_PADDING &&
             this._wordSyncEnabled && this._panelWords?.length) {
             const layout = this._panelPanLabel.clutter_text.get_layout();
@@ -1668,7 +1706,9 @@ export class LyricsIndicator {
             if (state)
                 return state;
         }
-        return panelPanState(this._panelPanTimeline, positionMs, distance);
+        return this._orientPanelPanState(
+            panelPanState(this._panelPanTimeline, positionMs, distance),
+            distance);
     }
 
     _continuePanelTitlePan(delayMs = 0) {
@@ -1820,7 +1860,7 @@ export class LyricsIndicator {
         this._panelPanLabel.translation_x = currentX;
         this._panelPanPaused =
             hoverPaused || this._panelPanLooping || hadWordTimer ||
-            currentX > this._panelPanTargetX;
+            Math.abs(currentX - this._panelPanTargetX) > 0.5;
     }
 
     _resumePanelPan() {

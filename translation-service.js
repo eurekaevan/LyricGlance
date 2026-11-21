@@ -53,17 +53,26 @@ export function languagesEquivalent(sourceLanguage, targetLanguage) {
     return source !== null && source === primaryLanguage(targetLanguage);
 }
 
+const CREDIT_LINE_PATTERN = /^(?:作词|作曲|编曲|制作人?|混音|母带|和声|吉他|贝斯|鼓|录音|监制|出品|演唱|词|曲|lyricist|composer|arranger|producer|mixing|mastering|vocal|guitar|bass|drums?)\s*[:：]/i;
+
 export function sourceLyricsLanguage(document) {
     const explicit = primaryLanguage(document?.metadata?.language);
     if (explicit)
         return explicit;
-    // Repeated refrains must not turn a tiny sample into false confidence.
-    const text = [...new Set(document?.lines?.map(line => line.text.trim()) ?? [])].join('\n');
-    if (text.length > 8192 || (text.match(/\p{L}/gu)?.length ?? 0) < 80)
-        return 'unknown';
+    // Repeated refrains and credit metadata must not distort detection.
+    const uniqueLines = [...new Set(
+        (document?.lines?.map(line => line.text.trim()) ?? [])
+            .filter(line => line && !CREDIT_LINE_PATTERN.test(line)))];
+    const text = uniqueLines.join('\n');
+    const letters = text.match(/\p{L}/gu)?.length ?? 0;
+    const han = text.match(/\p{Script=Han}/gu)?.length ?? 0;
+    const kana = text.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu)?.length ?? 0;
+    const hangul = text.match(/\p{Script=Hangul}/gu)?.length ?? 0;
     const latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
-    const eastAsian = text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)
-        ?.length ?? 0;
+    const eastAsian = han + kana + hangul;
+    const pureHanShort = han >= 60 && kana === 0 && hangul === 0 && latin < 24;
+    if (text.length > 8192 || (letters < 80 && !pureHanShort))
+        return 'unknown';
     if (latin >= 24 && eastAsian >= 24)
         return 'unknown';
     // franc considers at most 2048 UTF-16 units. Cover the entire bounded
@@ -79,7 +88,16 @@ export function sourceLyricsLanguage(document) {
         if ((sample.match(/\p{L}/gu)?.length ?? 0) < 30)
             return 'unknown';
         const candidates = francAll(sample, {minLength: 30});
-        const best = primaryLanguage(candidates[0]?.[0]);
+        let best = primaryLanguage(candidates[0]?.[0]);
+        // franc-min matches Han inside its Japanese script regex, so even a
+        // couple of stylized kana (e.g. "の") inside Chinese text wins as jpn.
+        if (best === 'ja') {
+            const sampleHan = sample.match(/\p{Script=Han}/gu)?.length ?? 0;
+            const sampleKana = sample.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu)
+                ?.length ?? 0;
+            if (sampleHan > 0 && sampleKana / (sampleHan + sampleKana) < 0.08)
+                best = sampleKana <= 2 && sampleHan >= 30 ? 'zh' : null;
+        }
         // Scores are relative ranks, not calibrated probabilities.
         if (!best || (candidates[1] && candidates[0][1] - candidates[1][1] < 0.1) ||
             (language && best !== language))
@@ -115,19 +133,24 @@ export class TranslationService {
         targetLanguage,
         providerId,
         forceRefresh = false,
+        ignoreSameLanguage = false,
         allowNetwork = true,
         onStatus = null,
     }) {
         const provider = this._providers.get(providerId);
+        const normalizedTarget = typeof targetLanguage === 'string'
+            ? targetLanguage.trim()
+            : '';
         const lyricsHash = sourceLyricsHash(document);
         const requestKey = [
             trackKey,
             lyricsHash,
-            targetLanguage,
+            normalizedTarget,
             providerId,
             provider?.configurationId ?? providerId,
             provider?.model ?? '',
             allowNetwork ? 'network' : 'cache-only',
+            ignoreSameLanguage ? 'force-lang' : 'check-lang',
         ].join('\u0000');
         const existing = this._inFlight.get(requestKey);
         if (existing && !existing.cancellable.is_cancelled() &&
@@ -152,10 +175,11 @@ export class TranslationService {
         };
         const promise = this._translate(document, {
             trackKey,
-            targetLanguage,
+            targetLanguage: normalizedTarget,
             provider,
             lyricsHash,
             forceRefresh,
+            ignoreSameLanguage,
             allowNetwork,
             onStatus: status => {
                 request.lastStatus = status;
@@ -182,13 +206,13 @@ export class TranslationService {
         if (options.cancellable.is_cancelled())
             return notify({status: TranslationStatus.CANCELED});
         if (!document || document.instrumental || !options.lyricsHash ||
-            !document.lines.some(line => line.text.trim()))
+            !document.lines.some(line => /[\p{L}\p{N}]/u.test(line.text)))
             return notify({status: TranslationStatus.SKIPPED});
-        if (typeof options.targetLanguage !== 'string' ||
-            !options.targetLanguage.trim())
+        if (!options.targetLanguage)
             return notify({status: TranslationStatus.PROVIDER_ERROR});
         const sourceLanguage = sourceLyricsLanguage(document);
-        if (languagesEquivalent(sourceLanguage, options.targetLanguage))
+        if (!options.ignoreSameLanguage &&
+            languagesEquivalent(sourceLanguage, options.targetLanguage))
             return notify({status: TranslationStatus.SAME_LANGUAGE});
         if (!options.provider)
             return notify({status: TranslationStatus.PROVIDER_UNAVAILABLE});

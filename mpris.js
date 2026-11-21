@@ -10,6 +10,9 @@ const MPRIS_PATH = '/org/mpris/MediaPlayer2';
 const ROOT_INTERFACE = 'org.mpris.MediaPlayer2';
 const PLAYER_INTERFACE = 'org.mpris.MediaPlayer2.Player';
 const CALL_TIMEOUT_MS = 5000;
+const POSITION_RESYNC_INTERVAL_MS = 15_000;
+const STALE_POSITION_RETRY_DELAY_MS = 500;
+const DRIFT_NOTIFY_THRESHOLD_US = 150_000;
 const CAPABILITIES = ['CanControl', 'CanPlay', 'CanPause', 'CanGoNext',
     'CanGoPrevious', 'CanSeek'];
 
@@ -27,9 +30,11 @@ function unpackNumber(value, fallback = 0) {
     return Number.isFinite(result) ? result : fallback;
 }
 
-function playbackRate(value) {
-    const rate = unpackNumber(value, 1);
-    return rate > 0 ? rate : 1;
+function playbackRate(value, playbackStatus = 'Playing', fallback = 1) {
+    const rate = unpackNumber(value, 0);
+    if (rate > 0)
+        return rate;
+    return playbackStatus !== 'Playing' && fallback > 0 ? fallback : 1;
 }
 
 function normalizeDesktopEntry(value) {
@@ -81,23 +86,33 @@ function emptyMetadata() {
 }
 
 function metadataKey(metadata) {
+    // Album is omitted so display-only album corrections do not reset the
+    // playback clock or cancel in-flight media controls.
     return [
         metadata.trackId,
         metadata.title,
         metadata.artist,
-        metadata.album,
         metadata.durationUs,
     ].join('\u0000');
 }
 
 export class MprisManager {
-    constructor(onStateChanged, {onPlayersChanged = null} = {}) {
+    constructor(onStateChanged, {
+        onPlayersChanged = null,
+        resyncIntervalMs = POSITION_RESYNC_INTERVAL_MS,
+        stalePositionRetryDelayMs = STALE_POSITION_RETRY_DELAY_MS,
+    } = {}) {
         this._onStateChanged = onStateChanged;
         this._onPlayersChanged = onPlayersChanged;
+        this._resyncIntervalMs = Math.max(0, Math.floor(resyncIntervalMs));
+        this._stalePositionRetryDelayMs = Math.max(
+            0, Math.floor(stalePositionRetryDelayMs));
         this._connection = null;
         this._players = new Map();
         this._selectedName = null;
         this._dbusSignalId = 0;
+        this._resyncTimerId = 0;
+        this._stalePositionTimerId = 0;
         this._cancellable = null;
         this._activitySerial = 0;
         this._playerSerial = 0;
@@ -134,6 +149,8 @@ export class MprisManager {
     }
 
     destroy() {
+        this._stopResyncTimer();
+        this._stopStalePositionTimer();
         this._cancellable?.cancel();
 
         if (this._connection && this._dbusSignalId) {
@@ -344,6 +361,8 @@ export class MprisManager {
             refreshRequestSerial: 0,
             positionFeedbackVersion: 0,
             positionReadPromise: null,
+            awaitingTrackPositionSettle: false,
+            previousTrackPositionUs: 0,
             propertySignalId: 0,
             seekedSignalId: 0,
         };
@@ -405,8 +424,10 @@ export class MprisManager {
 
         this._unsubscribePlayer(player);
         this._players.delete(name);
-        if (this._selectedName === name)
+        if (this._selectedName === name) {
             this._selectedName = null;
+            this._stopStalePositionTimer();
+        }
         this._notifyStateChanged();
     }
 
@@ -540,7 +561,7 @@ export class MprisManager {
         if ((player.propertyVersions.PlaybackStatus ?? 0) <= stateVersion)
             player.playbackStatus = unpackString(properties.PlaybackStatus) || 'Stopped';
         if ((player.propertyVersions.Rate ?? 0) <= stateVersion)
-            player.rate = playbackRate(properties.Rate);
+            player.rate = playbackRate(properties.Rate, player.playbackStatus, player.rate);
         player.anchorPositionUs = positionCurrent && Object.hasOwn(properties, 'Position')
             ? Math.max(0, unpackNumber(properties.Position))
             : positionUs;
@@ -593,11 +614,15 @@ export class MprisManager {
 
         if (Object.hasOwn(changed, 'Metadata')) {
             const oldKey = metadataKey(player.metadata);
+            const previousPositionUs = oldPosition;
             player.metadata = parseMetadata(changed.Metadata);
             if (metadataKey(player.metadata) !== oldKey) {
                 oldPosition = 0;
                 player.anchorPositionUs = 0;
                 player.anchorMonotonicUs = now;
+                player.previousTrackPositionUs = previousPositionUs;
+                player.awaitingTrackPositionSettle = true;
+                this._stopStalePositionTimer();
                 significantChange = true;
                 shouldQueryPosition = true;
                 positionChanged = true;
@@ -608,6 +633,8 @@ export class MprisManager {
             player.anchorPositionUs = oldPosition;
             player.anchorMonotonicUs = now;
             player.playbackStatus = unpackString(changed.PlaybackStatus) || 'Stopped';
+            if (player.playbackStatus !== 'Playing')
+                this._stopStalePositionTimer();
             shouldQueryPosition = true;
             significantChange = true;
             positionChanged = true;
@@ -616,7 +643,8 @@ export class MprisManager {
         if (Object.hasOwn(changed, 'Rate')) {
             player.anchorPositionUs = oldPosition;
             player.anchorMonotonicUs = now;
-            player.rate = playbackRate(changed.Rate);
+            player.rate = playbackRate(
+                changed.Rate, player.playbackStatus, player.rate);
             shouldQueryPosition = true;
             positionChanged = true;
         }
@@ -625,6 +653,9 @@ export class MprisManager {
             player.anchorPositionUs = Math.max(0, unpackNumber(changed.Position));
             player.anchorMonotonicUs = now;
             player.positionFeedbackVersion = player.stateVersion;
+            player.awaitingTrackPositionSettle = false;
+            player.previousTrackPositionUs = 0;
+            this._stopStalePositionTimer();
             shouldQueryPosition = false;
             positionChanged = true;
         }
@@ -666,13 +697,16 @@ export class MprisManager {
         player.propertyVersions.Position = player.stateVersion;
         player.positionFeedbackVersion = player.stateVersion;
         player.positionRequestSerial++;
-        player.anchorPositionUs = Math.max(0, Number(positionUs));
+        player.awaitingTrackPositionSettle = false;
+        player.previousTrackPositionUs = 0;
+        this._stopStalePositionTimer();
+        player.anchorPositionUs = Math.max(0, unpackNumber(positionUs));
         player.anchorMonotonicUs = GLib.get_monotonic_time();
         player.lastActivity = ++this._activitySerial;
         this._notifyStateChanged();
     }
 
-    _queryPosition(player) {
+    _queryPosition(player, {silentThresholdUs = 0} = {}) {
         const requestSerial = ++player.positionRequestSerial;
         return this._trackPositionRead(player, new Promise((resolve, reject) => this._connection.call(
             player.name,
@@ -705,10 +739,35 @@ export class MprisManager {
                     return;
                 }
 
-                player.anchorPositionUs = Math.max(0, unpackNumber(position));
-                player.anchorMonotonicUs = GLib.get_monotonic_time();
+                const now = GLib.get_monotonic_time();
+                const estimatedUs = this._positionAt(player, now);
+                const queriedUs = Math.max(0, unpackNumber(position));
+                const prevPosUs = player.previousTrackPositionUs;
+                const suspiciousStale = player.awaitingTrackPositionSettle &&
+                    queriedUs > 5_000_000 && (
+                        (player.metadata.durationUs > 0 &&
+                            queriedUs >= player.metadata.durationUs - 1_000_000) ||
+                        (prevPosUs > 5_000_000 &&
+                            Math.abs(queriedUs - prevPosUs) <= 3_000_000));
+                player.awaitingTrackPositionSettle = false;
+                player.previousTrackPositionUs = 0;
+
+                if (suspiciousStale && this._stalePositionRetryDelayMs > 0) {
+                    player.positionRequestSerial++;
+                    this._scheduleStalePositionRetry(player);
+                    resolve(true);
+                    return;
+                }
+
+                player.anchorPositionUs = queriedUs;
+                player.anchorMonotonicUs = now;
                 player.positionRequestSerial++;
                 player.positionFeedbackVersion = ++player.stateVersion;
+                if (silentThresholdUs > 0 &&
+                    Math.abs(queriedUs - estimatedUs) < silentThresholdUs) {
+                    resolve(true);
+                    return;
+                }
                 try {
                     this._notifyStateChanged();
                     resolve(true);
@@ -718,12 +777,87 @@ export class MprisManager {
             })));
     }
 
+    _scheduleStalePositionRetry(player) {
+        this._stopStalePositionTimer();
+        if (!this._cancellable || this._stalePositionRetryDelayMs <= 0)
+            return;
+        const playerName = player.name;
+        const generation = player.generation;
+        const trackKey = metadataKey(player.metadata);
+        this._stalePositionTimerId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            this._stalePositionRetryDelayMs,
+            () => {
+                this._stalePositionTimerId = 0;
+                const current = this._players.get(playerName);
+                if (this._cancellable && current === player &&
+                    current.generation === generation &&
+                    metadataKey(current.metadata) === trackKey &&
+                    !current.positionReadPromise && !current.controlRequest)
+                    this._queryPosition(current);
+                return GLib.SOURCE_REMOVE;
+            });
+        GLib.Source.set_name_by_id(
+            this._stalePositionTimerId, '[LyricGlance] track position settle');
+    }
+
+    _stopStalePositionTimer() {
+        if (!this._stalePositionTimerId)
+            return;
+        GLib.source_remove(this._stalePositionTimerId);
+        this._stalePositionTimerId = 0;
+    }
+
+    _updateResyncTimer(selected) {
+        if (!selected || selected.playbackStatus !== 'Playing' ||
+            this._resyncIntervalMs <= 0 || !this._cancellable) {
+            this._stopResyncTimer();
+            return;
+        }
+        if (this._resyncTimerId)
+            return;
+
+        this._resyncTimerId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            this._resyncIntervalMs,
+            () => {
+                const player = this._players.get(this._selectedName);
+                if (!this._cancellable || !player ||
+                    player.playbackStatus !== 'Playing') {
+                    this._resyncTimerId = 0;
+                    return GLib.SOURCE_REMOVE;
+                }
+                if (!player.positionReadPromise && !player.controlRequest) {
+                    this._queryPosition(player, {
+                        silentThresholdUs: DRIFT_NOTIFY_THRESHOLD_US,
+                    });
+                }
+                return GLib.SOURCE_CONTINUE;
+            });
+        GLib.Source.set_name_by_id(
+            this._resyncTimerId, '[LyricGlance] periodic playback drift resync');
+    }
+
+    _stopResyncTimer() {
+        if (!this._resyncTimerId)
+            return;
+        GLib.source_remove(this._resyncTimerId);
+        this._resyncTimerId = 0;
+    }
+
     getDelayUntilPositionUs(targetPositionUs) {
         const player = this._players.get(this._selectedName);
         if (!player || player.playbackStatus !== 'Playing')
             return null;
 
-        const remainingUs = targetPositionUs - this._positionAt(player);
+        const durationUs = player.metadata.durationUs;
+        const currentUs = this._positionAt(player);
+        if (durationUs > 0 &&
+            (targetPositionUs > durationUs ||
+                (currentUs >= durationUs && targetPositionUs >= durationUs)))
+            return null;
+
+        const remainingUs = targetPositionUs - currentUs;
         return Math.max(0, remainingUs / player.rate / 1000);
     }
 
@@ -813,6 +947,7 @@ export class MprisManager {
             }
         }
         this._selectedName = selected?.name ?? null;
+        this._updateResyncTimer(selected);
         this._notifyPlayersChanged();
 
         if (!selected) {

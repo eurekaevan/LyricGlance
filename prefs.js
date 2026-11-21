@@ -4,6 +4,7 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import {clearArtworkCache, countArtworkCache} from './artwork-loader.js';
 import {TranslationCredentialStore} from './credentials.js';
 import {clearLyricsCache, countLyricsCache} from './storage.js';
 import {normalizeLrcApiEndpoint} from './lyrics.js';
@@ -27,7 +28,20 @@ function bumpGeneration(settings, key) {
         : generation + 1);
 }
 
-function comboRow(settings, key, title, choices) {
+function normalizeTargetLanguage(value) {
+    if (typeof value !== 'string')
+        return null;
+    const trimmed = value.trim().replaceAll('_', '-');
+    if (!trimmed || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(trimmed))
+        return null;
+    try {
+        return Intl.getCanonicalLocales(trimmed)[0] ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function comboRow(settings, key, title, choices, signalIds) {
     const values = choices.map(choice => choice.value);
     const selected = Math.max(0, values.indexOf(settings.get_string(key)));
     const row = new Adw.ComboRow({
@@ -40,6 +54,11 @@ function comboRow(settings, key, title, choices) {
         if (settings.get_string(key) !== value)
             settings.set_string(key, value);
     });
+    signalIds.push(settings.connect(`changed::${key}`, () => {
+        const index = values.indexOf(settings.get_string(key));
+        if (index >= 0 && row.selected !== index)
+            row.selected = index;
+    }));
     return row;
 }
 
@@ -72,7 +91,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 {value: 'center', label: _('Center')},
                 {value: 'far-left', label: _('Far left')},
                 {value: 'far-right', label: _('Far right')},
-            ]);
+            ],
+            signalIds);
         panelPositionRow.subtitle =
             _('Left and Right stay near the center; Far positions use the outer edge');
         panelGroup.add(panelPositionRow);
@@ -187,17 +207,47 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const targetLanguageRow = new Adw.EntryRow({
             title: _('Target language'),
             text: settings.get_string('translation-target-language'),
+            show_apply_button: true,
         });
         targetLanguageRow.add_suffix(new Gtk.Label({
             label: _('e.g. zh-CN, en, ja'),
             css_classes: ['dim-label'],
         }));
-        settings.bind(
-            'translation-target-language',
-            targetLanguageRow,
-            'text',
-            Gio.SettingsBindFlags.DEFAULT);
         translationGroup.add(targetLanguageRow);
+        let targetLanguageDirty = false;
+        targetLanguageRow.connect('notify::text', () => {
+            targetLanguageDirty = true;
+            targetLanguageRow.remove_css_class('error');
+        });
+        const saveTargetLanguage = ({notifyInvalid = false} = {}) => {
+            if (!targetLanguageDirty)
+                return true;
+            const language = normalizeTargetLanguage(targetLanguageRow.text);
+            if (!language) {
+                if (notifyInvalid) {
+                    targetLanguageRow.add_css_class('error');
+                    window.add_toast(new Adw.Toast({title: _(
+                        'Enter a valid BCP 47 language code, such as zh-CN, en, or ja')}));
+                }
+                return false;
+            }
+            targetLanguageRow.remove_css_class('error');
+            if (settings.get_string('translation-target-language') !== language)
+                settings.set_string('translation-target-language', language);
+            targetLanguageRow.text = language;
+            targetLanguageDirty = false;
+            return true;
+        };
+        targetLanguageRow.connect('apply', () => {
+            saveTargetLanguage({notifyInvalid: true});
+        });
+        signalIds.push(settings.connect('changed::translation-target-language', () => {
+            const value = settings.get_string('translation-target-language');
+            if (targetLanguageRow.text !== value)
+                targetLanguageRow.text = value;
+            targetLanguageRow.remove_css_class('error');
+            targetLanguageDirty = false;
+        }));
 
         translationGroup.add(comboRow(
             settings,
@@ -207,7 +257,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 {value: 'bilingual', label: _('Original + Translation')},
                 {value: 'original', label: _('Original only')},
                 {value: 'translated', label: _('Translation only')},
-            ]));
+            ],
+            signalIds));
         translationGroup.add(comboRow(
             settings,
             'panel-lyrics-language',
@@ -215,7 +266,8 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             [
                 {value: 'original', label: _('Original')},
                 {value: 'translated', label: _('Translation')},
-            ]));
+            ],
+            signalIds));
         const endpointRow = new Adw.EntryRow({
             title: _('Responses API endpoint'),
             text: settings.get_string('translation-api-endpoint'),
@@ -259,8 +311,10 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 return false;
             }
 
-            settings.set_string('translation-api-endpoint', endpoint);
-            settings.set_string('translation-model', model);
+            if (settings.get_string('translation-api-endpoint') !== endpoint)
+                settings.set_string('translation-api-endpoint', endpoint);
+            if (settings.get_string('translation-model') !== model)
+                settings.set_string('translation-model', model);
             endpointRow.text = endpoint;
             modelRow.text = model;
             backendDirty = false;
@@ -418,8 +472,11 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                         const response = dialog.choose_finish(result);
                         const provider = settings.get_string(
                             'translation-provider');
-                        if (response === 'save' && configured && !entry.text.trim())
+                        if (response === 'save' && !entry.text.trim()) {
+                            if (!configured)
+                                credentialRow.subtitle = _('API key cannot be empty');
                             return;
+                        }
                         if (response === 'save')
                             await credentialStore.store(
                                 provider, entry.text, cancellable);
@@ -563,7 +620,48 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             }
         });
 
+        const artworkCacheRow = new Adw.ActionRow({
+            title: _('Artwork cache'),
+            subtitle: _('Checking cached artwork…'),
+        });
+        const clearArtworkButton = new Gtk.Button({
+            label: _('Clear Artwork Cache'),
+            valign: Gtk.Align.CENTER,
+        });
+        clearArtworkButton.add_css_class('destructive-action');
+        artworkCacheRow.add_suffix(clearArtworkButton);
+        storageGroup.add(artworkCacheRow);
+        const updateArtworkCacheCount = async () => {
+            try {
+                const count = await countArtworkCache(undefined, cancellable);
+                if (!cancellable.is_cancelled()) {
+                    artworkCacheRow.subtitle = ngettext(
+                        '%d cached image', '%d cached images', count).format(count);
+                }
+            } catch {
+                if (!cancellable.is_cancelled())
+                    artworkCacheRow.subtitle = _('Could not inspect cache');
+            }
+        };
+        updateArtworkCacheCount();
+        clearArtworkButton.connect('clicked', async () => {
+            clearArtworkButton.sensitive = false;
+            try {
+                await clearArtworkCache(undefined, cancellable);
+                if (cancellable.is_cancelled())
+                    return;
+                await updateArtworkCacheCount();
+            } catch {
+                if (!cancellable.is_cancelled())
+                    artworkCacheRow.subtitle = _('Could not clear artwork cache');
+            } finally {
+                if (!cancellable.is_cancelled())
+                    clearArtworkButton.sensitive = true;
+            }
+        });
+
         window.connect('close-request', () => {
+            saveTargetLanguage();
             saveBackend();
             cancellable.cancel();
             cancelConnectionCheck();

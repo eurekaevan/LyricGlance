@@ -117,6 +117,30 @@ server.add_handler(null, (_server, message) => {
             }})));
         return;
     }
+    if (mode === 'reject-reasoning-invalid-value' && observed.body.reasoning) {
+        message.set_status(Soup.Status.BAD_REQUEST, null);
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(JSON.stringify({error: {
+                code: 'invalid_value',
+                param: 'reasoning.effort',
+                message: "Invalid value: 'none'. Supported values are: 'low', 'medium', and 'high'.",
+            }})));
+        return;
+    }
+    if (mode === 'reject-reasoning-422' && observed.body.reasoning) {
+        message.set_status(422, null);
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(JSON.stringify({error: {
+                param: 'reasoning.effort',
+                message: 'reasoning.effort must be one of low, medium, high',
+            }})));
+        return;
+    }
+    if (mode === 'gateway-503' && requestCount === 1) {
+        message.set_status(503, null);
+        message.get_response_headers().append('Retry-After', '0');
+        return;
+    }
     if (mode === 'redirect') {
         message.set_status(Soup.Status.TEMPORARY_REDIRECT, null);
         message.get_response_headers().append(
@@ -149,7 +173,18 @@ server.add_handler(null, (_server, message) => {
                     ? '  '
                     : mixedTranslations[mixedLyrics.lines.findIndex(original =>
                         original.lineId === line.id)]})));
-    else {
+    else if (mode === 'fenced-json') {
+        const inputLines = JSON.parse(observed.body.input).lines;
+        const inner = JSON.stringify({
+            lines: inputLines.map(line => ({id: line.id, text: `[zh-CN] ${line.text}`})),
+        });
+        output = JSON.stringify({
+            output: [{
+                type: 'message',
+                content: [{type: 'output_text', text: `\`\`\`json\n${inner}\n\`\`\``}],
+            }],
+        });
+    } else {
         const inputLines = JSON.parse(observed.body.input).lines;
         output = response(inputLines.map(line => ({
             id: mode === 'alias-duplicate' ? inputLines[0].id : line.id,
@@ -379,12 +414,37 @@ async function run() {
     provider.destroy();
     mode = 'success';
 
+    for (const reasoningMode of ['reject-reasoning-invalid-value', 'reject-reasoning-422']) {
+        mode = reasoningMode;
+        requestCount = 0;
+        provider = new OpenAITranslationProvider({endpoint, model: 'o3-mini'});
+        result = await translate(provider);
+        assert(result.length === 2 && requestCount === 2 &&
+            !Object.hasOwn(observed.body, 'reasoning'),
+        `${reasoningMode}: models rejecting reasoning.effort=none must retry without reasoning`);
+        provider.destroy();
+    }
+    mode = 'fenced-json';
+    provider = new OpenAITranslationProvider({endpoint});
+    result = await translate(provider);
+    assert(result.length === 2 && result[0].text === '[zh-CN] Hello',
+        'markdown code fences around valid JSON should be stripped before strict validation');
+    provider.destroy();
+    mode = 'gateway-503';
+    requestCount = 0;
+    provider = new OpenAITranslationProvider({endpoint});
+    result = await translate(provider);
+    assert(result.length === 2 && requestCount === 2,
+        'transient HTTP 503 gateway errors should retry once');
+    provider.destroy();
+    mode = 'success';
+
     provider = new OpenAITranslationProvider({endpoint, model: 'connection-test-model'});
     await provider.checkConnection('connection-test-token', null);
     const probe = JSON.parse(observed.body.input);
     assert(observed.body.model === 'connection-test-model' &&
         observed.authorization === 'Bearer connection-test-token' &&
-        observed.body.max_output_tokens === 512 &&
+        observed.body.max_output_tokens === 2048 &&
         probe.lines.length === 1 && probe.lines[0].text === 'Hello' &&
         probe.title === '' && probe.artist === '' && observed.body.store === false,
     'connection checks must validate the configured model with a small synthetic request');

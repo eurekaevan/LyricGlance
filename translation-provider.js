@@ -149,6 +149,12 @@ async function delay(milliseconds, cancellable) {
     }
 }
 
+function stripMarkdownFence(text) {
+    const trimmed = text.trim();
+    const match = /^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(trimmed);
+    return match ? match[1].trim() : trimmed;
+}
+
 function outputText(response) {
     if (!response || !Array.isArray(response.output))
         throw invalidResponse('missing_output');
@@ -252,6 +258,7 @@ export class OpenAITranslationProvider {
         this._endpoint = normalizeTranslationEndpoint(endpoint);
         this.configurationId = providerConfigurationId(this._endpoint);
         this._reasoningEffort = reasoningEffort;
+        this._cooldownUntilUs = 0;
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
@@ -269,7 +276,7 @@ export class OpenAITranslationProvider {
             credential,
             sourceLanguage: 'en',
             targetLanguage: 'zh-CN',
-            maxOutputTokens: 512,
+            maxOutputTokens: 2048,
             chunk: {
                 lines: [{id: 'connection-check', text: 'Hello'}],
                 contextBefore: [],
@@ -285,6 +292,21 @@ export class OpenAITranslationProvider {
         if (!this.model)
             throw new TranslationProviderError(
                 'provider_error', 'Translation model is not configured');
+
+        const retryDelayLimitMs = Math.min(MAX_RATE_LIMIT_DELAY_MS,
+            (this._session.timeout || Infinity) * 1000);
+        if (attempt === 0) {
+            const remainingCooldownMs =
+                (this._cooldownUntilUs - GLib.get_monotonic_time()) / 1000;
+            if (remainingCooldownMs > 0) {
+                if (remainingCooldownMs > retryDelayLimitMs) {
+                    throw new TranslationProviderError(
+                        'rate_limited',
+                        'Translation provider rate limited the request');
+                }
+                await delay(remainingCooldownMs, cancellable);
+            }
+        }
 
         const message = this._endpoint
             ? Soup.Message.new('POST', this._endpoint)
@@ -350,15 +372,30 @@ export class OpenAITranslationProvider {
         if (status === 429) {
             const retryAfterMs = translationRetryAfterMs(
                 message.get_response_headers().get_one('Retry-After'));
-            const retryDelayLimitMs = Math.min(MAX_RATE_LIMIT_DELAY_MS,
-                (this._session.timeout || Infinity) * 1000);
-            if (attempt < MAX_RATE_LIMIT_RETRIES && retryAfterMs <= retryDelayLimitMs) {
-                await delay(retryAfterMs, cancellable);
+            const nowUs = GLib.get_monotonic_time();
+            const remainingCooldownMs = Math.max(
+                0, (this._cooldownUntilUs - nowUs) / 1000);
+            const waitMs = Math.max(retryAfterMs, Math.ceil(remainingCooldownMs));
+            if (attempt < MAX_RATE_LIMIT_RETRIES && waitMs <= retryDelayLimitMs) {
+                this._cooldownUntilUs = Math.max(
+                    this._cooldownUntilUs, nowUs + waitMs * 1000);
+                await delay(waitMs, cancellable);
                 return this._request(
                     document, options, cancellable, attempt + 1);
             }
             throw new TranslationProviderError(
                 'rate_limited', 'Translation provider rate limited the request');
+        }
+        if ([502, 503, 504].includes(status) && attempt < MAX_RATE_LIMIT_RETRIES) {
+            const retryHeader = message.get_response_headers().get_one('Retry-After');
+            const waitMs = retryHeader
+                ? translationRetryAfterMs(retryHeader)
+                : 1000;
+            if (waitMs <= retryDelayLimitMs) {
+                await delay(waitMs, cancellable);
+                return this._request(
+                    document, options, cancellable, attempt + 1);
+            }
         }
         if (status === 401 || status === 403 && apiError?.code === 'invalid_api_key') {
             throw new TranslationProviderError(
@@ -370,11 +407,13 @@ export class OpenAITranslationProvider {
         }
         const reasoningParam = ['reasoning', 'reasoning.effort'].includes(apiError?.param);
         const unsupportedReasoning = (reasoningParam &&
-            ['unsupported_parameter', 'unsupported_value', 'unknown_parameter'].includes(apiError?.code)) ||
+            ['unsupported_parameter', 'unsupported_value', 'unknown_parameter',
+                'invalid_value'].includes(apiError?.code)) ||
             (typeof apiError?.message === 'string' &&
                 (reasoningParam || /\breasoning(?:[._ ]effort)?\b/i.test(apiError.message)) &&
-                /unsupported|not supported|unknown parameter|unrecognized/i.test(apiError.message));
-        if (status === 400 && reasoningEffort && unsupportedReasoning) {
+                /unsupported|not supported|unknown parameter|unrecognized|invalid value|must be one of|does not support/i
+                    .test(apiError.message));
+        if ((status === 400 || status === 422) && reasoningEffort && unsupportedReasoning) {
             // Each in-flight request owns its retry, even if a sibling already
             // disabled reasoning for subsequent requests on this provider.
             this._reasoningEffort = null;
@@ -399,7 +438,7 @@ export class OpenAITranslationProvider {
         const text = outputText(response);
         let translated;
         try {
-            translated = JSON.parse(text);
+            translated = JSON.parse(stripMarkdownFence(text));
         } catch {
             throw invalidResponse('translation_json');
         }
@@ -427,6 +466,7 @@ export class OpenAITranslationProvider {
     }
 
     destroy() {
+        this._cooldownUntilUs = 0;
         this._session.abort();
         this._session = null;
     }

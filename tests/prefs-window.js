@@ -157,6 +157,37 @@ application.connect('activate', async app => {
                     preferences.getSettings().get_string('lrcapi-endpoint') === lrcApiEndpoint.text,
                 'applying a loopback endpoint should persist it');
                 lrcApiSwitch.active = false;
+                const targetLanguageRow = widgets.find(widget =>
+                    widget instanceof Adw.EntryRow &&
+                    widget.title === uiText('Target language', '目标语言', '目標語言'));
+                const panelPositionRow = widgets.find(widget =>
+                    widget instanceof Adw.ComboRow &&
+                    widget.title === uiText('Panel position', '顶栏位置', '頂欄位置'));
+                const clearArtworkButton = widgets.find(widget =>
+                    widget instanceof Gtk.Button &&
+                    widget.label === uiText('Clear Artwork Cache', '清除封面缓存', '清除封面快取'));
+                assert(targetLanguageRow && panelPositionRow && clearArtworkButton,
+                    'preferences should expose target language, panel position and artwork cache controls');
+                const settings = preferences.getSettings();
+                targetLanguageRow.text = 'zh-';
+                assert(settings.get_string('translation-target-language') === 'zh-CN',
+                    'typing into target language must not write partial values on every keystroke');
+                targetLanguageRow.emit('apply');
+                assert(targetLanguageRow.has_css_class('error') &&
+                    settings.get_string('translation-target-language') === 'zh-CN',
+                'an invalid BCP 47 target language must be rejected on Apply');
+                targetLanguageRow.text = 'ja';
+                targetLanguageRow.emit('apply');
+                assert(!targetLanguageRow.has_css_class('error') &&
+                    settings.get_string('translation-target-language') === 'ja',
+                'applying a valid target language should persist it');
+                targetLanguageRow.text = 'zh-CN';
+                targetLanguageRow.emit('apply');
+                settings.set_string('panel-position', 'far-right');
+                assert(panelPositionRow.selected === 4,
+                    'ComboRow should stay synchronized with external GSettings changes');
+                settings.set_string('panel-position', 'center');
+
                 const endpointRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText(
@@ -171,7 +202,6 @@ application.connect('activate', async app => {
                 'preferences should expose the configurable translation backend');
                 if (screenshotPath)
                     await takeWidgetScreenshot(window, screenshotPath);
-                const settings = preferences.getSettings();
                 endpointRow.text = 'https://proxy.example/v1/responses';
                 modelRow.text = 'custom-translation-model';
                 applyButton.emit('clicked');

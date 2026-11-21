@@ -81,7 +81,7 @@ function hasValidWordTimings(lines) {
     let timedTextLineCount = 0;
 
     for (const line of lines) {
-        if (!line.text && line.words.length === 0)
+        if (!line.text.trim() && line.words.length === 0)
             continue;
 
         timedTextLineCount++;

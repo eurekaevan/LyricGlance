@@ -378,7 +378,10 @@ export class LyricsDiskCache {
             ages.push({info, lastAccessed});
         }
         ages.sort((a, b) => a.lastAccessed - b.lastAccessed);
-        for (const {info} of ages.slice(0, ages.length - this._maxEntries)) {
+        const target = this._maxEntries >= 10
+            ? Math.max(1, Math.floor(this._maxEntries * 0.9))
+            : this._maxEntries;
+        for (const {info} of ages.slice(0, ages.length - target)) {
             try {
                 await this._directory.get_child(info.get_name())
                     .delete_async(GLib.PRIORITY_DEFAULT, cancellable);

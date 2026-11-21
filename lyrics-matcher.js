@@ -16,7 +16,8 @@ function normalizeText(value) {
 
 function normalizeBaseTitle(value) {
     return normalizeText(String(value ?? '')
-        .replace(/[([][^\])]*(?:remaster(?:ed)?|deluxe|explicit|clean|radio edit|single version|album version)[^\])]*[)\]]/gi, ' ')
+        .replace(/[([（][^\])）]*(?:remaster(?:ed)?|deluxe|explicit|clean|radio edit|single version|album version)[^\])）]*[)\]）]/gi, ' ')
+        .replace(/[([（]\s*\d{4}\s*[)\]）]/g, ' ')
         .replace(/[-–—]\s*(?:\d{4}\s*)?remaster(?:ed)?\b.*$/i, ' '));
 }
 
@@ -77,7 +78,7 @@ function durationScore(track, candidate) {
         return {durationDelta, points: 32};
     if (durationDelta <= 4)
         return {durationDelta, points: 25};
-    if (durationDelta <= 8)
+    if (durationDelta <= 6)
         return {durationDelta, points: 10};
     return {durationDelta, points: -25};
 }
@@ -86,8 +87,8 @@ export function scoreLyricsCandidate(track, candidate) {
     const titleMatch = titleSimilarity(
         track.title, candidate?.trackName ?? candidate?.name);
     const artistMatch = artistSimilarity(track.artist, candidate?.artistName);
-    const albumMatch = track.album
-        ? titleSimilarity(track.album, candidate?.albumName)
+    const albumMatch = track.album && candidate?.albumName
+        ? titleSimilarity(track.album, candidate.albumName)
         : 0.5;
     const {durationDelta, points: durationPoints} =
         durationScore(track, candidate ?? {});

@@ -91,7 +91,9 @@ export function normalizeLrcApiEndpoint(endpoint) {
 function bestLyricsCandidate(track, candidates) {
     const accepted = rankLyricsCandidates(track, candidates).filter(item =>
         item.accepted && (item.document.instrumental || item.document.lines.length));
-    return accepted.find(item => item.document.syncLevel !== 'none') ?? accepted[0];
+    return accepted.find(item =>
+        item.document.instrumental || item.document.syncLevel !== 'none') ??
+        accepted[0];
 }
 
 export function retryAfterDelayMs(value, now = Date.now(), fallbackMs = 5000) {
@@ -460,16 +462,21 @@ export class LyricsProvider {
                         .filter(item => item && typeof item.title === 'string' &&
                             typeof item.artist === 'string' &&
                             (typeof item.lyrics === 'string' || typeof item.lrc === 'string'))
-                        .map(item => ({
-                            provider: 'lrcapi',
-                            trackName: item.title,
-                            artistName: item.artist,
-                            albumName: typeof item.album === 'string' ? item.album : '',
-                            duration: Number.isFinite(item.duration) && item.duration > 0
-                                ? item.duration : null,
-                            syncedLyrics: item.lrc,
-                            plainLyrics: item.lyrics,
-                        }));
+                        .map(item => {
+                            const duration = item.duration === null || item.duration === ''
+                                ? Number.NaN
+                                : Number(item.duration);
+                            return {
+                                provider: 'lrcapi',
+                                trackName: item.title,
+                                artistName: item.artist,
+                                albumName: typeof item.album === 'string' ? item.album : '',
+                                duration: Number.isFinite(duration) && duration > 0
+                                    ? duration : null,
+                                syncedLyrics: item.lrc,
+                                plainLyrics: item.lyrics,
+                            };
+                        });
                     const best = bestLyricsCandidate(track, candidates);
                     if (best && (!this._pendingPlainLyrics || best.document.syncLevel !== 'none' ||
                         !this._pendingPlainLyrics.document.source.startsWith('lrclib'))) {
@@ -489,7 +496,8 @@ export class LyricsProvider {
                         return;
                     }
 
-                    this._usePrimaryLyrics(track, key, serial, best.candidate, best.document);
+                    this._usePrimaryLyrics(
+                        track, key, serial, best.candidate, best.document, 'search');
                     return;
                 }
 
@@ -498,21 +506,15 @@ export class LyricsProvider {
                     // Preserve the provider payload even when today's parser
                     // cannot render it. A future parser can retry from disk
                     // without discarding the original Lyricsfile.
-                    if (this._lrcApiUrl) {
-                        if (['lyricsfile', 'syncedLyrics', 'plainLyrics'].some(field =>
-                            typeof json?.[field] === 'string' && json[field].trim()))
-                            this._pendingRawPayload = {track, payload: json};
-                        this._scheduleStage(track, key, serial, 'lrcapi',
-                            this._spacingDelayMs(), 0);
-                    } else {
-                        this._remember(key, null);
-                        this._persist(track, json);
-                        this._complete(serial, null);
-                    }
+                    if (['lyricsfile', 'syncedLyrics', 'plainLyrics'].some(field =>
+                        typeof json?.[field] === 'string' && json[field].trim()))
+                        this._pendingRawPayload = {track, payload: json};
+                    this._scheduleStage(track, key, serial, 'search',
+                        this._spacingDelayMs(), 0);
                     return;
                 }
 
-                this._usePrimaryLyrics(track, key, serial, json, document);
+                this._usePrimaryLyrics(track, key, serial, json, document, 'get');
             }).catch(error => {
                 if (this._cancellable === cancellable)
                     this._cancellable = null;
@@ -528,11 +530,27 @@ export class LyricsProvider {
             });
     }
 
-    _usePrimaryLyrics(track, key, serial, payload, document) {
-        if (this._lrcApiUrl && !document.instrumental && document.syncLevel === 'none') {
-            if (document.lines.length)
+    _usePrimaryLyrics(track, key, serial, payload, document, stage) {
+        if (!document.instrumental && document.syncLevel === 'none') {
+            if (document.lines.length &&
+                (!this._pendingPlainLyrics || stage === 'get'))
                 this._pendingPlainLyrics = {track, payload, document};
-            this._scheduleStage(track, key, serial, 'lrcapi', this._spacingDelayMs(), 0);
+            if (stage === 'get') {
+                this._scheduleStage(track, key, serial, 'search',
+                    this._spacingDelayMs(), 0);
+                return;
+            }
+            if (this._lrcApiUrl) {
+                this._scheduleStage(track, key, serial, 'lrcapi',
+                    this._spacingDelayMs(), 0);
+                return;
+            }
+            const plain = this._pendingPlainLyrics;
+            const chosen = plain ?? {track, payload, document};
+            this._remember(key, chosen.document);
+            this._persist(chosen.track, chosen.payload);
+            this._pendingPlainLyrics = null;
+            this._complete(serial, chosen.document);
             return;
         }
         this._remember(key, document);
@@ -545,8 +563,15 @@ export class LyricsProvider {
             this._scheduleStage(track, key, serial, 'lrcapi', this._spacingDelayMs(), 0);
             return;
         }
+        if (this._pendingPlainLyrics) {
+            const plain = this._pendingPlainLyrics;
+            this._remember(key, plain.document);
+            this._complete(serial, plain.document);
+            return;
+        }
         this._remember(key, null);
-        this._persist(track, null);
+        if (!this._pendingRawPayload)
+            this._persist(track, null);
         this._complete(serial, null);
     }
 

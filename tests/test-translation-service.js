@@ -175,6 +175,24 @@ async function run() {
         'short/repeated samples and mixed languages must not cause an automatic skip');
     assert(sourceLyricsLanguage({metadata: {language: 'ja'}, lines: [{text: languageSamples.zh}]}) === 'ja',
         'explicit source language takes priority over statistical detection');
+    assert(sourceLyricsLanguage({lines: [
+        {text: '爱の初体验故事的小黄花从出生那年就飘着童年的荡秋千随记忆一直晃到现在'},
+        {text: '吹着前奏望着天空我想起花瓣试着掉落为你翘课的那一天花落的那一天'},
+        {text: '心の世界教室的那一间我怎么看不见消失的下雨天我好想再淋一遍'},
+        {text: '没想到失去的勇气我还留着好想再问一遍你会等待还是离开刮风这天我试过握着你手'},
+    ]}) === 'zh', 'Chinese lyrics with stylized の must not be misclassified as Japanese');
+    assert(sourceLyricsLanguage({lines: [
+        {text: 'Producer: Jay Chou / Mixing: Gary Yang'},
+        {text: '故事的小黄花从出生那年就飘着童年的荡秋千随记忆一直晃到现在'},
+        {text: '吹着前奏望着天空我想起花瓣试着掉落为你翘课的那一天花落的那一天'},
+        {text: '教室的那一间我怎么看不见消失的下雨天我好想再淋一遍'},
+        {text: '没想到失去的勇气我还留着好想再问一遍你会等待还是离开'},
+    ]}) === 'zh', 'credit lines with English names must not prevent same-language skipping');
+    assert(sourceLyricsLanguage({lines: [
+        {text: '故事的小黄花从出生那年就飘着童年的荡秋千随记忆一直晃到现在'},
+        {text: '吹着前奏望着天空我想起花瓣试着掉落为你翘课的那一天花落的那一天'},
+        {text: '教室的那一间我怎么看不见消失的下雨天'},
+    ]}) === 'zh', 'concise Chinese lyrics (>= 60 Han chars) should be detected offline');
 
     const cache = new TranslationDiskCache({cacheRoot: tempRoot});
     const provider = new MockTranslationProvider();
@@ -401,10 +419,28 @@ async function run() {
     assert(result.status === TranslationStatus.SAME_LANGUAGE &&
         provider.requestCount === requestsBeforeSkip,
         'explicit equivalent source and target languages should skip translation');
+    result = await service.translate(lyricsDocument({language: 'zh'}),
+        options({ignoreSameLanguage: true, forceRefresh: true}));
+    assert(result.status === TranslationStatus.AVAILABLE &&
+        provider.requestCount === requestsBeforeSkip + 1,
+        'explicit ignoreSameLanguage override should allow manual translation');
+    const requestsAfterOverride = provider.requestCount;
+    const symbolOnlyLyrics = createLyricsDocument({
+        source: 'test',
+        lines: [{text: '♪', startMs: 0, endMs: 1000}, {text: '---', startMs: 1000, endMs: 2000}],
+    });
+    result = await service.translate(symbolOnlyLyrics, options());
+    assert(result.status === TranslationStatus.SKIPPED &&
+        provider.requestCount === requestsAfterOverride,
+        'symbol-only lyrics should be skipped without contacting the provider');
+    const paddedTargetHit = await secondService.translate(lyrics,
+        options({targetLanguage: ' zh-CN '}));
+    assert(paddedTargetHit.status === TranslationStatus.AVAILABLE && paddedTargetHit.fromCache,
+        'target language whitespace should normalize before cache lookup');
     result = await service.translate(lyricsDocument({language: 'zh_CN'}),
         options({providerId: 'not-configured', forceRefresh: true}));
     assert(result.status === TranslationStatus.SAME_LANGUAGE &&
-        provider.requestCount === requestsBeforeSkip,
+        provider.requestCount === requestsAfterOverride,
     'same-language lyrics must skip translation even without a configured provider');
     const unmarkedLyrics = createLyricsDocument({
         source: 'test',
@@ -412,11 +448,11 @@ async function run() {
     });
     result = await service.translate(unmarkedLyrics,
         options({targetLanguage: 'en-US', providerId: 'not-configured', forceRefresh: true}));
-    assert(result.status === TranslationStatus.SAME_LANGUAGE && provider.requestCount === requestsBeforeSkip,
+    assert(result.status === TranslationStatus.SAME_LANGUAGE && provider.requestCount === requestsAfterOverride,
         'confidently identified unmarked lyrics must skip translation without provider configuration');
     result = await service.translate(unmarkedLyrics,
         options({targetLanguage: 'zh-CN', forceRefresh: true}));
-    assert(result.status === TranslationStatus.AVAILABLE && provider.requestCount === requestsBeforeSkip + 1,
+    assert(result.status === TranslationStatus.AVAILABLE && provider.requestCount === requestsAfterOverride + 1,
         'identified lyrics in a different language must still be translated');
 
     const missingModelService = new TranslationService({

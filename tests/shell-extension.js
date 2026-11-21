@@ -274,11 +274,10 @@ export async function run() {
         settings.get_int('global-offset-ms') === 0 &&
         settings.get_string('preferred-player') === 'auto',
     'the packaged GSettings schema should expose the Phase 5 defaults');
-    assert(view._panelBox.natural_width === 320 &&
+    assert(view._panelBox.natural_width === 500 &&
         view._panelBox.natural_width_set &&
-        !view._panelBox.get_style().includes('width: 320px') &&
-        view._panelBox.get_style().includes('max-width: 500px') &&
-        view._labelViewport.get_style().includes('298px') &&
+        view._panelBox.get_style().trim() === 'max-width: 500px;' &&
+        view._labelViewport.get_style().includes('478px') &&
         view._labelViewport.clip_to_allocation && view._icon.visible &&
         Main.panel._centerBox.contains(indicator.container),
         'the default preferred and maximum panel widths should apply immediately');
@@ -383,7 +382,7 @@ export async function run() {
         `${longPanel.width.toFixed(1)},${finalShortPanel.width.toFixed(1)}`);
     print(`panelCenterDelta=${(longPanel.center - shortPanel.center).toFixed(1)},` +
         `iconDelta=${(longPanel.iconX - shortPanel.iconX).toFixed(1)}`);
-    assert(shortPanel.width === 320 && longPanel.width === shortPanel.width &&
+    assert(shortPanel.width === 500 && longPanel.width === shortPanel.width &&
         Math.abs(finalShortPanel.width - shortPanel.width) < 1 &&
         Math.abs(finalShortPanel.center - shortPanel.center) < 1 &&
         Math.abs(longPanel.iconX - shortPanel.iconX) < 1,
@@ -1384,8 +1383,8 @@ export async function run() {
     slider.emit('drag-end');
     view.setProgress(21_000_000, 220_000_000);
     assert(slider.value === 0.5 && progress._currentLabel.text === '1:50' &&
-        progress._seekPending && view._mediaBusy,
-    'a pending seek must retain its preview despite an old clock tick');
+        progress._seekPending && view._mediaBusy && slider.can_focus && !slider.reactive,
+    'a pending seek must retain its preview and keyboard focusability despite an old clock tick');
     view.setProgress(111_000_000, 220_000_000);
     assert(slider.value === 0.5,
         'authoritative progress should be recorded without replacing the pending preview');
@@ -1704,18 +1703,31 @@ export async function run() {
     const realOffsetStore = instance._offsetStore;
     const realLyricsProvider = instance._lyricsProvider;
     const initialTranslationService = instance._translationService;
+    let serviceCreations = 0;
+    const origCreateService = instance._createTranslationService.bind(instance);
+    instance._createTranslationService = () => {
+        serviceCreations++;
+        return origCreateService();
+    };
+    settings.set_string('translation-api-endpoint', 'https://proxy.example/v1/responses');
     settings.set_string('translation-model', 'custom-runtime-model');
-    await Scripting.sleep(50);
-    assert(instance._translationService !== initialTranslationService,
-        'changing the translation model should replace the provider service');
+    await Scripting.sleep(80);
+    assert(serviceCreations === 1 &&
+        instance._translationService !== initialTranslationService,
+    `simultaneous endpoint and model changes should coalesce into one service replacement (count=${serviceCreations})`);
     assert(initialTranslationService._providers.size === 0,
         'replacing the translation service should destroy the old provider');
     assert(instance._translationService._providers.get('openai').model ===
-        'custom-runtime-model',
-    'the replacement provider should use the newly configured model');
+        'custom-runtime-model' &&
+        instance._translationService._providers.get('openai')._endpoint ===
+            'https://proxy.example/v1/responses',
+    'the coalesced replacement provider should use both newly configured values');
+    instance._createTranslationService = origCreateService;
+    settings.set_string(
+        'translation-api-endpoint', 'https://api.openai.com/v1/responses');
     settings.set_string(
         'translation-model', 'gpt-5.4-mini-2026-03-17');
-    await Scripting.sleep(50);
+    await Scripting.sleep(80);
     const realTranslationService = instance._translationService;
     let runtimeCacheClears = 0;
     let lyricFetches = 0;
@@ -1729,6 +1741,7 @@ export async function run() {
     };
     let translationRequests = 0;
     const translationForceRequests = [];
+    const translationIgnoreSameRequests = [];
     let translationCacheClears = 0;
     instance._translationService = {
         cancelAll() {},
@@ -1736,6 +1749,7 @@ export async function run() {
         translate(document, request) {
             translationRequests++;
             translationForceRequests.push(request.forceRefresh);
+            translationIgnoreSameRequests.push(Boolean(request.ignoreSameLanguage));
             request.onStatus?.({status: 'loading'});
             return Promise.resolve({
                 status: 'available',
@@ -2253,11 +2267,11 @@ export async function run() {
 
     settings.set_boolean('show-icon', false);
     assert(view._label.text === 'First' && !view._icon.visible &&
-        view._labelViewport.get_style().includes('320px'),
+        view._labelViewport.get_style().includes('500px'),
     'show-icon should hide only the symbolic icon and release its width');
     settings.set_boolean('show-icon', true);
     assert(view._label.text === 'First' && view._icon.visible &&
-        view._labelViewport.get_style().includes('298px'),
+        view._labelViewport.get_style().includes('478px'),
     'show-icon should restore the symbolic icon without changing lyric text');
 
     settings.set_boolean('word-sync-enabled', false);
@@ -2286,9 +2300,26 @@ export async function run() {
     await Scripting.sleep(50);
     assert(translationRequests === 2 && translationForceRequests[1] === true,
         'the popup Refresh action should issue one forced translation request');
+    // A failed Refresh while an existing translation is displayed must keep
+    // forceRefresh: true when the user clicks Retry.
+    view.setTranslationState('network_error');
+    view._translationActionButton.emit('clicked', 1);
+    await Scripting.sleep(50);
+    assert(translationRequests === 3 && translationForceRequests[2] === true,
+        'retrying a failed Refresh must bypass the stale cache');
+    // Same-language state must offer an explicit manual override.
+    view.setTranslation(null);
+    view.setTranslationState('same_language');
+    assert(view._translationActionButton.visible && view._translationActionButton.reactive &&
+        view._translationActionButton.label === uiText('Translate anyway', '仍要翻译', '仍要翻譯'),
+    'same-language status must expose a manual Translate anyway action');
+    view._translationActionButton.emit('clicked', 1);
+    await Scripting.sleep(50);
+    assert(translationRequests === 4 && translationIgnoreSameRequests[3] === true,
+        'Translate anyway must pass ignoreSameLanguage to override automatic skip');
     settings.set_int('translation-cache-clear-generation', 1);
     await Scripting.sleep(50);
-    assert(translationCacheClears === 1 && translationRequests === 3,
+    assert(translationCacheClears === 1 && translationRequests === 5,
         'translation cache clearing should remain separate and reload automatically');
     const mockTranslationService = instance._translationService;
     const translationStateSetter = view.setTranslationState;
@@ -2360,14 +2391,14 @@ export async function run() {
 
     settings.set_int('max-panel-width', 640);
     assert(view._panelBox.get_style().includes('640px') &&
-        view._panelBox.natural_width === 320 &&
-        view._labelViewport.get_style().includes('298px'),
-        'maximum panel width should update without extension restart');
+        view._panelBox.natural_width === 640 &&
+        view._labelViewport.get_style().includes('618px'),
+        'maximum panel width above 320px should expand the lyric viewport immediately');
     settings.set_int('max-panel-width', 200);
     assert(view._panelBox.get_style().includes('200px') &&
         view._panelBox.natural_width === 200 &&
         view._labelViewport.get_style().includes('178px'),
-        'a configured maximum below the preferred width should cap both widths');
+        'a configured maximum below the default width should cap both widths');
     settings.set_int('max-panel-width', 500);
 
     const reducedMotionSettings = St.Settings.get();
@@ -2384,7 +2415,8 @@ export async function run() {
     view.setText('Reduced motion');
     view.setProgress(10_000_000, 220_000_000, {playing: true});
     view.setProgress(10_010_000, 220_000_000, {playing: true});
-    view.setText(panningText, {
+    const pagedText = `${panningText} and still more trailing words to span three timed pages`;
+    view.setText(pagedText, {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
@@ -2431,12 +2463,12 @@ export async function run() {
     assert(view._panelWordTimeoutId === 0 &&
         view._panelPanLabel.translation_x === hoveredPageX,
     'hovering must freeze the reduced-motion page and cancel its boundary timer');
-    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
+    view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
     await Scripting.sleep(80);
     assert(view._panelPanLabel.translation_x === hoveredPageX && view._panelPanPaused &&
         view._panelWordTimeoutId === 0,
     'background resynchronization must not advance a hovered reduced-motion page');
-    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 2000)});
+    view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 2000)});
     view._panelHovered = false;
     view._resumePanelPan();
     await Scripting.sleep(80);
@@ -2446,12 +2478,12 @@ export async function run() {
         indicator.menu.open();
         view.setProgress(10_010_000, 220_000_000, {playing: true});
     }
-    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
+    view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
     await Scripting.sleep(80);
     const finalPageX = view._panelPanLabel.translation_x;
     assert(finalPageX < hoveredPageX && view._panelWordTimeoutId === 0,
         'seeking to the line ending must show its last page without a pending timer');
-    view.setText(panningText, {scrollable: true, timeline: panelTimeline(5000, 1000)});
+    view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 1000)});
     await Scripting.sleep(80);
     assert(view._panelPanLabel.translation_x > finalPageX &&
         view._panelWordTimeoutId !== 0,
@@ -2513,9 +2545,45 @@ export async function run() {
     settings.set_boolean('hide-when-paused', true);
     assert(!indicator.visible,
         'hide-when-paused should immediately hide a paused track');
+    const savedPlaybackStatus = instance._state.playbackStatus;
+    instance._state = {...instance._state, playbackStatus: 'Stopped'};
+    instance._updateIndicatorAndSchedule(true);
+    assert(!indicator.visible,
+        'hide-when-paused should also hide a stopped track');
+    instance._state = {...instance._state, playbackStatus: savedPlaybackStatus};
     settings.set_boolean('hide-when-paused', false);
     assert(indicator.visible,
         'disabling hide-when-paused should immediately restore the item');
+
+    // Multiline merged LRC lines must flatten cleanly in the single-line top bar.
+    const prevDoc = instance._lyricsDocument;
+    instance._lyricsDocument = {
+        ...offsetDocument,
+        lines: [{lineId: 'bilingual-0', startMs: 0, endMs: 5000, words: [],
+            text: 'Original line\nTranslated line'}],
+    };
+    instance._updateIndicatorAndSchedule(true);
+    assert(view._label.text === 'Original line  Translated line',
+        'multiline merged lyrics must flatten newlines for the single-line panel');
+    instance._lyricsDocument = prevDoc;
+    instance._updateIndicatorAndSchedule(true);
+
+    // RTL synchronized lyrics must start at the right end (-distance) and pan rightward.
+    const rtlSample = 'مرحبا بالعالم هذه أغنية عربية طويلة جدا لاختبار اتجاه التمرير الصحيح '.repeat(3);
+    view.setProgress(0, 220_000_000, {playing: false});
+    view.setText(rtlSample, {
+        scrollable: true,
+        timeline: panelTimeline(8000, 0),
+        contentKey: 'rtl-pan-check',
+    });
+    await Scripting.sleep(150);
+    const rtlStartState = view._panelPanState(0);
+    const rtlEndState = view._panelPanState(8000);
+    assert(rtlStartState && rtlEndState &&
+        rtlStartState.initialX < 0 && rtlStartState.targetX === 0 &&
+        rtlEndState.initialX === 0,
+    'RTL synchronized panel lyrics must start at the right edge and pan rightward to zero');
+    view.setText('First');
 
     view.setPlayers(availablePlayers, 'auto');
     assert(view._playerMenu.menu.numMenuItems === 3 &&

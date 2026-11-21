@@ -105,18 +105,24 @@ export function panelPanState(timeline, positionMs, overflow, stepWidth = 0) {
     const motionStartMs = normalized.startMs + leadMs;
     const motionEndMs = Math.max(
         motionStartMs, normalized.endMs - endHoldMs);
-    const motionDurationMs = Math.max(1, motionEndMs - motionStartMs);
-    const progress = Math.min(1, Math.max(0,
-        (position - motionStartMs) / motionDurationMs));
+    const rawMotionDurationMs = motionEndMs - motionStartMs;
+    const progress = rawMotionDurationMs > 0
+        ? Math.min(1, Math.max(0,
+            (position - motionStartMs) / rawMotionDurationMs))
+        : position >= motionEndMs ? 1 : 0;
     if (Number.isFinite(stepWidth) && stepWidth > 0) {
         // Overlap pages so the reader can keep their place, without any
         // animated movement. Give the last page its own reading interval.
         const steps = Math.ceil(distance / stepWidth);
         const page = Math.min(steps, Math.floor(progress * (steps + 1)));
         const initialX = -distance * page / steps;
+        const candidateNextMs = page < steps && rawMotionDurationMs > 0
+            ? motionStartMs + rawMotionDurationMs * (page + 1) / (steps + 1)
+            : null;
         return {initialX, targetX: initialX, shouldAnimate: false,
-            nextMs: page < steps
-                ? motionStartMs + motionDurationMs * (page + 1) / (steps + 1)
+            nextMs: candidateNextMs !== null && candidateNextMs > position &&
+                candidateNextMs < normalized.endMs
+                ? candidateNextMs
                 : null};
     }
     const initialX = -distance * progress;

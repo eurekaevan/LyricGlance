@@ -151,4 +151,17 @@ for (const [name, sizes, expectedChunks, expectedLengths] of [
     }
 }
 
+const symbolDoc = createLyricsDocument({
+    source: 'test',
+    lines: [
+        {text: '♪', startMs: 0, endMs: 500},
+        {text: 'Real lyric', startMs: 500, endMs: 1500},
+        {text: '---', startMs: 1500, endMs: 2000},
+    ],
+});
+const symbolChunks = buildTranslationChunks(symbolDoc);
+assert(symbolChunks.length === 1 && symbolChunks[0].lines.length === 1 &&
+    symbolChunks[0].lines[0].text === 'Real lyric',
+'batching should skip symbol-only non-lyric lines');
+
 print('Translation document, hash and batching tests passed');

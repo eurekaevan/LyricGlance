@@ -66,4 +66,31 @@ const emptyCandidate = scoreLyricsCandidate(track, {
 assert(!emptyCandidate.accepted,
     'metadata confidence must not accept a candidate with no usable lyrics');
 
+const cjkYearCandidate = scoreLyricsCandidate({
+    title: '晴天 (2003)',
+    artist: '周杰伦',
+    album: '叶惠美',
+    durationUs: 269_000_000,
+}, {
+    ...payload,
+    provider: 'lrcapi',
+    trackName: '晴天',
+    artistName: '周杰伦',
+    albumName: '',
+    duration: null,
+});
+assert(cjkYearCandidate.accepted && cjkYearCandidate.diagnostics.albumMatch === 0.5,
+    'a CJK title with a year suffix and missing candidate album should remain matchable');
+
+const driftedDuration = scoreLyricsCandidate(track, {
+    ...payload,
+    id: 5,
+    trackName: 'Example Song',
+    artistName: 'Example Artist',
+    albumName: 'Original Album',
+    duration: 227.5,
+});
+assert(!driftedDuration.accepted,
+    'a candidate whose duration drifts more than 6 seconds should be rejected');
+
 print('LRCLIB candidate scoring and confidence threshold tests passed');

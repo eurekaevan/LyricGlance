@@ -2,7 +2,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
-import {ArtworkLoader} from '../artwork-loader.js';
+import {ArtworkLoader, clearArtworkCache, countArtworkCache} from '../artwork-loader.js';
 import {removeTree} from '../storage.js';
 
 Gio._promisify(Gio.File.prototype,
@@ -149,8 +149,12 @@ try {
 
     await loader.load(`${baseUri}/cover-b`);
     await loader.load(`${baseUri}/cover-c`);
-    assert(await countCacheFiles(cacheDirectory) === 2,
-        'oldest-access cleanup should enforce the artwork entry limit');
+    assert(await countCacheFiles(cacheDirectory) === 2 &&
+        await countArtworkCache(cacheDirectory) === 2,
+    'oldest-access cleanup should enforce the artwork entry limit');
+    await clearArtworkCache(cacheDirectory);
+    assert(await countArtworkCache(cacheDirectory) === 0,
+        'clearing artwork cache should remove cached images');
 } finally {
     loader.destroy();
     server.disconnect();
