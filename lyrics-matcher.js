@@ -53,14 +53,18 @@ function titleSimilarity(left, right) {
         tokenSimilarity(baseLeft, baseRight) * 0.92);
 }
 
+function containsTokenSequence(haystack, needle) {
+    return ` ${haystack} `.includes(` ${needle} `);
+}
+
 function artistSimilarity(left, right) {
     const normalizedLeft = normalizeText(left);
     const normalizedRight = normalizeText(right);
     if (normalizedLeft === normalizedRight && normalizedLeft)
         return 1;
     if (normalizedLeft && normalizedRight &&
-        (normalizedLeft.includes(normalizedRight) ||
-            normalizedRight.includes(normalizedLeft)))
+        (containsTokenSequence(normalizedLeft, normalizedRight) ||
+            containsTokenSequence(normalizedRight, normalizedLeft)))
         return 0.88;
     return tokenSimilarity(normalizedLeft, normalizedRight);
 }

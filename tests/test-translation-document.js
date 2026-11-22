@@ -164,4 +164,14 @@ assert(symbolChunks.length === 1 && symbolChunks[0].lines.length === 1 &&
     symbolChunks[0].lines[0].text === 'Real lyric',
 'batching should skip symbol-only non-lyric lines');
 
+const noContextDoc = {
+    lines: Array.from({length: 25}, (_, index) => ({
+        lineId: `nc-${index}`, text: `Line ${index}`,
+    })),
+};
+const noContextChunks = buildTranslationChunks(noContextDoc, {maxLines: 10, contextLines: 0});
+assert(noContextChunks.length === 3 &&
+    noContextChunks.every(chunk => chunk.contextBefore.length === 0 && chunk.contextAfter.length === 0),
+'contextLines=0 must produce empty context arrays rather than copying the whole previous chunk');
+
 print('Translation document, hash and batching tests passed');

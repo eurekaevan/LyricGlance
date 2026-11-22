@@ -169,6 +169,10 @@ export function wordPanState(timeline, positionMs, words, viewportWidth, distanc
         }
         const spanMs = endMs - word.startMs;
         const width = word.endX - word.startX;
+        if (!(width > 0) || !(spanMs > 0)) {
+            const x = offset(word.startX);
+            return {initialX: x, targetX: x, shouldAnimate: false, nextMs: endMs};
+        }
         const initialX = offset(word.startX + width *
             (positionMs - word.startMs) / spanMs);
         const motionStartMs = word.startMs + Math.max(0,

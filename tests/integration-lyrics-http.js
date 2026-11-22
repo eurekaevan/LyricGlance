@@ -292,8 +292,10 @@ async function run() {
         retryAfterDelayMs(new Date(now + 4000).toUTCString(), now) === 4000 &&
         retryAfterDelayMs(new Date(now - 4000).toUTCString(), now) === 1000 &&
         retryAfterDelayMs('0', now) === 1000 &&
+        retryAfterDelayMs('999999999', now) === 300_000 &&
+        retryAfterDelayMs('Thu, 01 Jan 2099 00:00:00 GMT', now) === 300_000 &&
         [null, '', '-1', 'invalid'].every(value => retryAfterDelayMs(value, now, 2000) === 2000),
-    'Retry-After must support seconds/dates, protect against immediate loops and use backoff for invalid headers');
+    'Retry-After must support bounded seconds/dates, protect against immediate loops and use backoff for invalid headers');
     const initialStartUs = GLib.get_monotonic_time();
     const valid = await fetch('Valid Lyrics');
     assert(valid?.syncLevel === 'line' && valid.lines[0].text === 'current',

@@ -67,11 +67,13 @@ export function normalizeLyricsPayload(payload, {onLyricsfileError = null} = {})
     if (provider !== 'lrcapi' && typeof payload.plainLyrics === 'string' && payload.plainLyrics.trim())
         plainLyrics = payload.plainLyrics;
     if (plainLyrics !== null) {
-        return createPlainLyricsDocument(plainLyrics, {
+        const plainDocument = createPlainLyricsDocument(plainLyrics, {
             source: `${provider}-plain`,
             sourceId,
             metadata,
         });
+        if (plainDocument.lines.some(line => line.text.trim()))
+            return plainDocument;
     }
 
     if (lyricsfileDocument?.lines.some(line => line.text.trim()))

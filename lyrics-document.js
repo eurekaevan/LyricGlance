@@ -1,5 +1,7 @@
 import GLib from 'gi://GLib';
 
+export const MAX_LYRICS_LINES = 5000;
+
 export const SyncLevel = Object.freeze({
     NONE: 'none',
     LINE: 'line',
@@ -127,6 +129,8 @@ export function createLyricsDocument({
 
     if (instrumental) {
         normalizedLines = [];
+    } else if (normalizedLines.length > MAX_LYRICS_LINES) {
+        normalizedLines = [];
     } else if (hasValidLineTimings(normalizedLines)) {
         normalizedLines = normalizedLines
             .map((line, index) => ({line, index}))
@@ -138,14 +142,18 @@ export function createLyricsDocument({
             : SyncLevel.LINE;
     } else {
         const staticLines = plainTextLines(plain);
-        normalizedLines = staticLines.length > 0
-            ? staticLines
-            : normalizedLines.map(line => ({
-                text: line.text,
-                startMs: null,
-                endMs: null,
-                words: [],
-            }));
+        if (staticLines.length > MAX_LYRICS_LINES) {
+            normalizedLines = [];
+        } else {
+            normalizedLines = staticLines.length > 0
+                ? staticLines
+                : normalizedLines.map(line => ({
+                    text: line.text,
+                    startMs: null,
+                    endMs: null,
+                    words: [],
+                }));
+        }
     }
 
     return Object.freeze({

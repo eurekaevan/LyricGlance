@@ -138,6 +138,14 @@ assert(wordPanState(normalizedTimeline, 0, null, 100, 308) === null &&
     wordPanState(normalizedTimeline, NaN, measuredWords, 100, 308) === null &&
     wordPanState(normalizedTimeline, 0, measuredWords, 10, 308) === null,
 'missing geometry and impractically narrow viewports should fall back to line motion');
+const zeroWidthPan = wordPanState(normalizedTimeline, 500, [
+    {startMs: 0, endMs: 1000, startX: 100, endX: 100},
+    {startMs: 1000, endMs: 2500, startX: 100, endX: 400},
+], 100, 300);
+assert(zeroWidthPan && Number.isFinite(zeroWidthPan.initialX) &&
+    Number.isFinite(zeroWidthPan.targetX) && !zeroWidthPan.shouldAnimate &&
+    zeroWidthPan.nextMs === 1000,
+'zero-width word geometry must remain finite and hold until the next word boundary');
 
 assert(getLineVisualLevel(5, 5).name === 'current' &&
     getLineVisualLevel(4, 5).opacity === 220 &&

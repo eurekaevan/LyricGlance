@@ -62,7 +62,13 @@ package-check: pack
 	tools/check-package.sh "$(PACKAGE)"
 
 shexli-check: pack
-	shexli "$(PACKAGE)"
+	@set -eu; status=0; report=$$(shexli "$(PACKAGE)" 2>&1) || status=$$?; \
+	printf '%s\n' "$$report"; \
+	if [ "$$status" -ne 0 ]; then exit "$$status"; fi; \
+	if printf '%s\n' "$$report" | grep -Eq '(\bEGO-[A-Z0-9]+-[0-9]+\b|^shexli:.*\([1-9][0-9]* findings?\b)'; then \
+		printf 'shexli reported EGO findings\n' >&2; \
+		exit 1; \
+	fi
 
 integration:
 	dbus-run-session -- gjs -m tests/integration-mpris-events.js

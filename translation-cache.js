@@ -160,14 +160,25 @@ export class TranslationDiskCache {
 
         const ages = [];
         for (const info of files) {
+            if (cancellable?.is_cancelled()) {
+                throw new GLib.Error(
+                    Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED, 'Operation was cancelled');
+            }
             let lastAccessed = 0;
             try {
                 const record = await readJson(
                     this._directory.get_child(info.get_name()), cancellable);
-                lastAccessed = Number(record.lastAccessed) ||
-                    Date.parse(record.createdAt) || 0;
-            } catch {
-                // Invalid entries are evicted first.
+                lastAccessed = Number(record?.lastAccessed) ||
+                    Date.parse(record?.createdAt) || 0;
+            } catch (error) {
+                if (cancellable?.is_cancelled() ||
+                    error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                    throw error;
+                if (isNotFound(error))
+                    continue;
+                if (!(error instanceof SyntaxError) && !(error instanceof TypeError))
+                    continue;
+                // Invalid JSON entries are evicted first.
             }
             ages.push({name: info.get_name(), lastAccessed});
         }

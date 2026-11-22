@@ -55,14 +55,15 @@ export function buildTranslationChunks(document, {
         start = bestEnd;
     }
 
+    const contextLimit = Math.max(0, Math.floor(contextLines));
     return chunks.map((lines, index) => ({
         index,
         lines,
-        contextBefore: index === 0
+        contextBefore: index === 0 || contextLimit === 0
             ? []
-            : chunks[index - 1].slice(-contextLines),
-        contextAfter: index === chunks.length - 1
+            : chunks[index - 1].slice(-contextLimit),
+        contextAfter: index === chunks.length - 1 || contextLimit === 0
             ? []
-            : chunks[index + 1].slice(0, contextLines),
+            : chunks[index + 1].slice(0, contextLimit),
     }));
 }

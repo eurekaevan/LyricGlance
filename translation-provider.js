@@ -77,9 +77,12 @@ export function resolveTranslationEndpoint(endpoint, protocol = 'auto') {
         return null;
 
     const suffix = selected === 'chat-completions' ? '/chat/completions' : '/responses';
+    const trimmed = value.replace(/\/+$/, '');
     return {
         protocol: selected,
-        endpoint: path.endsWith('/v1') ? value.replace(/\/+$/, '') + suffix : value,
+        endpoint: path.endsWith('/v1')
+            ? trimmed + suffix
+            : endpointProtocol ? trimmed : value,
     };
 }
 
@@ -348,7 +351,7 @@ export class OpenAITranslationProvider {
     }
 
     async _request(document, options, cancellable, attempt) {
-        if (cancellable?.is_cancelled())
+        if (!this._session || cancellable?.is_cancelled())
             throw canceledError();
 
         if (!this.model)
@@ -367,7 +370,17 @@ export class OpenAITranslationProvider {
                         'Translation provider rate limited the request');
                 }
                 await delay(remainingCooldownMs, cancellable);
+                if (!this._session)
+                    throw canceledError();
             }
+        }
+
+        const credential = typeof options.credential === 'string'
+            ? options.credential.trim()
+            : '';
+        if (!credential || !/^[\x21-\x7E]+$/.test(credential)) {
+            throw new TranslationProviderError(
+                'authentication_error', 'Translation credential is invalid');
         }
 
         const message = this._endpoint
@@ -378,7 +391,7 @@ export class OpenAITranslationProvider {
                 'provider_error', 'Translation endpoint is invalid');
         message.set_flags(Soup.MessageFlags.NO_REDIRECT);
         message.get_request_headers().append(
-            'Authorization', `Bearer ${options.credential}`);
+            'Authorization', `Bearer ${credential}`);
         const reasoningEffort = this._reasoningEffort;
         const chatOptions = this._chatOptions ? {...this._chatOptions} : null;
         const encoded = new TextEncoder().encode(JSON.stringify(
@@ -539,7 +552,7 @@ export class OpenAITranslationProvider {
 
     destroy() {
         this._cooldownUntilUs = 0;
-        this._session.abort();
+        this._session?.abort();
         this._session = null;
     }
 }

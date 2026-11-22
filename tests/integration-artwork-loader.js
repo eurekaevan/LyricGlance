@@ -85,6 +85,22 @@ server.add_handler(null, (currentServer, message) => {
         message.set_status(Soup.Status.OK, null);
         message.set_response(
             'text/plain', Soup.MemoryUse.COPY, png);
+    } else if (path === '/missing-type') {
+        message.set_status(Soup.Status.OK, null);
+        message.get_response_body().append_bytes(GLib.Bytes.new(png));
+    } else if (path === '/svg-image') {
+        message.set_status(Soup.Status.OK, null);
+        message.set_response('image/svg+xml', Soup.MemoryUse.COPY,
+            new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'));
+    } else if (path === '/redirect-ok') {
+        message.set_status(Soup.Status.FOUND, null);
+        message.get_response_headers().append('Location', '/redirect-target');
+    } else if (path === '/redirect-loop') {
+        message.set_status(Soup.Status.FOUND, null);
+        message.get_response_headers().append('Location', '/redirect-loop');
+    } else if (path === '/redirect-unsafe') {
+        message.set_status(Soup.Status.FOUND, null);
+        message.get_response_headers().append('Location', 'http://example.test/cover.png');
     } else {
         message.set_status(Soup.Status.OK, null);
         message.set_response(
@@ -112,6 +128,21 @@ try {
     await expectFailure(
         loader.load('data:image/png;base64,AAAA'),
         'unsupported artwork schemes should be rejected');
+    await expectFailure(
+        loader.load('http://example.test/cover.png'),
+        'remote plaintext HTTP artwork URLs must be rejected');
+    await expectFailure(
+        loader.load('https://user:pass@example.test/cover.png'),
+        'artwork URLs with userinfo must be rejected');
+    await expectFailure(
+        loader.load('https://169.254.169.254/latest/meta-data'),
+        'link-local metadata artwork hosts must be rejected');
+    await expectFailure(
+        loader.load('https://[::ffff:a9fe:a9fe]/latest/meta-data'),
+        'IPv4-mapped IPv6 link-local metadata hosts must be rejected');
+    await expectFailure(
+        loader.load('file://remote.example/tmp/cover.png'),
+        'non-local file artwork URIs must be rejected');
 
     const firstUrl = `${baseUri}/cover-a`;
     const first = await loader.load(firstUrl);
@@ -128,6 +159,21 @@ try {
     await expectFailure(
         loader.load(`${baseUri}/not-image`),
         'an explicit non-image response should be rejected');
+    await expectFailure(
+        loader.load(`${baseUri}/missing-type`),
+        'a response without an explicit image Content-Type must be rejected');
+    await expectFailure(
+        loader.load(`${baseUri}/svg-image`),
+        'SVG artwork responses must be rejected');
+    await expectFailure(
+        loader.load(`${baseUri}/redirect-loop`),
+        'excessive artwork redirects must be rejected');
+    await expectFailure(
+        loader.load(`${baseUri}/redirect-unsafe`),
+        'redirects to disallowed remote HTTP targets must be rejected');
+    const redirected = await loader.load(`${baseUri}/redirect-ok`);
+    assert(redirected.remote && !redirected.fromCache,
+        'bounded safe redirects should still load valid raster artwork');
     await expectFailure(
         loader.load(`${baseUri}/missing`),
         'an HTTP error should keep the fallback path safe');
@@ -157,6 +203,8 @@ try {
         'clearing artwork cache should remove cached images');
 } finally {
     loader.destroy();
+    loader.destroy();
+    loader.discard(localFile);
     server.disconnect();
     await removeTree(Gio.File.new_for_path(tempRoot));
 }

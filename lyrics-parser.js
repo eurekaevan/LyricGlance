@@ -1,4 +1,6 @@
-import {createLyricsDocument} from './lyrics-document.js';
+import {createLyricsDocument, MAX_LYRICS_LINES} from './lyrics-document.js';
+
+const MAX_LRC_OFFSET_MS = 600_000;
 
 export class LrcParser {
     static parse(lrc) {
@@ -6,7 +8,11 @@ export class LrcParser {
             return [];
 
         const offsetMatch = lrc.match(/^\s*\[offset:\s*([+-]?\d+)\s*\]\s*$/im);
-        const offsetUs = offsetMatch ? Number(offsetMatch[1]) * 1000 : 0;
+        const rawOffsetMs = offsetMatch ? Number(offsetMatch[1]) : 0;
+        const offsetUs = Number.isFinite(rawOffsetMs) &&
+            Math.abs(rawOffsetMs) <= MAX_LRC_OFFSET_MS
+            ? rawOffsetMs * 1000
+            : 0;
         const entries = [];
 
         for (const sourceLine of lrc.split(/\r\n?|\n/)) {
@@ -33,27 +39,37 @@ export class LrcParser {
             const text = leading[2]
                 .replace(/<\d{1,3}:\d{1,2}(?:[.:]\d{1,4})?>/g, '')
                 .trim();
-            for (const timeUs of times)
+            for (const timeUs of times) {
+                if (entries.length >= MAX_LYRICS_LINES)
+                    return [];
                 entries.push({timeUs, text});
+            }
         }
 
         entries.sort((a, b) => a.timeUs - b.timeUs);
 
         const deduplicated = [];
+        let seenTexts = null;
+        let currentParts = null;
         for (const entry of entries) {
             const previous = deduplicated.at(-1);
             if (previous?.timeUs === entry.timeUs) {
                 if (!entry.text)
                     continue;
-                if (!previous.text) {
-                    previous.text = entry.text;
-                } else if (!previous.text.split('\n').includes(entry.text)) {
-                    previous.text = `${previous.text}\n${entry.text}`;
+                if (!seenTexts.has(entry.text)) {
+                    seenTexts.add(entry.text);
+                    currentParts.push(entry.text);
                 }
             } else {
-                deduplicated.push(entry);
+                if (previous)
+                    previous.text = currentParts.join('\n');
+                currentParts = entry.text ? [entry.text] : [];
+                seenTexts = new Set(currentParts);
+                deduplicated.push({timeUs: entry.timeUs, text: entry.text});
             }
         }
+        if (deduplicated.length > 0)
+            deduplicated.at(-1).text = currentParts.join('\n');
 
         return deduplicated;
     }

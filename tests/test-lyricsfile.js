@@ -65,14 +65,18 @@ for (const [name, source] of [
     ['duplicate keys', "version: '1.0'\nversion: '1.0'\nmetadata: {title: T, artist: A}\n"],
     ['unknown version', "version: '2.0'\nmetadata: {title: T, artist: A}\n"],
     ['anchors', "version: '1.0'\nmetadata: &m {title: T, artist: A}\ncopy: *m\n"],
+    ['excessive nesting', '['.repeat(100) + ']'.repeat(100)],
+    ['excessive scalar nodes', `[${'1,'.repeat(100_050)}1]`],
+    ['excessive lines', "version: '1.0'\nmetadata:\n  title: T\n  artist: A\nlines:\n" +
+        Array.from({length: 5001}, (_, index) => `- {text: a, start_ms: ${index}}`).join('\n')],
 ]) {
     let rejected = false;
     try {
         LyricsfileParser.parse(source);
-    } catch {
-        rejected = true;
+    } catch (error) {
+        rejected = !(error instanceof RangeError) && error.name !== 'InternalError';
     }
-    assert(rejected, `Lyricsfile should reject ${name}`);
+    assert(rejected, `Lyricsfile should reject ${name} cleanly without stack overflow`);
 }
 
 const fallback = normalizeLyricsPayload({
@@ -134,5 +138,8 @@ assert(normalizeLyricsPayload({lyricsfile:
 assert(normalizeLyricsPayload({lyricsfile:
     "version: '1.0'\nmetadata:\n  title: Blank\n  artist: Test\nlines:\n- text: ' '\n  start_ms: 1000\n"}) === null,
     'a timed Lyricsfile with only blank lines must not block a fallback lookup');
+assert(normalizeLyricsPayload({
+    plainLyrics: Array.from({length: 5005}, (_, index) => `Line ${index}`).join('\n'),
+}) === null, 'plain lyrics exceeding the line limit must be rejected safely');
 
 print('Lyricsfile, LRC, fallback, Unicode, plain and instrumental tests passed');

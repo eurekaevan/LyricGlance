@@ -284,13 +284,17 @@ async function run() {
     assert(resolveTranslationEndpoint(`${endpoint}/proxy/v1//`, 'chat-completions').endpoint ===
         `${endpoint}/proxy/v1/chat/completions` &&
         resolveTranslationEndpoint(`${endpoint}/v1`).endpoint === `${endpoint}/v1/responses` &&
+        resolveTranslationEndpoint(`${endpoint}/proxy/v1/responses/`).endpoint ===
+            `${endpoint}/proxy/v1/responses` &&
+        resolveTranslationEndpoint(`${endpoint}/proxy/v1/chat/completions/`).endpoint ===
+            `${endpoint}/proxy/v1/chat/completions` &&
         resolveTranslationEndpoint(`${endpoint}/v1/chat/completions`, 'responses') === null &&
         resolveTranslationEndpoint(`${endpoint}/v1?secret=query`, 'chat-completions') === null &&
         resolveTranslationEndpoint(`${endpoint}/v1?`, 'chat-completions') === null &&
         resolveTranslationEndpoint(`${endpoint}/v1#`, 'chat-completions') === null &&
         resolveTranslationEndpoint(`${endpoint}/custom`, 'chat-completions').endpoint ===
             `${endpoint}/custom`,
-    'base URLs should preserve proxy prefixes and complete routes should not be rewritten');
+    'base URLs should preserve proxy prefixes and trailing slashes on known routes must normalize');
 
     let provider = new OpenAITranslationProvider({
         endpoint,
@@ -314,10 +318,24 @@ async function run() {
     assert(observed.path === '/proxy/v1/responses' && observed.body.text.format.type === 'json_schema',
         'automatic base URLs must use the same Responses route and body in connection checks');
     const directResponses = new OpenAITranslationProvider({endpoint: `${endpoint}/proxy/v1/responses`});
-    assert(provider.configurationId === directResponses.configurationId,
-        'base and full addresses for the same backend should share a cache identity');
+    const trailingSlashResponses = new OpenAITranslationProvider({endpoint: `${endpoint}/proxy/v1/responses/`});
+    assert(provider.configurationId === directResponses.configurationId &&
+        provider.configurationId === trailingSlashResponses.configurationId,
+    'base, direct and trailing-slash addresses for the same backend should share a cache identity');
+    const requestsBeforeBadKey = observed.count;
+    let badKeyError = null;
+    try {
+        await directResponses.checkConnection('bad\r\nheader-key', null);
+    } catch (error) {
+        badKeyError = error;
+    }
+    assert(badKeyError?.code === 'authentication_error' &&
+        observed.count === requestsBeforeBadKey,
+    'malformed credentials containing CRLF must fail before reaching libsoup or the network');
+    provider.destroy();
     provider.destroy();
     directResponses.destroy();
+    trailingSlashResponses.destroy();
 
     provider = new OpenAITranslationProvider({
         endpoint: `${endpoint}/proxy/v1`, protocol: 'chat-completions',

@@ -2806,6 +2806,54 @@ export async function run() {
         'the no-lyrics state should retain title and artist');
 
     view.setLyrics({...lineDocument, source: 'lrcapi-synced'});
+    assert(view._lyricsSourceItem.visible && view._lyricsSourceLabel.text.includes('LrcAPI'),
+        'setting LrcAPI lyrics should display the source label');
+    view.setTrack({
+        title: 'Next Track',
+        artist: 'Next Artist',
+        album: '',
+        artUrl: '',
+        durationUs: 0,
+    }, 'next-track-source-clear');
+    assert(!view._lyricsSourceItem.visible && !view._lyricsSourceLabel.text,
+        'switching tracks must hide the previous track lyrics source while loading');
+
+    // Verify unknown duration (0) + positive offset does not invent a fake line end.
+    instance._state = {
+        busName: 'org.mpris.MediaPlayer2.test',
+        playbackStatus: 'Paused',
+        playbackRate: 1,
+        positionUs: 2_000_000,
+        metadata: {trackId: '', title: 'Stream', artist: 'Live', album: '', artUrl: '', durationUs: 0},
+    };
+    instance._lyricsDocument = {
+        source: 'lrclib-synced',
+        sourceId: null,
+        instrumental: false,
+        metadata: {},
+        syncLevel: 'line',
+        lines: [{lineId: 's0', text: 'Only line', startMs: 1000, endMs: null, words: []}],
+    };
+    instance._globalOffsetMs = 5000;
+    instance._trackOffsetMs = 0;
+    instance._updateIndicatorAndSchedule(true);
+    assert(view._panelPanTimeline === null,
+        'unknown track duration (0) plus positive offset must not fabricate a line end timeline');
+    instance._globalOffsetMs = 0;
+
+    // Verify cancelled slider drag restores progress on drag-end while paused.
+    view.setProgress(30_000_000, 100_000_000, {playing: false});
+    const progressSlider = view._progressView._slider;
+    view._progressView.setControlState({busName: 'test', generation: 1, trackKey: 'k'}, true);
+    progressSlider.emit('drag-begin');
+    progressSlider.value = 0.8;
+    view._progressView.cancelDrag();
+    progressSlider.emit('drag-end');
+    assert(Math.abs(progressSlider.value - 0.3) < 0.01 &&
+        view._progressView._currentLabel.text === '0:30',
+    'releasing a cancelled progress drag must restore the authoritative position');
+
+    view.setLyrics({...lineDocument, source: 'lrcapi-synced'});
     view.clearTrack();
     assert(!view._lyricsSourceItem.visible && !view._lyricsSourceLabel.text,
         'clearing a track must clear its source label');

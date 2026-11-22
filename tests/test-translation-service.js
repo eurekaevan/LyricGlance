@@ -111,17 +111,27 @@ async function run() {
             return originalSplit.call(this, separator, limit);
         };
         serviceModule = await import('../translation-service.js');
-        const {TranslationCredentialStore} = await import('../credentials.js');
+        const {isValidCredential, TranslationCredentialStore} = await import('../credentials.js');
         const credentialStore = new TranslationCredentialStore();
         assert(schemasCreated === 0 && modelsExpanded === 0,
             'importing translation modules and constructing a credential store must not allocate a schema or expand language models');
+        assert(isValidCredential('sk-test_123') &&
+            !isValidCredential('sk-line1\r\nsk-line2') &&
+            !isValidCredential('sk-line1\nsk-line2') &&
+            !isValidCredential('sk-has space') &&
+            !isValidCredential('sk-中文key'),
+        'credential validation must reject control characters, embedded whitespace and non-ASCII');
+        await credentialStore.store('lifecycle-test', 'bad\r\nkey').then(
+            () => assert(false, 'invalid credential characters must be rejected before storing'),
+            error => assert(error.message === 'API credential contains invalid characters',
+                'invalid credential errors must not leak the rejected key'));
         const cancelled = new Gio.Cancellable();
         cancelled.cancel();
         for (const store of [credentialStore, credentialStore, new TranslationCredentialStore()]) {
             await store.lookup('lifecycle-test', cancelled).then(
                 () => assert(false, 'a cancelled credential lookup must fail'),
-                error => assert(error.message === 'Secret Service operation failed',
-                    'credential failures must retain sanitized diagnostics'));
+                error => assert(error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED),
+                    'a cancelled credential lookup must preserve CANCELLED classification'));
             assert(schemasCreated === (store === credentialStore ? 1 : 2),
                 'schemas must be created on first use and reused only within their owning store');
         }
@@ -193,6 +203,12 @@ async function run() {
         {text: '吹着前奏望着天空我想起花瓣试着掉落为你翘课的那一天花落的那一天'},
         {text: '教室的那一间我怎么看不见消失的下雨天'},
     ]}) === 'zh', 'concise Chinese lyrics (>= 60 Han chars) should be detected offline');
+    assert(sourceLyricsLanguage({lines: [
+        {text: '春风吹过山野，花开花落，时光流转不息。'},
+        {text: '   ...   ---   !!!   '},
+        {text: '明月照亮长夜星河璀璨歌声回荡在远方山谷之间倾听风声'},
+        {text: '岁月如歌记忆长存心中永不褪色思念随风飘向天际海角'},
+    ]}) === 'zh', 'concise Chinese lyrics with uneven punctuation should still be detected offline');
 
     const cache = new TranslationDiskCache({cacheRoot: tempRoot});
     const provider = new MockTranslationProvider();
@@ -323,6 +339,47 @@ async function run() {
         releaseCachedRead();
         refreshService.destroy();
         await ordinaryRead;
+    }
+
+    const cacheOnlyDisk = new TranslationDiskCache({
+        cacheRoot: GLib.build_filenamev([tempRoot, 'cache-only-vs-refresh']),
+    });
+    await cacheOnlyDisk.put(cachedTranslation);
+    const cacheOnlyProvider = new MockTranslationProvider();
+    const cacheOnlyBaseTranslate = cacheOnlyProvider.translate.bind(cacheOnlyProvider);
+    cacheOnlyProvider.translate = async (...args) => (await cacheOnlyBaseTranslate(...args))
+        .map(line => ({...line, text: `Rebuilt ${line.text}`}));
+    const cacheOnlyService = new TranslationService({
+        providers: [cacheOnlyProvider], credentialStore: noCredential, cache: cacheOnlyDisk,
+    });
+    const cacheOnlyRawGet = cacheOnlyDisk.get.bind(cacheOnlyDisk);
+    let releaseCacheOnly;
+    let cacheOnlyStarted;
+    const cacheOnlyGate = new Promise(resolve => (releaseCacheOnly = resolve));
+    const cacheOnlyReady = new Promise(resolve => (cacheOnlyStarted = resolve));
+    cacheOnlyDisk.get = async (...args) => {
+        const hit = await cacheOnlyRawGet(...args);
+        cacheOnlyStarted();
+        await cacheOnlyGate;
+        return hit;
+    };
+    const pendingCacheOnly = cacheOnlyService.translate(lyrics, options({allowNetwork: false}));
+    await cacheOnlyReady;
+    try {
+        const forcedNet = cacheOnlyService.translate(lyrics, options({forceRefresh: true}));
+        const freshResult = await forcedNet;
+        releaseCacheOnly();
+        assert((await pendingCacheOnly).status === TranslationStatus.CANCELED &&
+            freshResult.status === TranslationStatus.AVAILABLE &&
+            freshResult.document.lines[0].text.startsWith('Rebuilt '),
+        'forceRefresh must cancel an overlapping cache-only disk read for the same track');
+        const memCheck = await cacheOnlyService.translate(lyrics, options({allowNetwork: false}));
+        assert(memCheck.document === freshResult.document,
+            'a canceled cache-only read must not overwrite the refreshed memory entry');
+    } finally {
+        releaseCacheOnly();
+        cacheOnlyService.destroy();
+        await pendingCacheOnly;
     }
 
     const delayed = new MockTranslationProvider({delayMs: 100});

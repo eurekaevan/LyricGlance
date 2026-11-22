@@ -16,6 +16,7 @@ const TRACK_DEBOUNCE_MS = 600;
 const MAX_RETRIES = 4;
 const MAX_CACHE_ENTRIES = 100;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_RETRY_AFTER_MS = 5 * 60 * 1000;
 
 async function readResponse(session, message, limit, cancellable) {
     const stream = await session.send_async(
@@ -101,14 +102,15 @@ export function retryAfterDelayMs(value, now = Date.now(), fallbackMs = 5000) {
         return fallbackMs;
 
     const seconds = Number(value);
-    if (Number.isFinite(seconds))
+    if (Number.isFinite(seconds)) {
         return seconds >= 0
-            ? Math.max(1000, Math.ceil(Math.min(seconds * 1000, Number.MAX_SAFE_INTEGER)))
+            ? Math.min(MAX_RETRY_AFTER_MS, Math.max(1000, Math.ceil(seconds * 1000)))
             : fallbackMs;
+    }
 
     const date = Date.parse(value);
     if (Number.isFinite(date))
-        return Math.max(1000, date - now);
+        return Math.min(MAX_RETRY_AFTER_MS, Math.max(1000, date - now));
     return fallbackMs;
 }
 
@@ -168,7 +170,7 @@ export class LyricsProvider {
     }
 
     fetch(track, callback, onStatus = null) {
-        if (!track.title || !track.artist) {
+        if (!this._session || !track.title || !track.artist) {
             this.cancelPending();
             callback(null);
             return;
@@ -243,7 +245,7 @@ export class LyricsProvider {
 
     destroy() {
         this.cancelPending();
-        this._session.abort();
+        this._session?.abort();
         this._session = null;
         this._retryAfterUs.clear();
         this._cache.clear();

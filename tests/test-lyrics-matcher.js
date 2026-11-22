@@ -93,4 +93,52 @@ const driftedDuration = scoreLyricsCandidate(track, {
 assert(!driftedDuration.accepted,
     'a candidate whose duration drifts more than 6 seconds should be rejected');
 
+const shortArtistFalseMatch = scoreLyricsCandidate({
+    title: 'Hello',
+    artist: 'A',
+    album: '',
+    durationUs: 200_000_000,
+}, {
+    ...payload,
+    id: 6,
+    trackName: 'Hello',
+    artistName: 'Adele',
+    albumName: '',
+    duration: 200,
+});
+assert(!shortArtistFalseMatch.accepted && shortArtistFalseMatch.diagnostics.artistMatch === 0,
+    'a single-letter artist must not match an unrelated artist merely by substring');
+
+const shortTokenArtistFalseMatch = scoreLyricsCandidate({
+    title: 'Story',
+    artist: 'AI',
+    album: '',
+    durationUs: 200_000_000,
+}, {
+    ...payload,
+    id: 7,
+    trackName: 'Story',
+    artistName: 'Aimer',
+    albumName: '',
+    duration: 200,
+});
+assert(!shortTokenArtistFalseMatch.accepted,
+    'a short artist name must not match inside another artist word');
+
+const collaboratingArtist = scoreLyricsCandidate({
+    title: 'Exile',
+    artist: 'Taylor Swift',
+    album: 'folklore',
+    durationUs: 285_000_000,
+}, {
+    ...payload,
+    id: 8,
+    trackName: 'Exile',
+    artistName: 'Taylor Swift, Bon Iver',
+    albumName: 'folklore',
+    duration: 285,
+});
+assert(collaboratingArtist.accepted && collaboratingArtist.diagnostics.artistMatch === 0.88,
+    'whole-token artist containment should still match collaborating artist credits');
+
 print('LRCLIB candidate scoring and confidence threshold tests passed');

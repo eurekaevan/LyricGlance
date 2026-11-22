@@ -151,6 +151,9 @@ application.connect('activate', async app => {
                 lrcApiEndpoint.text = 'http://example.test/jsonapi';
                 lrcApiEndpoint.emit('apply');
                 assert(lrcApiEndpoint.has_css_class('error'), 'insecure endpoints must be rejected');
+                lrcApiEndpoint.text = 'https://api.lrc.cx/jsonapi';
+                assert(!lrcApiEndpoint.has_css_class('error'),
+                    'editing LrcAPI endpoint should clear its error state');
                 lrcApiEndpoint.text = 'http://127.0.0.1:28883/jsonapi';
                 lrcApiEndpoint.emit('apply');
                 assert(!lrcApiEndpoint.has_css_class('error') &&
@@ -188,6 +191,20 @@ application.connect('activate', async app => {
                     'ComboRow should stay synchronized with external GSettings changes');
                 settings.set_string('panel-position', 'center');
 
+                const preferredPlayerRow = widgets.find(widget =>
+                    widget instanceof Adw.ActionRow &&
+                    widget.title === uiText('Preferred player', '首选播放器', '偏好播放器'));
+                const cacheRow = widgets.find(widget =>
+                    widget instanceof Adw.ActionRow &&
+                    widget.title === uiText('Lyrics cache', '歌词缓存', '歌詞快取'));
+                assert(preferredPlayerRow && !preferredPlayerRow.use_markup &&
+                    cacheRow && !cacheRow.use_markup,
+                'dynamic ActionRows must disable Pango markup parsing');
+                settings.set_string('preferred-player', 'identity:Music & <Video>');
+                assert(preferredPlayerRow.subtitle === 'identity:Music & <Video>',
+                    'special characters in preferred-player must render literally');
+                settings.set_string('preferred-player', 'auto');
+
                 const endpointRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText(
@@ -221,6 +238,12 @@ application.connect('activate', async app => {
                 endpointRow.text = 'https://api.openai.com/v1/responses';
                 modelRow.text = 'gpt-5.4-mini-2026-03-17';
                 applyButton.emit('clicked');
+                settings.set_string('translation-model', 'external-synced-model');
+                assert(modelRow.text === 'external-synced-model',
+                    'external GSettings model changes should sync into the Preferences row');
+                settings.set_string('translation-model', 'gpt-5.4-mini-2026-03-17');
+                assert(modelRow.text === 'gpt-5.4-mini-2026-03-17',
+                    'restoring GSettings model should sync back into the Preferences row');
                 const connectionButton = widgets.find(widget => widget instanceof Gtk.Button &&
                     widget.label === uiText('Check connection', '检查连通性', '檢查連線'));
                 const connectionRow = widgets.find(widget => widget instanceof Adw.ActionRow &&

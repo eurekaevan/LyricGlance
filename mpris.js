@@ -58,10 +58,14 @@ export function stablePlayerId({desktopEntry = '', identity = '', busName = ''})
 }
 
 export function parseMetadata(value) {
-    const metadata = unpack(value) ?? {};
+    const raw = unpack(value);
+    const metadata = raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? raw
+        : {};
     const artists = unpack(metadata['xesam:artist']);
     const artist = Array.isArray(artists)
-        ? artists.map(item => String(item).trim()).filter(Boolean).join(', ')
+        ? artists.filter(item => typeof item === 'string')
+            .map(item => item.trim()).filter(Boolean).join(', ')
         : unpackString(metadata['xesam:artist']);
 
     return {
@@ -292,14 +296,22 @@ export class MprisManager {
             null,
             Gio.DBusSignalFlags.NONE,
             (_connection, _sender, _path, _interface, _signal, parameters) => {
-                const [name, , newOwner] = parameters.deepUnpack();
-                if (!name.startsWith(MPRIS_PREFIX))
+                let unpacked;
+                try {
+                    unpacked = parameters?.deepUnpack();
+                } catch {
+                    return;
+                }
+                if (!Array.isArray(unpacked) || unpacked.length < 3)
+                    return;
+                const [name, , newOwner] = unpacked;
+                if (typeof name !== 'string' || !name.startsWith(MPRIS_PREFIX))
                     return;
 
                 // ListNames may have inserted an unresolved placeholder even
                 // when the name had no previous owner in this notification.
                 this._removePlayer(name);
-                if (newOwner)
+                if (typeof newOwner === 'string' && newOwner)
                     this._addPlayer(name, newOwner);
             });
 
@@ -379,7 +391,7 @@ export class MprisManager {
                     } catch (error) {
                         if (this._cancellable && this._players.get(name) === player) {
                             console.debug(`LyricGlance: owner lookup failed: ${error.message}`);
-                            if (error.matches(Gio.DBusError, Gio.DBusError.NAME_HAS_NO_OWNER))
+                            if (error.matches?.(Gio.DBusError, Gio.DBusError.NAME_HAS_NO_OWNER))
                                 this._removePlayer(name);
                         }
                         return;
@@ -398,8 +410,8 @@ export class MprisManager {
             MPRIS_PATH,
             PLAYER_INTERFACE,
             Gio.DBusSignalFlags.NONE,
-            (_connection, _sender, _path, _interface, _signal, parameters) => {
-                this._onPropertiesChanged(name, parameters);
+            (_connection, sender, _path, _interface, _signal, parameters) => {
+                this._onPropertiesChanged(name, parameters, sender);
             });
 
         player.seekedSignalId = this._connection.signal_subscribe(
@@ -409,11 +421,12 @@ export class MprisManager {
             MPRIS_PATH,
             null,
             Gio.DBusSignalFlags.NONE,
-            (_connection, _sender, _path, _interface, _signal, parameters) => {
-                this._onSeeked(name, parameters);
+            (_connection, sender, _path, _interface, _signal, parameters) => {
+                this._onSeeked(name, parameters, sender);
             });
 
-        this._refreshPlayer(player);
+        this._refreshPlayer(player).catch(error =>
+            logError(error, 'LyricGlance MPRIS initial refresh failed'));
         this._refreshIdentity(player);
     }
 
@@ -584,14 +597,27 @@ export class MprisManager {
             : true;
     }
 
-    _onPropertiesChanged(name, parameters) {
+    _onPropertiesChanged(name, parameters, sender = '') {
         const player = this._players.get(name);
         if (!player)
             return;
 
-        const [changedInterface, changed, invalidated] = parameters.deepUnpack();
-        if (changedInterface !== PLAYER_INTERFACE)
+        let unpacked;
+        try {
+            unpacked = parameters?.deepUnpack();
+        } catch {
             return;
+        }
+        if (!Array.isArray(unpacked) || unpacked.length < 3)
+            return;
+        const [changedInterface, changed, invalidated] = unpacked;
+        if (changedInterface !== PLAYER_INTERFACE ||
+            !changed || typeof changed !== 'object' || Array.isArray(changed) ||
+            !Array.isArray(invalidated))
+            return;
+
+        if (!player.owner && typeof sender === 'string' && sender.startsWith(':'))
+            player.owner = sender;
 
         player.stateVersion++;
         // A newer capability or artwork notification must survive an older
@@ -674,7 +700,8 @@ export class MprisManager {
                 .includes(property));
         if (relevantInvalidation) {
             this._notifyStateChanged();
-            this._refreshPlayer(player);
+            this._refreshPlayer(player).catch(error =>
+                logError(error, 'LyricGlance MPRIS invalidation refresh failed'));
             return;
         }
 
@@ -683,16 +710,28 @@ export class MprisManager {
             player.lastActivity = ++this._activitySerial;
         this._notifyStateChanged();
 
-        if (shouldQueryPosition)
-            this._queryPosition(player);
+        if (shouldQueryPosition) {
+            this._queryPosition(player).catch(error =>
+                logError(error, 'LyricGlance MPRIS position query failed'));
+        }
     }
 
-    _onSeeked(name, parameters) {
+    _onSeeked(name, parameters, sender = '') {
         const player = this._players.get(name);
         if (!player)
             return;
 
-        const [positionUs] = parameters.deepUnpack();
+        let unpacked;
+        try {
+            unpacked = parameters?.deepUnpack();
+        } catch {
+            return;
+        }
+        if (!Array.isArray(unpacked) || unpacked.length < 1)
+            return;
+        if (!player.owner && typeof sender === 'string' && sender.startsWith(':'))
+            player.owner = sender;
+        const [positionUs] = unpacked;
         player.stateVersion++;
         player.propertyVersions.Position = player.stateVersion;
         player.positionFeedbackVersion = player.stateVersion;
@@ -793,8 +832,10 @@ export class MprisManager {
                 if (this._cancellable && current === player &&
                     current.generation === generation &&
                     metadataKey(current.metadata) === trackKey &&
-                    !current.positionReadPromise && !current.controlRequest)
-                    this._queryPosition(current);
+                    !current.positionReadPromise && !current.controlRequest) {
+                    this._queryPosition(current).catch(error =>
+                        logError(error, 'LyricGlance MPRIS settle query failed'));
+                }
                 return GLib.SOURCE_REMOVE;
             });
         GLib.Source.set_name_by_id(
@@ -830,7 +871,8 @@ export class MprisManager {
                 if (!player.positionReadPromise && !player.controlRequest) {
                     this._queryPosition(player, {
                         silentThresholdUs: DRIFT_NOTIFY_THRESHOLD_US,
-                    });
+                    }).catch(error =>
+                        logError(error, 'LyricGlance MPRIS resync query failed'));
                 }
                 return GLib.SOURCE_CONTINUE;
             });

@@ -78,11 +78,19 @@ export function sourceLyricsLanguage(document) {
     // franc considers at most 2048 UTF-16 units. Cover the entire bounded
     // text with smaller samples rather than trusting just the opening verse.
     const samples = [];
-    const size = Math.ceil(text.length / Math.max(2, Math.ceil(text.length / 1024)));
-    for (let start = 0; start < text.length; start += size)
-        samples.push(text.slice(start, start + size));
-    if (text.length <= 2048)
+    if (text.length <= 2048 && letters < 80) {
+        // Short pure-Han texts (60-79 letters) cannot reliably yield two
+        // 30-letter halves when punctuation or whitespace is uneven.
         samples.push(text);
+    } else {
+        const codePoints = Array.from(text);
+        const parts = Math.max(2, Math.ceil(text.length / 1024));
+        const size = Math.ceil(codePoints.length / parts);
+        for (let start = 0; start < codePoints.length; start += size)
+            samples.push(codePoints.slice(start, start + size).join(''));
+        if (text.length <= 2048)
+            samples.push(text);
+    }
     let language = null;
     for (const sample of samples) {
         if ((sample.match(/\p{L}/gu)?.length ?? 0) < 30)
@@ -142,13 +150,16 @@ export class TranslationService {
             ? targetLanguage.trim()
             : '';
         const lyricsHash = sourceLyricsHash(document);
-        const requestKey = [
+        const cacheIdentity = [
             trackKey,
             lyricsHash,
             normalizedTarget,
             providerId,
             provider?.configurationId ?? providerId,
             provider?.model ?? '',
+        ].join('\u0000');
+        const requestKey = [
+            cacheIdentity,
             allowNetwork ? 'network' : 'cache-only',
             ignoreSameLanguage ? 'force-lang' : 'check-lang',
         ].join('\u0000');
@@ -162,12 +173,20 @@ export class TranslationService {
             }
             return existing.promise;
         }
-        // A forced request replaces ordinary work, including a pending cache
-        // hit, so its late result cannot overwrite the refreshed memory entry.
+        // A forced request replaces ordinary work, including pending cache-only
+        // reads for the same cache entry, so late results cannot overwrite memory.
         existing?.cancellable.cancel();
+        if (forceRefresh && allowNetwork) {
+            for (const pending of this._inFlight.values()) {
+                if (pending.cacheIdentity === cacheIdentity &&
+                    (!pending.forceRefresh || pending !== existing))
+                    pending.cancellable.cancel();
+            }
+        }
 
         const cancellable = new Gio.Cancellable();
         const request = {
+            cacheIdentity,
             cancellable,
             forceRefresh,
             listeners: new Set(onStatus ? [onStatus] : []),
@@ -291,8 +310,10 @@ export class TranslationService {
             });
             try {
                 await this._cache.put(translation, options.cancellable);
-            } catch {
-                console.warn('LyricGlance: could not save translation cache');
+            } catch (error) {
+                if (!options.cancellable.is_cancelled() &&
+                    !error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                    console.warn('LyricGlance: could not save translation cache');
             }
             if (options.cancellable.is_cancelled())
                 return notify({status: TranslationStatus.CANCELED});

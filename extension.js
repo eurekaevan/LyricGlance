@@ -322,9 +322,17 @@ export default class LyricGlanceExtension extends Extension {
                 // clear. Replace it before registering the fresh callbacks.
                 provider.cancelPending();
                 this._currentTrackIdentity = null;
-                this._onPlayerStateChanged(this._state);
+                this._onPlayerStateChanged(this._currentStateSnapshot());
             });
         });
+    }
+
+    _currentStateSnapshot() {
+        if (!this._state)
+            return null;
+        return this._mprisManager
+            ? {...this._state, positionUs: this._mprisManager.getPositionUs()}
+            : this._state;
     }
 
     _replaceLyricsProvider() {
@@ -335,7 +343,7 @@ export default class LyricGlanceExtension extends Extension {
         });
         this._currentTrackIdentity = null;
         if (this._state)
-            this._onPlayerStateChanged(this._state);
+            this._onPlayerStateChanged(this._currentStateSnapshot());
     }
 
     _panelBox(boxName) {
@@ -417,6 +425,11 @@ export default class LyricGlanceExtension extends Extension {
                     requestedIdentity !== this._currentTrackIdentity)
                     return;
 
+                if (this._lyricsDocument &&
+                    sourceLyricsHash(this._lyricsDocument) !== sourceLyricsHash(document)) {
+                    this._cancelTranslation();
+                    this._clearTranslation('idle');
+                }
                 this._lyricsDocument = document;
                 this._lyricsLoaded = true;
                 this._indicator.setLyrics(document, status);
@@ -748,11 +761,13 @@ export default class LyricGlanceExtension extends Extension {
             if (lineEndMs === null && currentLine) {
                 const durationMs = Number(
                     this._state.metadata.durationUs) / 1000;
-                const effectiveTrackEndMs = durationMs +
-                    this._globalOffsetMs + this._trackOffsetMs;
-                if (Number.isFinite(effectiveTrackEndMs) &&
-                    effectiveTrackEndMs > currentLine.startMs)
-                    lineEndMs = effectiveTrackEndMs;
+                if (durationMs > 0) {
+                    const effectiveTrackEndMs = durationMs +
+                        this._globalOffsetMs + this._trackOffsetMs;
+                    if (Number.isFinite(effectiveTrackEndMs) &&
+                        effectiveTrackEndMs > currentLine.startMs)
+                        lineEndMs = effectiveTrackEndMs;
+                }
             }
         } else if (document?.lines?.length) {
             // Static lyrics still need an entry point to their popup. They do

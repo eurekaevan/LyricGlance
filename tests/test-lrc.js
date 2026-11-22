@@ -48,4 +48,19 @@ assert(variants.length === 3 &&
     variants[2].timeUs === 20_000_000 && variants[2].text === 'It is [12:00] midnight',
 'colon centiseconds, CR line endings, inline ELRC tags, and mid-line brackets should parse safely');
 
+const overflowOffset = LrcParser.parse(`[offset:-${'9'.repeat(320)}]\n[00:01.00]Finite line`);
+assert(overflowOffset.length === 1 && overflowOffset[0].timeUs === 1_000_000,
+    'out-of-range LRC offset headers must be ignored rather than overflowing to Infinity');
+
+const manySameTimestamp = LrcParser.parse(
+    Array.from({length: 4000}, (_, index) => `[00:01.00]Line ${index}`).join('\n'));
+assert(manySameTimestamp.length === 1 &&
+    manySameTimestamp[0].text.split('\n').length === 4000,
+'large same-timestamp LRC groups must deduplicate in linear time without losing lines');
+
+const excessiveLines = LrcParser.parse(
+    Array.from({length: 5005}, (_, index) => `[00:01.${String(index % 1000).padStart(3, '0')}]Line ${index}`).join('\n'));
+assert(excessiveLines.length === 0,
+    'excessively large LRC files above the line limit must be rejected safely');
+
 print('LRC parser tests passed');

@@ -29,6 +29,29 @@ assert(parsed.artUrl === 'file:///home/test/.cache/player/cover.png',
 assert(parsed.durationUs === 220_000_000, 'duration should stay in microseconds');
 
 const unstartedManager = new MprisManager(() => {});
+unstartedManager._players.set('org.mpris.MediaPlayer2.malformed', {
+    name: 'org.mpris.MediaPlayer2.malformed',
+    owner: '',
+    metadata: parsed,
+    capabilities: {},
+    propertyVersions: {},
+    stateVersion: 0,
+    positionRequestSerial: 0,
+    anchorPositionUs: 0,
+    anchorMonotonicUs: 0,
+    playbackStatus: 'Stopped',
+    rate: 1,
+});
+unstartedManager._onPropertiesChanged('org.mpris.MediaPlayer2.malformed',
+    new GLib.Variant('(s)', ['org.mpris.MediaPlayer2.Player']));
+unstartedManager._onSeeked('org.mpris.MediaPlayer2.malformed',
+    new GLib.Variant('()', []));
+const messyMetadata = parseMetadata({
+    'xesam:title': 'Messy',
+    'xesam:artist': ['Valid Artist', null, 42, {bad: true}, ' Second '],
+});
+assert(messyMetadata.artist === 'Valid Artist, Second',
+    'non-string artist entries must be ignored instead of stringified');
 unstartedManager.destroy();
 unstartedManager.destroy();
 assert(unstartedManager._cancellable === null && unstartedManager.getPlayers().length === 0,

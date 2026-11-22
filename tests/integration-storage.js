@@ -384,6 +384,11 @@ async function run() {
     'reset and adjustment made during loading must remain persisted after recreation');
     await persistedPending.flush();
     persistedPending.destroy();
+    persistedPending.destroy();
+    persistedPending.set(trackA, 750);
+    assert(persistedPending.get(trackA) === 0,
+        'operations after OffsetStore.destroy() must remain no-ops without throwing');
+    await persistedPending.flush();
 
     const providerRoot = GLib.build_filenamev([tempRoot, 'provider-cache']);
     const providerOptions = {
@@ -430,6 +435,7 @@ async function run() {
     assert(afterClear?.lines?.[0]?.text === 'persistent line' &&
         networkRequests === 4,
         'clearing L1 and L2 should force the next LRCLIB request');
+    thirdProvider.destroy();
     thirdProvider.destroy();
 
     await removeTree(Gio.File.new_for_path(tempRoot));

@@ -5,7 +5,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {clearArtworkCache, countArtworkCache} from './artwork-loader.js';
-import {TranslationCredentialStore} from './credentials.js';
+import {isValidCredential, TranslationCredentialStore} from './credentials.js';
 import {clearLyricsCache, countLyricsCache} from './storage.js';
 import {normalizeLrcApiEndpoint} from './lyrics.js';
 import {
@@ -150,6 +150,9 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         lyricsGroup.add(lrcApiEndpointRow);
         settings.bind('lrcapi-enabled', lrcApiEndpointRow, 'sensitive',
             Gio.SettingsBindFlags.GET);
+        lrcApiEndpointRow.connect('notify::text', () => {
+            lrcApiEndpointRow.remove_css_class('error');
+        });
         lrcApiEndpointRow.connect('apply', () => {
             const endpoint = normalizeLrcApiEndpoint(lrcApiEndpointRow.text);
             if (!endpoint) {
@@ -323,7 +326,10 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             }
         };
         let backendDirty = false;
+        let syncingBackend = false;
         const markBackendDirty = () => {
+            if (syncingBackend)
+                return;
             backendDirty = true;
             updateBackendPreview();
         };
@@ -347,8 +353,15 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             backendSettings.set_string('translation-api-protocol', protocol);
             backendSettings.set_string('translation-model', model);
             backendSettings.apply();
-            endpointRow.text = endpoint;
-            modelRow.text = model;
+            syncingBackend = true;
+            try {
+                if (endpointRow.text !== endpoint)
+                    endpointRow.text = endpoint;
+                if (modelRow.text !== model)
+                    modelRow.text = model;
+            } finally {
+                syncingBackend = false;
+            }
             backendDirty = false;
             return true;
         };
@@ -360,6 +373,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const connectionRow = new Adw.ActionRow({
             title: _('Translation connection'),
             subtitle: connectionHint,
+            use_markup: false,
         });
         const connectionButton = new Gtk.Button({
             label: _('Check connection'),
@@ -376,9 +390,41 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 connectionRow.subtitle = connectionHint;
             }
         };
-        endpointRow.connect('notify::text', cancelConnectionCheck);
-        modelRow.connect('notify::text', cancelConnectionCheck);
-        protocolRow.connect('notify::selected', cancelConnectionCheck);
+        const cancelConnectionCheckIfEdited = () => {
+            if (!syncingBackend)
+                cancelConnectionCheck();
+        };
+        endpointRow.connect('notify::text', cancelConnectionCheckIfEdited);
+        modelRow.connect('notify::text', cancelConnectionCheckIfEdited);
+        protocolRow.connect('notify::selected', cancelConnectionCheckIfEdited);
+        const syncBackendFromSettings = () => {
+            if (backendDirty)
+                return;
+            const endpoint = settings.get_string('translation-api-endpoint');
+            const protocolIndex = Math.max(0, protocols.indexOf(
+                settings.get_string('translation-api-protocol')));
+            const model = settings.get_string('translation-model');
+            if (endpointRow.text === endpoint &&
+                protocolRow.selected === protocolIndex &&
+                modelRow.text === model)
+                return;
+            syncingBackend = true;
+            try {
+                if (endpointRow.text !== endpoint)
+                    endpointRow.text = endpoint;
+                if (protocolRow.selected !== protocolIndex)
+                    protocolRow.selected = protocolIndex;
+                if (modelRow.text !== model)
+                    modelRow.text = model;
+            } finally {
+                syncingBackend = false;
+            }
+            updateBackendPreview();
+            cancelConnectionCheck();
+        };
+        for (const key of ['translation-api-endpoint',
+            'translation-api-protocol', 'translation-model'])
+            signalIds.push(settings.connect(`changed::${key}`, syncBackendFromSettings));
         signalIds.push(settings.connect(
             'changed::translation-credential-generation', cancelConnectionCheck));
         connectionButton.connect('clicked', async () => {
@@ -440,6 +486,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const credentialRow = new Adw.ActionRow({
             title: _('Translation API key'),
             subtitle: _('Checking Secret Service…'),
+            use_markup: false,
         });
         const configureCredentialButton = new Gtk.Button({
             label: _('Configure'),
@@ -493,7 +540,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 dialog.add_response('save', _('Save'));
                 dialog.set_response_appearance(
                     'save', Adw.ResponseAppearance.SUGGESTED);
-                dialog.choose(window, null, async (_dialog, result) => {
+                dialog.choose(window, cancellable, async (_dialog, result) => {
                     try {
                         const response = dialog.choose_finish(result);
                         const provider = settings.get_string(
@@ -501,6 +548,10 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                         if (response === 'save' && !entry.text.trim()) {
                             if (!configured)
                                 credentialRow.subtitle = _('API key cannot be empty');
+                            return;
+                        }
+                        if (response === 'save' && !isValidCredential(entry.text)) {
+                            credentialRow.subtitle = _('API key contains invalid characters');
                             return;
                         }
                         if (response === 'save')
@@ -519,10 +570,9 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                                 'Could not update credential in Secret Service');
                         }
                     } finally {
-                        if (!cancellable.is_cancelled()) {
-                            entry.text = '';
+                        entry.text = '';
+                        if (!cancellable.is_cancelled())
                             configureCredentialButton.sensitive = true;
-                        }
                     }
                 });
             } catch {
@@ -544,6 +594,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
             subtitle: settings.get_string('preferred-player') === 'auto'
                 ? _('Auto')
                 : settings.get_string('preferred-player'),
+            use_markup: false,
         });
         playerGroup.add(preferredPlayerRow);
         signalIds.push(settings.connect('changed::preferred-player', () => {
@@ -561,6 +612,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const cacheRow = new Adw.ActionRow({
             title: _('Lyrics cache'),
             subtitle: _('Positive results: 30 days; unavailable lyrics: 24 hours'),
+            use_markup: false,
         });
         const clearButton = new Gtk.Button({
             label: _('Clear Lyrics Cache'),
@@ -605,6 +657,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const translationCacheRow = new Adw.ActionRow({
             title: _('Translation cache'),
             subtitle: _('Checking cached translations…'),
+            use_markup: false,
         });
         const clearTranslationButton = new Gtk.Button({
             label: _('Clear Translation Cache'),
@@ -649,6 +702,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         const artworkCacheRow = new Adw.ActionRow({
             title: _('Artwork cache'),
             subtitle: _('Checking cached artwork…'),
+            use_markup: false,
         });
         const clearArtworkButton = new Gtk.Button({
             label: _('Clear Artwork Cache'),

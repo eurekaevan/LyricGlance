@@ -29,17 +29,31 @@ function clampOffset(offsetMs) {
         Math.max(MIN_OFFSET_MS, Number.isFinite(value) ? value : 0));
 }
 
-async function ensureDirectory(directory, cancellable = null) {
-    const parent = directory.get_parent();
-    if (parent)
-        await ensureDirectory(parent, cancellable);
+export async function ensureDirectory(directory, cancellable = null) {
+    if (!directory)
+        return;
 
     try {
         await directory.make_directory_async(
             GLib.PRIORITY_DEFAULT, cancellable);
     } catch (error) {
-        if (!isExists(error))
-            throw error;
+        if (isExists(error))
+            return;
+        if (isNotFound(error)) {
+            const parent = directory.get_parent();
+            if (parent) {
+                await ensureDirectory(parent, cancellable);
+                try {
+                    await directory.make_directory_async(
+                        GLib.PRIORITY_DEFAULT, cancellable);
+                } catch (retryError) {
+                    if (!isExists(retryError))
+                        throw retryError;
+                }
+                return;
+            }
+        }
+        throw error;
     }
 }
 
@@ -366,14 +380,25 @@ export class LyricsDiskCache {
 
         const ages = [];
         for (const info of children) {
+            if (cancellable?.is_cancelled()) {
+                throw new GLib.Error(
+                    Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED, 'Operation was cancelled');
+            }
             let lastAccessed = 0;
             try {
                 const record = await readJson(
                     this._directory.get_child(info.get_name()), cancellable);
-                lastAccessed = Number(record.lastAccessed) ||
-                    Number(record.fetchedAt) || 0;
-            } catch {
-                // Corrupt entries are the first eviction candidates.
+                lastAccessed = Number(record?.lastAccessed) ||
+                    Number(record?.fetchedAt) || 0;
+            } catch (error) {
+                if (cancellable?.is_cancelled() ||
+                    error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                    throw error;
+                if (isNotFound(error))
+                    continue;
+                if (!(error instanceof SyntaxError) && !(error instanceof TypeError))
+                    continue;
+                // Corrupt JSON entries are the first eviction candidates.
             }
             ages.push({info, lastAccessed});
         }
@@ -415,6 +440,8 @@ export class OffsetStore {
     }
 
     get(track) {
+        if (this._cancellable.is_cancelled())
+            return 0;
         const hash = trackHash(track);
         const entry = this._entries.get(hash);
         if (!entry)
@@ -429,8 +456,10 @@ export class OffsetStore {
     }
 
     set(track, offsetMs) {
-        const hash = trackHash(track);
         const value = clampOffset(offsetMs);
+        if (this._cancellable.is_cancelled())
+            return value;
+        const hash = trackHash(track);
         if (value === 0) {
             this._entries.delete(hash);
             this._pendingResets?.add(hash);
@@ -448,7 +477,6 @@ export class OffsetStore {
 
     destroy() {
         this._cancellable.cancel();
-        this._cancellable = null;
         this._onLoaded = null;
         this._entries.clear();
         this._pendingResets = null;
@@ -460,6 +488,8 @@ export class OffsetStore {
 
     async flush() {
         await this._loadedPromise;
+        if (this._cancellable.is_cancelled())
+            return;
         if (this._dirty && !this._saving)
             this._savePromise = this._saveLoop();
         await this._savePromise;

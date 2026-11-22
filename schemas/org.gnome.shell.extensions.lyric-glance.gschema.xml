@@ -28,7 +28,7 @@
     </key>
     <key name="fallback-track-info" type="b">
       <default>true</default>
-      <summary>Show track information when synchronized lyrics are unavailable</summary>
+      <summary>Show track title in the panel when no lyrics are available</summary>
     </key>
     <key name="lrcapi-enabled" type="b">
       <default>false</default>
@@ -51,6 +51,9 @@
       <summary>BCP 47 target language code for lyrics translation</summary>
     </key>
     <key name="translation-provider" type="s">
+      <choices>
+        <choice value="openai"/>
+      </choices>
       <default>'openai'</default>
       <summary>Translation provider identifier</summary>
     </key>
@@ -72,6 +75,11 @@
       <summary>Model used for lyrics translation</summary>
     </key>
     <key name="translation-display-mode" type="s">
+      <choices>
+        <choice value="bilingual"/>
+        <choice value="original"/>
+        <choice value="translated"/>
+      </choices>
       <default>'bilingual'</default>
       <summary>Popup translation display mode</summary>
     </key>
@@ -80,6 +88,10 @@
       <summary>Automatically translate lyrics when no cache entry exists</summary>
     </key>
     <key name="panel-lyrics-language" type="s">
+      <choices>
+        <choice value="original"/>
+        <choice value="translated"/>
+      </choices>
       <default>'original'</default>
       <summary>Preferred language for top-bar lyrics</summary>
     </key>

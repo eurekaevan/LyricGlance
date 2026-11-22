@@ -1,10 +1,11 @@
 import {JSON_SCHEMA, load as loadYaml} from './js-yaml.mjs';
 
-import {createLyricsDocument} from './lyrics-document.js';
+import {createLyricsDocument, MAX_LYRICS_LINES} from './lyrics-document.js';
 
 const MAX_DOCUMENT_CHARS = 1024 * 1024;
 const MAX_COLLECTION_DEPTH = 32;
 const MAX_COLLECTION_NODES = 50_000;
+const MAX_YAML_NODES = 100_000;
 
 function isMapping(value) {
     return value !== null && typeof value === 'object' &&
@@ -66,6 +67,8 @@ function parseLines(lines) {
         return [];
     if (!Array.isArray(lines))
         throw new Error('Lyricsfile lines must be a sequence');
+    if (lines.length > MAX_LYRICS_LINES)
+        throw new Error('Lyricsfile contains too many lines');
 
     return lines.map((line, index) => {
         if (!isMapping(line) || typeof line.text !== 'string')
@@ -89,17 +92,30 @@ export class LyricsfileParser {
         if (source.length > MAX_DOCUMENT_CHARS)
             throw new Error('Lyricsfile exceeds the 1 MiB safety limit');
 
-        let anchorFound = false;
+        let depth = 0;
+        let nodes = 0;
         const data = loadYaml(source, {
             schema: JSON_SCHEMA,
             json: false,
             listener: (event, state) => {
-                if (event === 'close' && state.anchor !== null)
-                    anchorFound = true;
+                if (event === 'open') {
+                    depth++;
+                    if (depth > MAX_COLLECTION_DEPTH + 2)
+                        throw new Error('Lyricsfile nesting is too deep');
+                    nodes++;
+                    if (nodes > MAX_YAML_NODES)
+                        throw new Error('Lyricsfile contains too many values');
+                    return;
+                }
+                if (event === 'close') {
+                    depth--;
+                    if (state.anchor !== null) {
+                        throw new Error(
+                            'Lyricsfile YAML anchors and aliases are not supported');
+                    }
+                }
             },
         });
-        if (anchorFound)
-            throw new Error('Lyricsfile YAML anchors and aliases are not supported');
 
         validateYamlValue(data, new WeakSet(), 0, {count: 0});
         if (!isMapping(data))
