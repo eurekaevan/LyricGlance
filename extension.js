@@ -253,7 +253,7 @@ export default class LyricGlanceExtension extends Extension {
             this._restartTranslation();
         });
         connect('translation-provider', () => {
-            this._restartTranslation();
+            this._scheduleReplaceTranslationService();
         });
         connect('translation-api-endpoint', () => {
             this._scheduleReplaceTranslationService();
@@ -517,9 +517,14 @@ export default class LyricGlanceExtension extends Extension {
         this._updateIndicatorAndSchedule(true);
     }
 
+    _activeTranslationProviderId() {
+        return this._settings.get_string('translation-provider').trim() || 'openai';
+    }
+
     _createTranslationService() {
         return new TranslationService({
             providerOptions: {
+                id: this._activeTranslationProviderId(),
                 endpoint: this._settings.get_string(
                     'translation-api-endpoint'),
                 protocol: this._settings.get_string('translation-api-protocol'),
@@ -584,7 +589,7 @@ export default class LyricGlanceExtension extends Extension {
         const requestedHash = sourceLyricsHash(this._lyricsDocument);
         const targetLanguage = this._settings.get_string(
             'translation-target-language').trim();
-        const providerId = this._settings.get_string('translation-provider');
+        const providerId = this._activeTranslationProviderId();
         const useNetwork = allowNetwork ??
             this._settings.get_boolean('auto-translate');
 

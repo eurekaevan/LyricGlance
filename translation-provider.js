@@ -6,9 +6,14 @@ import {closeStream, readLimited, ResponseTooLargeError, USER_AGENT} from './net
 
 import {validateTranslationLines} from './translation-document.js';
 
-const OPENAI_PROVIDER_ID = 'openai';
-const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
-const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+export const OPENAI_PROVIDER_ID = 'openai';
+export const OPENAI_MODEL = 'gpt-5.4-mini-2026-03-17';
+export const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+export const TRANSLATION_API_PROTOCOLS = Object.freeze([
+    'auto',
+    'responses',
+    'chat-completions',
+]);
 
 const MAX_RATE_LIMIT_RETRIES = 1;
 const MAX_RATE_LIMIT_DELAY_MS = 30_000;
@@ -16,6 +21,20 @@ const DEFAULT_REASONING_EFFORT = 'none';
 // Bump when translation instructions or output policy change to avoid stale results.
 const TRANSLATION_PROMPT_VERSION = 3;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_TRANSLATION_PROVIDERS = 50;
+const MAX_MODELS_PER_PROVIDER = 500;
+const MAX_FETCHED_MODELS = 2000;
+const MAX_PROVIDER_NAME_LENGTH = 80;
+const PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const QUOTA_ERROR_CODES = new Set([
+    'insufficient_quota',
+    'quota_exceeded',
+    'credit_balance_exhausted',
+    'billing_hard_limit_reached',
+    'organization_spend_limit_exceeded',
+    'project_spend_limit_exceeded',
+    'organization_usage_limit_exceeded',
+]);
 
 export function translationNetworkReason(error) {
     if (error.domain === Gio.tls_error_quark())
@@ -84,6 +103,188 @@ export function resolveTranslationEndpoint(endpoint, protocol = 'auto') {
             ? trimmed + suffix
             : endpointProtocol ? trimmed : value,
     };
+}
+
+export function resolveModelsEndpoint(endpoint) {
+    const value = normalizeTranslationEndpoint(endpoint);
+    if (!value)
+        return null;
+
+    const trimmed = value.replace(/\/+$/, '');
+    const path = GLib.Uri.parse(value, GLib.UriFlags.NONE).get_path().replace(/\/+$/, '');
+    if (path.endsWith('/chat/completions'))
+        return `${trimmed.slice(0, -'/chat/completions'.length)}/models`;
+    if (path.endsWith('/responses'))
+        return `${trimmed.slice(0, -'/responses'.length)}/models`;
+    if (path.endsWith('/models'))
+        return trimmed;
+    return `${trimmed}/models`;
+}
+
+function normalizeModelList(models, selectedModel = '') {
+    const unique = [];
+    const seen = new Set();
+    const pushModel = value => {
+        if (typeof value !== 'string')
+            return;
+        const trimmed = value.trim();
+        if (!trimmed || seen.has(trimmed) || unique.length >= MAX_MODELS_PER_PROVIDER)
+            return;
+        seen.add(trimmed);
+        unique.push(trimmed);
+    };
+    if (Array.isArray(models)) {
+        for (const item of models)
+            pushModel(item);
+    }
+    const normalizedSelected = typeof selectedModel === 'string'
+        ? selectedModel.trim()
+        : '';
+    if (normalizedSelected)
+        pushModel(normalizedSelected);
+    return {
+        models: unique,
+        model: normalizedSelected || unique[0] || '',
+    };
+}
+
+export function normalizeTranslationProvider(entry) {
+    if (!entry || typeof entry !== 'object')
+        return null;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!PROVIDER_ID_PATTERN.test(id))
+        return null;
+    const name = typeof entry.name === 'string'
+        ? entry.name.trim().slice(0, MAX_PROVIDER_NAME_LENGTH)
+        : '';
+    if (!name)
+        return null;
+    const protocol = TRANSLATION_API_PROTOCOLS.includes(entry.protocol)
+        ? entry.protocol
+        : null;
+    if (!protocol)
+        return null;
+    const endpoint = normalizeTranslationEndpoint(entry.endpoint);
+    if (!endpoint || !resolveTranslationEndpoint(endpoint, protocol))
+        return null;
+    const {models, model} = normalizeModelList(entry.models, entry.model);
+    return {id, name, endpoint, protocol, models, model};
+}
+
+export function createTranslationProviderId(existingIds = []) {
+    const used = new Set(existingIds);
+    for (let attempt = 0; attempt < 32; attempt++) {
+        const candidate = `provider-${GLib.uuid_string_random().slice(0, 8)}`;
+        if (!used.has(candidate))
+            return candidate;
+    }
+    return `provider-${GLib.get_monotonic_time()}`;
+}
+
+export function loadTranslationProviders(settings) {
+    const raw = settings.get_string('translation-providers');
+    const savedActiveId = settings.get_string('translation-provider').trim() ||
+        OPENAI_PROVIDER_ID;
+    const activeEndpoint = settings.get_string('translation-api-endpoint');
+    const activeProtocol = settings.get_string('translation-api-protocol');
+    const activeModel = settings.get_string('translation-model').trim();
+
+    const providers = [];
+    const seenIds = new Set();
+    if (raw.trim()) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) {
+                    const normalized = normalizeTranslationProvider(item);
+                    if (!normalized || seenIds.has(normalized.id))
+                        continue;
+                    seenIds.add(normalized.id);
+                    providers.push(normalized);
+                    if (providers.length >= MAX_TRANSLATION_PROVIDERS)
+                        break;
+                }
+            }
+        } catch {
+            // Fall back to the active legacy keys if stored JSON is malformed.
+        }
+    }
+
+    if (providers.length === 0) {
+        const fallbackId = PROVIDER_ID_PATTERN.test(savedActiveId)
+            ? savedActiveId
+            : OPENAI_PROVIDER_ID;
+        const fallbackProtocol = TRANSLATION_API_PROTOCOLS.includes(activeProtocol)
+            ? activeProtocol
+            : 'auto';
+        const fallbackEndpoint = normalizeTranslationEndpoint(activeEndpoint);
+        const validEndpoint = fallbackEndpoint &&
+            resolveTranslationEndpoint(fallbackEndpoint, fallbackProtocol)
+            ? fallbackEndpoint
+            : OPENAI_RESPONSES_URL;
+        const validProtocol = validEndpoint === fallbackEndpoint
+            ? fallbackProtocol
+            : 'auto';
+        const {models, model} = normalizeModelList(
+            activeModel ? [activeModel] : [OPENAI_MODEL],
+            activeModel || OPENAI_MODEL);
+        providers.push({
+            id: fallbackId,
+            name: fallbackId === OPENAI_PROVIDER_ID ? 'OpenAI' : fallbackId,
+            endpoint: validEndpoint,
+            protocol: validProtocol,
+            models,
+            model,
+        });
+    }
+
+    const active = providers.find(provider => provider.id === savedActiveId) ??
+        providers[0];
+    if (active.id === savedActiveId) {
+        const externalProtocol = TRANSLATION_API_PROTOCOLS.includes(activeProtocol)
+            ? activeProtocol
+            : active.protocol;
+        const externalEndpoint = normalizeTranslationEndpoint(activeEndpoint);
+        if (externalEndpoint &&
+            resolveTranslationEndpoint(externalEndpoint, externalProtocol)) {
+            active.endpoint = externalEndpoint;
+            active.protocol = externalProtocol;
+        }
+        if (activeModel && activeModel !== active.model) {
+            const updated = normalizeModelList(active.models, activeModel);
+            active.models = updated.models;
+            active.model = updated.model;
+        }
+    }
+
+    return {providers, activeId: active.id};
+}
+
+export function saveTranslationProviders(settings, providers, activeId) {
+    const normalized = [];
+    const seenIds = new Set();
+    for (const item of providers) {
+        const entry = normalizeTranslationProvider(item);
+        if (!entry || seenIds.has(entry.id))
+            continue;
+        seenIds.add(entry.id);
+        normalized.push(entry);
+        if (normalized.length >= MAX_TRANSLATION_PROVIDERS)
+            break;
+    }
+    if (normalized.length === 0)
+        return null;
+
+    const active = normalized.find(provider => provider.id === activeId) ??
+        normalized[0];
+    settings.set_string('translation-providers', JSON.stringify(normalized));
+    settings.set_string('translation-provider', active.id);
+    settings.set_string('translation-api-endpoint', active.endpoint);
+    settings.set_string('translation-api-protocol', active.protocol);
+    settings.set_string('translation-model', active.model);
+    if (settings.has_unapplied || settings.get_has_unapplied?.())
+        settings.apply();
+    return {providers: normalized, activeId: active.id};
 }
 
 function providerConfigurationId(endpoint, protocol) {
@@ -304,8 +505,62 @@ function requestBody(document, options, model, reasoningEffort, chatOptions) {
     return body;
 }
 
+function parseApiError(status, bytes) {
+    if (status >= 200 && status < 300)
+        return null;
+    try {
+        return JSON.parse(new TextDecoder().decode(bytes.get_data()))?.error ?? null;
+    } catch {
+        // HTML, oversized and malformed error bodies retain HTTP classification.
+        return null;
+    }
+}
+
+function validateBearerCredential(value) {
+    const credential = typeof value === 'string' ? value.trim() : '';
+    if (!credential || !/^[\x21-\x7E]+$/.test(credential)) {
+        throw new TranslationProviderError(
+            'authentication_error', 'Translation credential is invalid');
+    }
+    return credential;
+}
+
+function parseModelIds(response) {
+    const items = Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+            ? response
+            : Array.isArray(response?.models)
+                ? response.models
+                : null;
+    if (!items)
+        throw invalidResponse('missing_models');
+
+    const ids = [];
+    const seen = new Set();
+    for (const item of items) {
+        const raw = typeof item === 'string'
+            ? item
+            : typeof item?.id === 'string'
+                ? item.id
+                : null;
+        if (!raw)
+            continue;
+        const id = raw.trim();
+        if (!id || seen.has(id))
+            continue;
+        seen.add(id);
+        ids.push(id);
+        if (ids.length >= MAX_FETCHED_MODELS)
+            break;
+    }
+    ids.sort((left, right) => left.localeCompare(right));
+    return ids;
+}
+
 export class OpenAITranslationProvider {
     constructor({
+        id = OPENAI_PROVIDER_ID,
         endpoint = OPENAI_RESPONSES_URL,
         protocol = 'auto',
         model = OPENAI_MODEL,
@@ -313,11 +568,15 @@ export class OpenAITranslationProvider {
         maxResponseBytes = MAX_RESPONSE_BYTES,
         reasoningEffort = DEFAULT_REASONING_EFFORT,
     } = {}) {
-        this.id = OPENAI_PROVIDER_ID;
+        const normalizedId = typeof id === 'string' ? id.trim() : '';
+        this.id = PROVIDER_ID_PATTERN.test(normalizedId)
+            ? normalizedId
+            : OPENAI_PROVIDER_ID;
         this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
         const resolved = resolveTranslationEndpoint(endpoint, protocol);
         this._endpoint = resolved?.endpoint ?? null;
+        this._modelsEndpoint = resolved ? resolveModelsEndpoint(endpoint) : null;
         this._protocol = resolved?.protocol;
         this.configurationId = providerConfigurationId(this._endpoint, this._protocol);
         this._chatOptions = this._protocol === 'chat-completions'
@@ -350,6 +609,71 @@ export class OpenAITranslationProvider {
         }, cancellable);
     }
 
+    async fetchModels(credential, cancellable) {
+        if (!this._session || cancellable?.is_cancelled())
+            throw canceledError();
+
+        const bearer = validateBearerCredential(credential);
+        const message = this._modelsEndpoint
+            ? Soup.Message.new('GET', this._modelsEndpoint)
+            : null;
+        if (!message) {
+            throw new TranslationProviderError(
+                'provider_error', 'Translation endpoint is invalid');
+        }
+        message.set_flags(Soup.MessageFlags.NO_REDIRECT);
+        message.get_request_headers().append(
+            'Authorization', `Bearer ${bearer}`);
+
+        let bytes;
+        try {
+            bytes = await readResponse(this._session, message,
+                this._maxResponseBytes, cancellable);
+        } catch (error) {
+            if (cancellable?.is_cancelled() ||
+                error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                throw canceledError();
+            if (error instanceof ResponseTooLargeError)
+                throw invalidResponse('response_too_large');
+            const failure = new TranslationProviderError(
+                'network_error', 'Model list network request failed');
+            failure.networkReason = translationNetworkReason(error);
+            throw failure;
+        }
+
+        const status = message.status_code;
+        const apiError = parseApiError(status, bytes);
+        if ((status < 200 || status >= 300) &&
+            (QUOTA_ERROR_CODES.has(apiError?.code) || QUOTA_ERROR_CODES.has(apiError?.type))) {
+            throw new TranslationProviderError(
+                'quota_exceeded', 'Translation quota or spending limit reached');
+        }
+        if (status === 429) {
+            throw new TranslationProviderError(
+                'rate_limited', 'Translation provider rate limited the request');
+        }
+        if (status === 401 || status === 403 && apiError?.code === 'invalid_api_key') {
+            throw new TranslationProviderError(
+                'authentication_error', 'Translation credential was rejected');
+        }
+        if (status === 403) {
+            throw new TranslationProviderError(
+                'permission_denied', 'Translation access was denied');
+        }
+        if (status < 200 || status >= 300) {
+            throw new TranslationProviderError(
+                'provider_error', `Translation provider returned HTTP ${status}`);
+        }
+
+        let response;
+        try {
+            response = JSON.parse(new TextDecoder().decode(bytes.get_data()));
+        } catch {
+            throw invalidResponse('response_json');
+        }
+        return parseModelIds(response);
+    }
+
     async _request(document, options, cancellable, attempt) {
         if (!this._session || cancellable?.is_cancelled())
             throw canceledError();
@@ -375,13 +699,7 @@ export class OpenAITranslationProvider {
             }
         }
 
-        const credential = typeof options.credential === 'string'
-            ? options.credential.trim()
-            : '';
-        if (!credential || !/^[\x21-\x7E]+$/.test(credential)) {
-            throw new TranslationProviderError(
-                'authentication_error', 'Translation credential is invalid');
-        }
+        const credential = validateBearerCredential(options.credential);
 
         const message = this._endpoint
             ? Soup.Message.new('POST', this._endpoint)
@@ -428,20 +746,9 @@ export class OpenAITranslationProvider {
 
         const status = message.status_code;
         // Inspect only a bounded error body. Never expose its free-form text.
-        let apiError = null;
-        if (status < 200 || status >= 300) {
-            try {
-                apiError = JSON.parse(new TextDecoder().decode(bytes.get_data()))?.error;
-            } catch {
-                // HTML, oversized and malformed error bodies retain HTTP classification.
-            }
-        }
-        const quotaCodes = new Set(['insufficient_quota', 'quota_exceeded',
-            'credit_balance_exhausted', 'billing_hard_limit_reached',
-            'organization_spend_limit_exceeded', 'project_spend_limit_exceeded',
-            'organization_usage_limit_exceeded']);
+        const apiError = parseApiError(status, bytes);
         if ((status < 200 || status >= 300) &&
-            (quotaCodes.has(apiError?.code) || quotaCodes.has(apiError?.type))) {
+            (QUOTA_ERROR_CODES.has(apiError?.code) || QUOTA_ERROR_CODES.has(apiError?.type))) {
             throw new TranslationProviderError(
                 'quota_exceeded', 'Translation quota or spending limit reached');
         }

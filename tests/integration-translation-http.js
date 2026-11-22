@@ -8,9 +8,14 @@ import {TranslationDiskCache} from '../translation-cache.js';
 import {createTranslationDocument, sourceLyricsHash} from '../translation-document.js';
 import {TranslationService, TranslationStatus} from '../translation-service.js';
 import {
+    createTranslationProviderId,
+    loadTranslationProviders,
     normalizeTranslationEndpoint,
+    normalizeTranslationProvider,
     OpenAITranslationProvider,
+    resolveModelsEndpoint,
     resolveTranslationEndpoint,
+    saveTranslationProviders,
     TranslationProviderError,
     translationNetworkReason,
 } from '../translation-provider.js';
@@ -88,6 +93,67 @@ server.add_handler(null, (_server, message, path) => {
         return;
     }
     cancelDuringRequest?.cancel();
+    if (message.get_method() === 'GET' && path.endsWith('/models')) {
+        observed = {
+            method: message.get_method(),
+            authorization: message.get_request_headers().get_one('Authorization'),
+            userAgent: message.get_request_headers().get_one('User-Agent'),
+            path,
+        };
+        if (mode === 'models-redirect') {
+            message.set_status(Soup.Status.TEMPORARY_REDIRECT, null);
+            message.get_response_headers().append('Location', `${endpoint}/redirected`);
+            return;
+        }
+        if (mode === 'models-auth') {
+            message.set_status(Soup.Status.UNAUTHORIZED, null);
+            return;
+        }
+        if (mode === 'models-forbidden') {
+            message.set_status(Soup.Status.FORBIDDEN, null);
+            return;
+        }
+        if (mode === 'models-rate-limit') {
+            message.set_status(429, null);
+            return;
+        }
+        if (mode === 'models-quota') {
+            message.set_status(429, null);
+            message.set_response('application/json', Soup.MemoryUse.COPY,
+                new TextEncoder().encode(JSON.stringify({error: {code: 'insufficient_quota'}})));
+            return;
+        }
+        if (mode === 'models-server-error') {
+            message.set_status(500, null);
+            return;
+        }
+        message.set_status(Soup.Status.OK, null);
+        let payload;
+        if (mode === 'models-array') {
+            payload = JSON.stringify([{id: 'model-b'}, {id: 'model-a'}]);
+        } else if (mode === 'models-object') {
+            payload = JSON.stringify({models: ['model-c', {id: 'model-a'}]});
+        } else if (mode === 'models-empty') {
+            payload = JSON.stringify({object: 'list', data: []});
+        } else if (mode === 'models-invalid') {
+            payload = JSON.stringify({unexpected: true});
+        } else if (mode === 'models-malformed') {
+            payload = '{not-json';
+        } else {
+            payload = JSON.stringify({
+                object: 'list',
+                data: [
+                    {id: 'zeta-model', object: 'model'},
+                    {id: ' alpha-model ', object: 'model'},
+                    {id: 'alpha-model', object: 'model'},
+                    {id: '   ', object: 'model'},
+                ],
+            });
+        }
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(payload));
+        return;
+    }
     const body = new TextDecoder().decode(
         message.get_request_body().flatten().get_data());
     observed = {
@@ -295,6 +361,145 @@ async function run() {
         resolveTranslationEndpoint(`${endpoint}/custom`, 'chat-completions').endpoint ===
             `${endpoint}/custom`,
     'base URLs should preserve proxy prefixes and trailing slashes on known routes must normalize');
+    assert(resolveModelsEndpoint('https://api.openai.com/v1/responses') ===
+            'https://api.openai.com/v1/models' &&
+        resolveModelsEndpoint('https://api.openai.com/v1/chat/completions/') ===
+            'https://api.openai.com/v1/models' &&
+        resolveModelsEndpoint('https://api.openai.com/v1/') ===
+            'https://api.openai.com/v1/models' &&
+        resolveModelsEndpoint('https://generativelanguage.googleapis.com/v1beta/openai') ===
+            'https://generativelanguage.googleapis.com/v1beta/openai/models' &&
+        resolveModelsEndpoint('https://open.bigmodel.cn/api/paas/v4/chat/completions') ===
+            'https://open.bigmodel.cn/api/paas/v4/models' &&
+        resolveModelsEndpoint('https://api.openai.com/v1/models/') ===
+            'https://api.openai.com/v1/models' &&
+        resolveModelsEndpoint('http://remote.example/v1') === null &&
+        resolveModelsEndpoint('https://api.openai.com/v1?key=secret') === null,
+    'models endpoint resolution should derive /models across OpenAI-compatible routes');
+
+    const memoryStore = new Map([
+        ['translation-providers', ''],
+        ['translation-provider', 'openai'],
+        ['translation-api-endpoint', 'https://proxy.example/v1'],
+        ['translation-api-protocol', 'chat-completions'],
+        ['translation-model', 'legacy-model'],
+    ]);
+    const fakeSettings = {
+        has_unapplied: false,
+        get_string: key => memoryStore.get(key) ?? '',
+        set_string: (key, value) => {
+            memoryStore.set(key, value);
+            fakeSettings.has_unapplied = true;
+        },
+        apply: () => {
+            fakeSettings.has_unapplied = false;
+        },
+    };
+    let loaded = loadTranslationProviders(fakeSettings);
+    assert(loaded.activeId === 'openai' && loaded.providers.length === 1 &&
+        loaded.providers[0].endpoint === 'https://proxy.example/v1' &&
+        loaded.providers[0].protocol === 'chat-completions' &&
+        loaded.providers[0].model === 'legacy-model' &&
+        loaded.providers[0].models.join(',') === 'legacy-model',
+    'legacy single-provider GSettings must migrate cleanly into the provider list');
+    const customId = createTranslationProviderId(loaded.providers.map(item => item.id));
+    assert(customId.startsWith('provider-') && customId !== 'openai',
+        'generated provider IDs should be valid and unique');
+    const saved = saveTranslationProviders(fakeSettings, [
+        ...loaded.providers,
+        {
+            id: customId,
+            name: 'DeepSeek',
+            endpoint: 'https://api.deepseek.com/v1',
+            protocol: 'chat-completions',
+            models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-chat'],
+            model: 'deepseek-chat',
+        },
+        {
+            id: 'invalid-entry',
+            name: 'Unsafe',
+            endpoint: 'http://unsafe.example/v1',
+            protocol: 'auto',
+            models: [],
+            model: '',
+        },
+    ], customId);
+    assert(saved.providers.length === 2 && saved.activeId === customId &&
+        !fakeSettings.has_unapplied &&
+        memoryStore.get('translation-provider') === customId &&
+        memoryStore.get('translation-api-endpoint') === 'https://api.deepseek.com/v1' &&
+        memoryStore.get('translation-model') === 'deepseek-chat' &&
+        saved.providers[1].models.join(',') === 'deepseek-chat,deepseek-reasoner',
+    'saving multiple providers should filter invalid entries, dedupe models and sync active runtime keys');
+    memoryStore.set('translation-model', 'external-model');
+    loaded = loadTranslationProviders(fakeSettings);
+    assert(loaded.activeId === customId &&
+        loaded.providers[1].model === 'external-model' &&
+        loaded.providers[1].models.includes('external-model'),
+    'external changes to the active model key must stay synchronized with the active provider');
+    memoryStore.set('translation-providers', '{corrupt json');
+    loaded = loadTranslationProviders(fakeSettings);
+    assert(loaded.providers.length === 1 && loaded.providers[0].id === customId &&
+        loaded.providers[0].model === 'external-model',
+    'corrupted provider list JSON must safely fall back to the active keys');
+    assert(normalizeTranslationProvider({
+        id: 'ok-1',
+        name: 'Valid',
+        endpoint: 'https://api.openai.com/v1/chat/completions',
+        protocol: 'responses',
+        models: [],
+        model: '',
+    }) === null, 'conflicting protocol and endpoint must be rejected during provider normalization');
+
+    let modelsProvider = new OpenAITranslationProvider({
+        id: customId,
+        endpoint: `${endpoint}/proxy/v1/chat/completions`,
+        protocol: 'chat-completions',
+    });
+    assert(modelsProvider.id === customId,
+        'OpenAITranslationProvider should retain a custom provider ID');
+    let models = await modelsProvider.fetchModels('models-test-token', null);
+    assert(models.join(',') === 'alpha-model,zeta-model' &&
+        observed.method === 'GET' &&
+        observed.path === '/proxy/v1/models' &&
+        observed.authorization === 'Bearer models-test-token' &&
+        observed.userAgent.startsWith('LyricGlance/0.9.0'),
+    'fetchModels should query GET .../models with Bearer auth and return deduped sorted IDs');
+    for (const [modelsMode, expectedModels] of [
+        ['models-array', 'model-a,model-b'],
+        ['models-object', 'model-a,model-c'],
+        ['models-empty', ''],
+    ]) {
+        mode = modelsMode;
+        models = await modelsProvider.fetchModels('models-test-token', null);
+        assert(models.join(',') === expectedModels,
+            `fetchModels should parse ${modelsMode}`);
+    }
+    for (const [modelsMode, expectedCode] of [
+        ['models-invalid', 'invalid_response'],
+        ['models-malformed', 'invalid_response'],
+        ['models-redirect', 'provider_error'],
+        ['models-auth', 'authentication_error'],
+        ['models-forbidden', 'permission_denied'],
+        ['models-rate-limit', 'rate_limited'],
+        ['models-quota', 'quota_exceeded'],
+        ['models-server-error', 'provider_error'],
+    ]) {
+        mode = modelsMode;
+        await expectCode(() => modelsProvider.fetchModels('models-test-token', null),
+            expectedCode, `fetchModels ${modelsMode} must return ${expectedCode}`);
+    }
+    const beforeBadModelsKey = requestCount;
+    await expectCode(() => modelsProvider.fetchModels('bad\nkey', null),
+        'authentication_error', 'malformed credentials must fail before contacting /models');
+    assert(requestCount === beforeBadModelsKey,
+        'malformed credentials must not send a /models HTTP request');
+    const canceledModels = new Gio.Cancellable();
+    canceledModels.cancel();
+    await expectCode(() => modelsProvider.fetchModels('models-test-token', canceledModels),
+        'canceled', 'canceled model fetch must abort before sending a request');
+    mode = 'success';
+    modelsProvider.destroy();
 
     let provider = new OpenAITranslationProvider({
         endpoint,

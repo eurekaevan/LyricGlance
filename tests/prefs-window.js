@@ -22,6 +22,33 @@ function descendants(widget) {
     return result;
 }
 
+function allToplevelWidgets() {
+    const toplevels = Gtk.Window.get_toplevels();
+    const result = [];
+    for (let index = 0; index < toplevels.get_n_items(); index++) {
+        const top = toplevels.get_item(index);
+        result.push(top, ...descendants(top));
+    }
+    return result;
+}
+
+function waitMs(ms) {
+    return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    }));
+}
+
+async function waitUntil(predicate, attempts = 40, intervalMs = 20) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const value = predicate();
+        if (value)
+            return value;
+        await waitMs(intervalMs);
+    }
+    return predicate();
+}
+
 async function takeWidgetScreenshot(widget, path) {
     const paintable = new Gtk.WidgetPaintable({widget});
     // GTK can discard an unobserved widget's cached render node. Wait for
@@ -129,16 +156,17 @@ application.connect('activate', async app => {
                 'preferences should translate setting rows');
                 assert(widgets.filter(widget => widget instanceof Adw.SwitchRow)
                     .length === 7,
-                'preferences should contain seven boolean SwitchRows');
+                'preferences should contain seven top-level boolean SwitchRows');
                 assert(widgets.filter(widget => widget instanceof Adw.SpinRow)
                     .length === 2,
                 'preferences should contain width and global-offset SpinRows');
                 assert(widgets.filter(widget => widget instanceof Adw.ComboRow)
-                    .length === 4,
-                'preferences should expose position, popup, panel, and API protocol choices');
+                    .length === 5,
+                'preferences should expose position, popup, panel, active provider and active model ComboRows');
                 assert(widgets.filter(widget => widget instanceof Adw.EntryRow)
-                    .length === 4,
-                'preferences should expose translation and fallback endpoint entries');
+                    .length === 2,
+                'top-level preferences should expose LrcAPI endpoint and target language entries');
+
                 const lrcApiSwitch = widgets.find(widget => widget instanceof Adw.SwitchRow &&
                     widget.title === uiText('Use LrcAPI as a fallback',
                         '使用 LrcAPI 作为备用歌词源', '使用 LrcAPI 作為備用歌詞來源'));
@@ -160,6 +188,7 @@ application.connect('activate', async app => {
                     preferences.getSettings().get_string('lrcapi-endpoint') === lrcApiEndpoint.text,
                 'applying a loopback endpoint should persist it');
                 lrcApiSwitch.active = false;
+
                 const targetLanguageRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText('Target language', '目标语言', '目標語言'));
@@ -205,203 +234,333 @@ application.connect('activate', async app => {
                     'special characters in preferred-player must render literally');
                 settings.set_string('preferred-player', 'auto');
 
-                const endpointRow = widgets.find(widget =>
-                    widget instanceof Adw.EntryRow &&
-                    widget.title === uiText(
-                        'API address', 'API 地址', 'API 位址'));
-                const protocolRow = widgets.find(widget => widget instanceof Adw.ComboRow &&
-                    widget.title === uiText('API protocol', 'API 协议', 'API 協定'));
-                const backendRow = widgets.find(widget => widget instanceof Adw.ActionRow &&
-                    widget.title === uiText('Translation backend', '翻译后端', '翻譯後端'));
-                const modelRow = widgets.find(widget =>
-                    widget instanceof Adw.EntryRow &&
-                    widget.title === uiText('Model', '模型'));
-                const applyButton = widgets.find(widget =>
-                    widget instanceof Gtk.Button &&
-                    widget.label === uiText('Apply', '应用', '套用'));
-                assert(endpointRow && modelRow && protocolRow && backendRow && applyButton,
-                'preferences should expose the configurable translation backend');
                 if (screenshotPath)
                     await takeWidgetScreenshot(window, screenshotPath);
-                endpointRow.text = 'https://proxy.example/v1/responses';
-                modelRow.text = 'custom-translation-model';
-                applyButton.emit('clicked');
-                assert(settings.get_string('translation-api-endpoint') ===
-                    endpointRow.text &&
-                    settings.get_string('translation-model') === modelRow.text,
-                'applying the translation backend should persist both values');
-                endpointRow.text = 'http://proxy.example/v1/responses';
-                applyButton.emit('clicked');
-                assert(settings.get_string('translation-api-endpoint') ===
-                    'https://proxy.example/v1/responses',
-                'an insecure remote endpoint should not replace saved settings');
-                endpointRow.text = 'https://api.openai.com/v1/responses';
-                modelRow.text = 'gpt-5.4-mini-2026-03-17';
-                applyButton.emit('clicked');
-                settings.set_string('translation-model', 'external-synced-model');
-                assert(modelRow.text === 'external-synced-model',
-                    'external GSettings model changes should sync into the Preferences row');
-                settings.set_string('translation-model', 'gpt-5.4-mini-2026-03-17');
-                assert(modelRow.text === 'gpt-5.4-mini-2026-03-17',
-                    'restoring GSettings model should sync back into the Preferences row');
-                const connectionButton = widgets.find(widget => widget instanceof Gtk.Button &&
-                    widget.label === uiText('Check connection', '检查连通性', '檢查連線'));
-                const connectionRow = widgets.find(widget => widget instanceof Adw.ActionRow &&
-                    widget.title === uiText('Translation connection', '翻译连通性', '翻譯連線'));
-                assert(connectionButton && connectionRow,
-                    'preferences should expose the localized connection check');
-                endpointRow.text = 'http://unsafe.example/v1/responses';
-                connectionButton.emit('clicked');
-                assert(connectionButton.sensitive && connectionRow.subtitle === uiText(
-                    'Use HTTPS, or HTTP only for a local loopback endpoint',
-                    '请使用 HTTPS；只有本机回环端点可以使用 HTTP',
-                    '請使用 HTTPS；只有本機回送端點可以使用 HTTP'),
-                'invalid check endpoints must be rejected before looking up credentials');
+
+                const activeProviderRow = widgets.find(widget =>
+                    widget instanceof Adw.ComboRow &&
+                    widget.title === uiText('Active provider', '当前模型服务', '目前模型服務'));
+                const activeModelRow = widgets.find(widget =>
+                    widget instanceof Adw.ComboRow &&
+                    widget.title === uiText('Active model', '当前模型', '目前模型'));
+                const addProviderButton = widgets.find(widget =>
+                    widget instanceof Gtk.Button &&
+                    widget.label === uiText('Add provider', '添加模型服务', '新增模型服務'));
+                const openAiRow = widgets.find(widget =>
+                    widget instanceof Adw.ActionRow &&
+                    widget.title === 'OpenAI');
+                assert(activeProviderRow && activeModelRow && addProviderButton && openAiRow,
+                    'translation page should expose active provider/model selectors and provider list');
 
                 const {TranslationCredentialStore} = await import(
                     directory.get_child('credentials.js').get_uri());
                 const {OpenAITranslationProvider} = await import(
                     directory.get_child('translation-provider.js').get_uri());
                 const originalLookup = TranslationCredentialStore.prototype.lookup;
+                const originalClear = TranslationCredentialStore.prototype.clear;
                 const originalCheck = OpenAITranslationProvider.prototype.checkConnection;
-                let checkedRequest;
-                let checkedModel;
-                let checkedEndpoint;
-                let checkedProtocol;
+                const originalFetchModels = OpenAITranslationProvider.prototype.fetchModels;
+
+                let checkedRequest = null;
+                let checkedModel = null;
+                let checkedEndpoint = null;
+                let checkedProtocol = null;
                 let failureCode = null;
+                let fetchedModelsEndpoint = null;
+                let fetchedProviderId = null;
+                const clearedCredentials = [];
+
                 TranslationCredentialStore.prototype.lookup = async () => 'test-key';
+                TranslationCredentialStore.prototype.clear = async providerId => {
+                    clearedCredentials.push(providerId);
+                    return true;
+                };
                 OpenAITranslationProvider.prototype.checkConnection = async function (key, request) {
                     assert(key === 'test-key', 'the check must use the saved credential');
                     checkedModel = this.model;
                     checkedEndpoint = this._endpoint;
                     checkedProtocol = this._protocol;
                     checkedRequest = request;
-                    await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
-                        resolve();
-                        return GLib.SOURCE_REMOVE;
-                    }));
+                    await waitMs(60);
                     if (failureCode) {
                         const error = new Error('test-key must never appear in the UI');
                         error.code = failureCode;
                         throw error;
                     }
                 };
+                OpenAITranslationProvider.prototype.fetchModels = async function (key, request) {
+                    assert(key === 'test-key', 'fetchModels must use the saved credential');
+                    assert(request && !request.is_cancelled(), 'fetchModels must pass an active cancellable');
+                    fetchedModelsEndpoint = this._modelsEndpoint;
+                    fetchedProviderId = this.id;
+                    await waitMs(40);
+                    return ['deepseek-reasoner', 'deepseek-chat', 'qwen-plus'];
+                };
+
                 try {
+                    // 1. Open default OpenAI provider editor subpage and test edits + connection checks.
+                    openAiRow.emit('activated');
+                    await waitMs(50);
+                    let editorWidgets = descendants(window);
+                    const nameRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('Name', '名称', '名稱'));
+                    const endpointRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('API address', 'API 地址', 'API 位址'));
+                    const protocolRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.ComboRow &&
+                        widget.title === uiText('API protocol', 'API 协议', 'API 協定'));
+                    const backendRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.ActionRow &&
+                        widget.title === uiText('Translation backend', '翻译后端', '翻譯後端'));
+                    const addModelRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('Add model', '添加模型', '新增模型'));
+                    const saveButton = editorWidgets.find(widget =>
+                        widget instanceof Gtk.Button &&
+                        widget.label === uiText('Save', '保存', '儲存'));
+                    const connectionButton = editorWidgets.find(widget =>
+                        widget instanceof Gtk.Button &&
+                        widget.label === uiText('Check connection', '检查连通性', '檢查連線'));
+                    const connectionRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.ActionRow &&
+                        widget.title === uiText('Translation connection', '翻译连通性', '翻譯連線'));
+                    const fetchModelsRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.ActionRow &&
+                        widget.title === uiText('Model list', '模型列表', '模型清單'));
+                    assert(nameRow && endpointRow && protocolRow && backendRow && addModelRow &&
+                        saveButton && connectionButton && connectionRow && fetchModelsRow,
+                    'provider detail subpage should expose all service, model and connection controls');
+                    assert(fetchModelsRow.subtitle === 'GET https://api.openai.com/v1/models',
+                        `models preview should resolve GET /models (got ${fetchModelsRow.subtitle})`);
+
+                    endpointRow.text = 'http://unsafe.example/v1/responses';
+                    connectionButton.emit('clicked');
+                    assert(connectionButton.sensitive && connectionRow.subtitle === uiText(
+                        'Use HTTPS, or HTTP only for a local loopback endpoint',
+                        '请使用 HTTPS；只有本机回环端点可以使用 HTTP',
+                        '請使用 HTTPS；只有本機回送端點可以使用 HTTP'),
+                    'invalid check endpoints must be rejected before looking up credentials');
+
                     endpointRow.text = 'http://127.0.0.1:28883/proxy/v1/';
                     protocolRow.selected = 2;
-                    modelRow.text = 'unsaved-test-model';
-                    assert(backendRow.subtitle.includes('http://127.0.0.1:28883/proxy/v1/chat/completions'),
-                        'the preview must show the resolved route for the selected protocol');
+                    assert(backendRow.subtitle.includes('http://127.0.0.1:28883/proxy/v1/chat/completions') &&
+                        fetchModelsRow.subtitle === 'GET http://127.0.0.1:28883/proxy/v1/models',
+                    'backend and models previews must track entered endpoint and protocol');
+
                     connectionButton.emit('clicked');
                     assert(!connectionButton.sensitive,
                         'connection checks must disable duplicate submission');
-                    for (let attempt = 0; attempt < 30 && !connectionButton.sensitive; attempt++) {
-                        await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
-                            resolve();
-                            return GLib.SOURCE_REMOVE;
-                        }));
-                    }
-                    assert(connectionButton.sensitive && checkedModel === 'unsaved-test-model' &&
+                    await waitUntil(() => connectionButton.sensitive);
+                    assert(connectionButton.sensitive &&
+                        checkedModel === 'gpt-5.4-mini-2026-03-17' &&
                         checkedProtocol === 'chat-completions' &&
                         checkedEndpoint === 'http://127.0.0.1:28883/proxy/v1/chat/completions' &&
                         connectionRow.subtitle === uiText(
                             'Connection successful: model and structured responses are available',
                             '连接成功：模型和结构化响应可用',
                             '連線成功：模型與結構化回應可用') &&
-                        settings.get_string('translation-model') === 'gpt-5.4-mini-2026-03-17' &&
                         settings.get_string('translation-api-protocol') === 'auto',
                     'checks must use entered values, show success and leave saved settings intact');
+
                     failureCode = 'authentication_error';
                     connectionButton.emit('clicked');
-                    for (let attempt = 0; attempt < 30 && !connectionButton.sensitive; attempt++) {
-                        await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
-                            resolve();
-                            return GLib.SOURCE_REMOVE;
-                        }));
-                    }
+                    await waitUntil(() => connectionButton.sensitive);
                     assert(connectionButton.sensitive && connectionRow.subtitle === uiText(
                         'Translation API key was rejected', '翻译 API 密钥被拒绝', '翻譯 API 金鑰遭拒'),
                     'failed checks must show a safe localized status and allow retry');
                     failureCode = null;
-                    connectionButton.emit('clicked');
-                    await Promise.resolve();
-                    modelRow.text = 'changed-during-check';
-                    assert(checkedRequest.is_cancelled() && connectionButton.sensitive,
-                        'editing the model must cancel the active check');
+
                     connectionButton.emit('clicked');
                     await Promise.resolve();
                     protocolRow.selected = 1;
                     assert(checkedRequest.is_cancelled() && connectionButton.sensitive,
-                        'changing protocol must cancel the active check');
+                        'changing protocol must cancel the active connection check');
                     protocolRow.selected = 2;
-                    connectionButton.emit('clicked');
-                    await Promise.resolve();
-                    modelRow.text = '';
-                    applyButton.emit('clicked');
-                    assert(window.visible && settings.get_string('translation-model') ===
-                        'gpt-5.4-mini-2026-03-17',
-                    'applying an invalid draft must retain the window and saved values');
-                    modelRow.text = 'changed-during-check';
-                    connectionButton.emit('clicked');
-                    await Promise.resolve();
-                    assert(!window.emit('close-request'),
-                        'a valid close request should save settings and allow closing');
-                    window.close();
-                    assert(checkedRequest.is_cancelled(), 'closing preferences must cancel the check');
-                    const reopened = new Adw.PreferencesWindow({application: app});
-                    await preferences.fillPreferencesWindow(reopened);
-                    const reopenedModel = descendants(reopened).find(widget =>
-                        widget instanceof Adw.EntryRow && widget.title === uiText('Model', '模型'));
-                    const reopenedEndpoint = descendants(reopened).find(widget =>
-                        widget instanceof Adw.EntryRow && widget.title === uiText(
-                            'API address', 'API 地址', 'API 位址'));
-                    const reopenedProtocol = descendants(reopened).find(widget => widget instanceof Adw.ComboRow &&
-                        widget.title === protocolRow.title);
-                    assert(reopenedModel.text === 'changed-during-check' &&
-                        reopenedEndpoint.text === 'http://127.0.0.1:28883/proxy/v1/' &&
-                        reopenedProtocol.selected === 2,
-                    'closing without Apply must persist address, model and protocol for a reopened window');
-                    reopened.close();
 
-                    for (const [endpointDraft, modelDraft] of [
-                        ['http://127.0.0.1:28884/responses', ''],
-                        ['http://unsafe.example/responses', 'unsaved-model'],
-                    ]) {
-                        const draftWindow = new Adw.PreferencesWindow({application: app});
-                        await preferences.fillPreferencesWindow(draftWindow);
-                        draftWindow.present();
-                        const rows = descendants(draftWindow);
-                        const draftEndpoint = rows.find(widget => widget instanceof Adw.EntryRow &&
-                            widget.title === uiText('API address', 'API 地址', 'API 位址'));
-                        const draftModel = rows.find(widget => widget instanceof Adw.EntryRow &&
-                            widget.title === uiText('Model', '模型'));
-                        assert(draftEndpoint.text === 'http://127.0.0.1:28883/proxy/v1/' &&
-                            draftModel.text === 'changed-during-check',
-                        'reopening must show the last saved backend rather than discarded drafts');
-                        draftEndpoint.text = endpointDraft;
-                        draftModel.text = modelDraft;
-                        draftWindow.close();
-                        assert(!draftWindow.visible &&
-                            settings.get_string('translation-api-endpoint') === 'http://127.0.0.1:28883/proxy/v1/' &&
-                            settings.get_string('translation-api-protocol') === 'chat-completions' &&
-                            settings.get_string('translation-model') === 'changed-during-check',
-                        'invalid drafts must allow closing without partially overwriting the saved backend');
+                    saveButton.emit('clicked');
+                    assert(settings.get_string('translation-api-endpoint') ===
+                            'http://127.0.0.1:28883/proxy/v1/' &&
+                        settings.get_string('translation-api-protocol') === 'chat-completions',
+                    'clicking Save in the provider editor must persist changes immediately');
+
+                    settings.set_string('translation-model', 'external-synced-model');
+                    assert(activeModelRow.model.get_string(activeModelRow.selected) === 'external-synced-model',
+                        'external GSettings model changes should sync into the Preferences UI');
+                    settings.set_string('translation-model', 'gpt-5.4-mini-2026-03-17');
+
+                    endpointRow.text = 'https://api.openai.com/v1/responses';
+                    protocolRow.selected = 0;
+                    saveButton.emit('clicked');
+                    window.pop_subpage();
+                    await waitUntil(() => !descendants(window).includes(saveButton));
+
+                    // 2. Add a custom provider, fetch models from GET /models, search & check in dialog, and save.
+                    addProviderButton.emit('clicked');
+                    const newSaveButton = await waitUntil(() =>
+                        descendants(window).find(widget =>
+                            widget instanceof Gtk.Button &&
+                            widget.label === uiText('Save', '保存', '儲存')));
+                    editorWidgets = descendants(window);
+                    const newNameRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('Name', '名称', '名稱'));
+                    const newEndpointRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('API address', 'API 地址', 'API 位址'));
+                    const newProtocolRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.ComboRow &&
+                        widget.title === uiText('API protocol', 'API 协议', 'API 協定'));
+                    const newAddModelRow = editorWidgets.find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('Add model', '添加模型', '新增模型'));
+                    const fetchModelsButton = editorWidgets.find(widget =>
+                        widget instanceof Gtk.Button &&
+                        widget.label === uiText('Fetch models', '获取模型列表', '擷取模型清單'));
+                    assert(newNameRow && newEndpointRow && newProtocolRow &&
+                        newAddModelRow && fetchModelsButton && newSaveButton,
+                    'add-provider subpage should expose all required fields');
+                    assert(!newSaveButton.sensitive, 'Save should be disabled while name/endpoint are empty');
+
+                    newNameRow.text = 'DeepSeek';
+                    newProtocolRow.selected = 2;
+                    newEndpointRow.text = 'http://127.0.0.1:28883/proxy/v1/';
+                    assert(newSaveButton.sensitive, 'Save should enable once name, endpoint and protocol are valid');
+
+                    // Add one manual custom model first to verify Fetch Models preserves unlisted manual models.
+                    newAddModelRow.text = 'manual-custom-model';
+                    newAddModelRow.emit('apply');
+
+                    fetchModelsButton.emit('clicked');
+                    const searchPlaceholder = uiText('Search models…', '搜索模型…', '搜尋模型…');
+                    const searchEntry = await waitUntil(() =>
+                        allToplevelWidgets().find(widget =>
+                            widget instanceof Gtk.SearchEntry &&
+                            widget.placeholder_text === searchPlaceholder));
+                    assert(searchEntry &&
+                        fetchedModelsEndpoint === 'http://127.0.0.1:28883/proxy/v1/models' &&
+                        fetchedProviderId?.startsWith('provider-'),
+                    `Fetch models should query the resolved /models endpoint and open the searchable model picker (searchEntry=${Boolean(searchEntry)}, endpoint=${fetchedModelsEndpoint}, providerId=${fetchedProviderId})`);
+
+                    const pickerDialog = searchEntry.get_ancestor(Adw.Dialog) ??
+                        searchEntry.get_root() ?? window;
+                    searchEntry.text = 'deepseek';
+                    const modelChecks = await waitUntil(() => {
+                        const checks = descendants(pickerDialog).filter(widget =>
+                            widget instanceof Gtk.CheckButton && widget._modelId);
+                        return checks.length === 2 &&
+                            checks.every(check => check._modelId.includes('deepseek'))
+                            ? checks
+                            : null;
+                    });
+                    assert(modelChecks,
+                        'searching "deepseek" should filter ListView checkboxes to matching models');
+                    for (const check of modelChecks)
+                        check.active = true;
+
+                    const applyModelsButton = descendants(pickerDialog).find(widget =>
+                        widget instanceof Gtk.Button &&
+                        widget.label === uiText('Apply', '应用', '套用'));
+                    assert(applyModelsButton, 'model picker dialog should expose an Apply button');
+                    applyModelsButton.emit('clicked');
+                    await waitUntil(() => !allToplevelWidgets().includes(searchEntry));
+
+                    newSaveButton.emit('clicked');
+                    await waitUntil(() => !descendants(window).includes(newSaveButton));
+
+                    const storedProviders = JSON.parse(settings.get_string('translation-providers'));
+                    assert(storedProviders.length === 2,
+                        `saving custom provider should persist 2 providers (got ${storedProviders.length})`);
+                    const deepseek = storedProviders.find(provider => provider.name === 'DeepSeek');
+                    assert(deepseek &&
+                        deepseek.endpoint === 'http://127.0.0.1:28883/proxy/v1/' &&
+                        deepseek.protocol === 'chat-completions' &&
+                        deepseek.models.includes('manual-custom-model') &&
+                        deepseek.models.includes('deepseek-chat') &&
+                        deepseek.models.includes('deepseek-reasoner') &&
+                        !deepseek.models.includes('qwen-plus'),
+                    'saved custom provider must retain manual models and checked fetched models');
+
+                    // 3. Switch active provider & active model from top-level ComboRows.
+                    const deepseekIndex = storedProviders.findIndex(provider => provider.id === deepseek.id);
+                    activeProviderRow.selected = deepseekIndex;
+                    assert(settings.get_string('translation-provider') === deepseek.id &&
+                        settings.get_string('translation-api-endpoint') === deepseek.endpoint &&
+                        settings.get_string('translation-api-protocol') === 'chat-completions',
+                    'selecting a custom provider should update active runtime GSettings atomically');
+
+                    const targetModelIndex = deepseek.models.indexOf('deepseek-chat');
+                    activeModelRow.selected = targetModelIndex;
+                    assert(settings.get_string('translation-model') === 'deepseek-chat',
+                        'selecting an active model should persist it to GSettings');
+
+                    // 4. Delete the custom provider and verify Secret Service cleanup + fallback to OpenAI.
+                    const originalChoose = Adw.AlertDialog.prototype.choose;
+                    const originalChooseFinish = Adw.AlertDialog.prototype.choose_finish;
+                    Adw.AlertDialog.prototype.choose = function (_parent, _cancellable, callback) {
+                        callback(this, {});
+                    };
+                    Adw.AlertDialog.prototype.choose_finish = () => 'delete';
+                    try {
+                        const deepseekRow = descendants(window).find(widget =>
+                            widget instanceof Adw.ActionRow && widget.title === 'DeepSeek');
+                        assert(deepseekRow, 'custom provider should appear in the providers list');
+                        deepseekRow.emit('activated');
+                        await waitMs(50);
+                        const deleteRow = descendants(window).find(widget =>
+                            widget instanceof Adw.ButtonRow &&
+                            widget.title === uiText('Delete provider', '删除模型服务', '刪除模型服務'));
+                        assert(deleteRow, 'existing provider editor should expose Delete provider when >1 providers exist');
+                        deleteRow.emit('activated');
+                        await waitUntil(() => !descendants(window).includes(deleteRow));
+                    } finally {
+                        Adw.AlertDialog.prototype.choose = originalChoose;
+                        Adw.AlertDialog.prototype.choose_finish = originalChooseFinish;
                     }
+                    const afterDelete = JSON.parse(settings.get_string('translation-providers'));
+                    assert(afterDelete.length === 1 &&
+                        afterDelete[0].id === 'openai' &&
+                        settings.get_string('translation-provider') === 'openai' &&
+                        clearedCredentials.includes(deepseek.id),
+                    'deleting the active custom provider should clear its credential and fall back to OpenAI');
 
+                    // 5. Verify invalid drafts are discarded on close without overwriting saved values.
+                    const openAiRowAgain = descendants(window).find(widget =>
+                        widget instanceof Adw.ActionRow && widget.title === 'OpenAI');
+                    openAiRowAgain.emit('activated');
+                    await waitMs(50);
+                    const draftEndpoint = descendants(window).find(widget =>
+                        widget instanceof Adw.EntryRow &&
+                        widget.title === uiText('API address', 'API 地址', 'API 位址'));
+                    draftEndpoint.text = 'http://unsafe.example/v1/responses';
+                    window.close();
+                    assert(!window.visible &&
+                        settings.get_string('translation-api-endpoint') ===
+                            'https://api.openai.com/v1/responses',
+                    'invalid drafts must allow closing without overwriting saved provider settings');
+
+                    // 6. Verify closing during a pending credential lookup does not open a dialog.
                     const closingWindow = new Adw.PreferencesWindow({application: app});
                     await preferences.fillPreferencesWindow(closingWindow);
                     closingWindow.present();
+                    const closingOpenAiRow = descendants(closingWindow).find(widget =>
+                        widget instanceof Adw.ActionRow && widget.title === 'OpenAI');
+                    closingOpenAiRow.emit('activated');
+                    await waitMs(50);
                     const configureButton = descendants(closingWindow).find(widget =>
-                        widget instanceof Gtk.Button && widget.label === uiText('Configure', '配置', '設定'));
-                    assert(configureButton, 'preferences should expose credential configuration');
-                    const configuredLookup = TranslationCredentialStore.prototype.lookup;
-                    const originalChoose = Adw.AlertDialog.prototype.choose;
-                    let finishLookup;
+                        widget instanceof Gtk.Button &&
+                        widget.label === uiText('Configure', '配置', '設定'));
+                    assert(configureButton, 'provider editor should expose credential configuration');
+                    let finishLookup = null;
                     let dialogCount = 0;
                     TranslationCredentialStore.prototype.lookup = () => new Promise(resolve => {
                         finishLookup = resolve;
                     });
-                    Adw.AlertDialog.prototype.choose = () => { dialogCount++; };
+                    const restoreChoose = Adw.AlertDialog.prototype.choose;
+                    Adw.AlertDialog.prototype.choose = () => {
+                        dialogCount++;
+                    };
                     try {
                         configureButton.emit('clicked');
                         assert(finishLookup, 'Configure should wait for credential status');
@@ -415,13 +574,14 @@ application.connect('activate', async app => {
                             'a credential lookup completing after closing must not open a dialog');
                     } finally {
                         finishLookup?.(null);
-                        TranslationCredentialStore.prototype.lookup = configuredLookup;
-                        Adw.AlertDialog.prototype.choose = originalChoose;
+                        Adw.AlertDialog.prototype.choose = restoreChoose;
                         closingWindow.close();
                     }
                 } finally {
                     TranslationCredentialStore.prototype.lookup = originalLookup;
+                    TranslationCredentialStore.prototype.clear = originalClear;
                     OpenAITranslationProvider.prototype.checkConnection = originalCheck;
+                    OpenAITranslationProvider.prototype.fetchModels = originalFetchModels;
                 }
                 print('GTK4/Libadwaita preferences window test passed');
                 app.release();

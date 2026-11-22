@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/LyricGlance/issues\n"
-"POT-Creation-Date: 2026-11-22 11:08+0800\n"
+"POT-Creation-Date: 2026-11-22 12:54+0800\n"
 "PO-Revision-Date: 2026-10-15 15:53+0800\n"
 "Last-Translator: LyricGlance contributors\n"
 "Language-Team: Chinese (Traditional)\n"
@@ -73,7 +73,7 @@ msgstr "將歌詞時間偏移增加 0.5 秒"
 msgid "Global +0.0 s  ·  Effective +0.0 s"
 msgstr "全域 +0.0 秒  ·  實際 +0.0 秒"
 
-#: indicator.js:799 indicator.js:1318 indicator.js:1330 prefs.js:588
+#: indicator.js:799 indicator.js:1318 indicator.js:1330 prefs.js:235
 msgid "Player"
 msgstr "播放器"
 
@@ -126,7 +126,7 @@ msgstr "翻譯可用"
 msgid "Refresh"
 msgstr "重新整理"
 
-#: indicator.js:1166 prefs.js:450
+#: indicator.js:1166 prefs.js:1494 prefs.js:1590
 msgid "Translation API key is not configured"
 msgstr "尚未設定翻譯 API 金鑰"
 
@@ -144,19 +144,19 @@ msgstr "重試"
 msgid "Translation provider error"
 msgstr "翻譯服務錯誤"
 
-#: indicator.js:1170 prefs.js:464
+#: indicator.js:1170 prefs.js:91
 msgid "Translation API key was rejected"
 msgstr "翻譯 API 金鑰遭拒"
 
-#: indicator.js:1171 prefs.js:465
+#: indicator.js:1171 prefs.js:92
 msgid "Translation access was denied"
 msgstr "翻譯存取遭拒"
 
-#: indicator.js:1172 prefs.js:466
+#: indicator.js:1172 prefs.js:93
 msgid "Translation quota or spending limit reached"
 msgstr "翻譯額度或消費限額已用盡"
 
-#: indicator.js:1173 prefs.js:467
+#: indicator.js:1173 prefs.js:94
 msgid "Translation rate limited"
 msgstr "翻譯請求過於頻繁"
 
@@ -190,7 +190,7 @@ msgstr "歌詞翻譯"
 msgid "Global %s  ·  Effective %s"
 msgstr "全域 %s  ·  實際 %s"
 
-#: indicator.js:1296 prefs.js:595 prefs.js:603
+#: indicator.js:1296 prefs.js:242 prefs.js:250
 msgid "Auto"
 msgstr "自動"
 
@@ -199,390 +199,559 @@ msgstr "自動"
 msgid "Player: %s"
 msgstr "播放器：%s"
 
-#: prefs.js:77
+#: prefs.js:115
 msgid "General"
 msgstr "一般"
 
-#: prefs.js:82
+#: prefs.js:120
 msgid "Panel"
 msgstr "頂欄"
 
-#: prefs.js:85
+#: prefs.js:123
 msgid "Show music note icon"
 msgstr "顯示音符圖示"
 
-#: prefs.js:89
+#: prefs.js:127
 msgid "Panel position"
 msgstr "頂欄位置"
 
-#: prefs.js:91
+#: prefs.js:129
 msgid "Left"
 msgstr "左側"
 
-#: prefs.js:92
+#: prefs.js:130
 msgid "Right"
 msgstr "右側"
 
-#: prefs.js:93
+#: prefs.js:131
 msgid "Center"
 msgstr "置中"
 
-#: prefs.js:94
+#: prefs.js:132
 msgid "Far left"
 msgstr "最左側"
 
-#: prefs.js:95
+#: prefs.js:133
 msgid "Far right"
 msgstr "最右側"
 
-#: prefs.js:99
+#: prefs.js:137
 msgid "Left and Right stay near the center; Far positions use the outer edge"
 msgstr "左側和右側靠近中間；最左側和最右側位於頂欄邊緣"
 
-#: prefs.js:103
+#: prefs.js:141
 msgid "Maximum panel width"
 msgstr "頂欄最大寬度"
 
-#: prefs.js:104
+#: prefs.js:142
 msgid "Maximum width of lyrics in the top bar"
 msgstr "頂欄歌詞的最大寬度"
 
-#: prefs.js:127
+#: prefs.js:165
 msgid "Hide lyrics when paused"
 msgstr "暫停時隱藏歌詞"
 
-#: prefs.js:128
+#: prefs.js:166
 msgid "Keep the popup state while hiding the panel item"
 msgstr "隱藏頂欄項目時保留彈出選單狀態"
 
-#: prefs.js:130
+#: prefs.js:168
 msgid "Lyrics"
 msgstr "歌詞"
 
-#: prefs.js:135
+#: prefs.js:173
 msgid "Show title when lyrics are unavailable"
 msgstr "歌詞無法使用時顯示歌曲標題"
 
-#: prefs.js:139
+#: prefs.js:177
 msgid "Word-synced highlighting"
 msgstr "逐字同步醒目提示"
 
-#: prefs.js:140
+#: prefs.js:178
 msgid "Highlight the current word when timing is available"
 msgstr "有逐字時間資訊時醒目提示目前字詞"
 
-#: prefs.js:143
+#: prefs.js:181
 msgid "Use LrcAPI as a fallback"
 msgstr "使用 LrcAPI 作為備用歌詞來源"
 
-#: prefs.js:144
+#: prefs.js:182
 msgid ""
 "When LRCLIB has no synchronized lyrics, send the song title, artist and "
 "album to LrcAPI"
 msgstr "LRCLIB 沒有同步歌詞時，將歌名、歌手和專輯傳送至 LrcAPI"
 
-#: prefs.js:146
+#: prefs.js:184
 msgid "LrcAPI endpoint"
 msgstr "LrcAPI 服務位址"
 
-#: prefs.js:161 prefs.js:312
+#: prefs.js:199 prefs.js:1129 prefs.js:1472 prefs.js:1565
 msgid "Use HTTPS, or HTTP only for a local loopback endpoint"
 msgstr "請使用 HTTPS；只有本機回送端點可以使用 HTTP"
 
-#: prefs.js:174
+#: prefs.js:212
 msgid "Global lyrics offset"
 msgstr "全域歌詞時間偏移"
 
-#: prefs.js:175
+#: prefs.js:213
 msgid "Added to each track-specific offset"
 msgstr "與每首歌曲的個別偏移相加"
 
-#: prefs.js:197 prefs.js:273
-msgid "Translation"
-msgstr "翻譯"
-
-#: prefs.js:198
-msgid ""
-"Supports Responses and Chat Completions. Translations never change original "
-"timing."
-msgstr "支援 Responses 和 Chat Completions。翻譯不會改變原歌詞時間軸。"
-
-#: prefs.js:204
-msgid "Enable translation"
-msgstr "啟用翻譯"
-
-#: prefs.js:205
-msgid "Original lyrics remain available if translation fails"
-msgstr "翻譯失敗時仍保留原歌詞"
-
-#: prefs.js:209
-msgid "Translate automatically"
-msgstr "自動翻譯"
-
-#: prefs.js:210
-msgid "Use a cached translation first; otherwise contact the provider"
-msgstr "優先使用快取的翻譯，否則請求翻譯服務"
-
-#: prefs.js:213
-msgid "Target language"
-msgstr "目標語言"
-
-#: prefs.js:218
-msgid "e.g. zh-CN, en, ja"
-msgstr "例如 zh-TW、en、ja"
-
-#: prefs.js:235
-msgid "Enter a valid BCP 47 language code, such as zh-CN, en, or ja"
-msgstr "請輸入有效的 BCP 47 語言代碼，例如 zh-CN、en 或 ja"
-
-#: prefs.js:260
-msgid "Popup display"
-msgstr "彈出選單顯示"
-
-#: prefs.js:262
-msgid "Original + Translation"
-msgstr "原文 + 翻譯"
-
-#: prefs.js:263
-msgid "Original only"
-msgstr "僅原文"
-
-#: prefs.js:264
-msgid "Translation only"
-msgstr "僅翻譯"
-
-#: prefs.js:270
-msgid "Panel lyrics"
-msgstr "頂欄歌詞"
-
-#: prefs.js:272
-msgid "Original"
-msgstr "原文"
-
-#: prefs.js:278
-msgid "API protocol"
-msgstr "API 協定"
-
-#: prefs.js:279
-msgid "Automatic from address"
-msgstr "依位址自動選擇"
-
-#: prefs.js:284
-msgid "API address"
-msgstr "API 位址"
-
-#: prefs.js:290
-msgid "Model"
-msgstr "模型"
-
-#: prefs.js:296
-msgid "Translation backend"
-msgstr "翻譯後端"
-
-#: prefs.js:300
-msgid "Apply"
-msgstr "套用"
-
-#: prefs.js:314
-msgid "The API address does not match the selected protocol"
-msgstr "API 位址與所選協定不符"
-
-#: prefs.js:316
-msgid "Model cannot be empty"
-msgstr "模型不可為空"
-
-#: prefs.js:372
-msgid ""
-"Tests the entered address, protocol and model with the saved key. May incur "
-"a charge."
-msgstr "使用已儲存的金鑰測試輸入的位址、協定和模型，可能產生費用。"
-
-#: prefs.js:374
-msgid "Translation connection"
-msgstr "翻譯連線"
-
-#: prefs.js:379
-msgid "Check connection"
-msgstr "檢查連線"
-
-#: prefs.js:441
-msgid "Checking connection…"
-msgstr "正在檢查連線…"
-
-#: prefs.js:459
-msgid "Connection successful: model and structured responses are available"
-msgstr "連線成功：模型與結構化回應可用"
-
-#: prefs.js:469
-msgid "Connection check failed: invalid structured response"
-msgstr "連線檢查失敗：結構化回應無效"
-
-#: prefs.js:472 prefs.js:510
-msgid "Secret Service unavailable"
-msgstr "Secret Service 無法使用"
-
-#: prefs.js:474
-msgid "Connection check failed: verify the API address, protocol and model"
-msgstr "連線檢查失敗：請檢查 API 位址、協定和模型"
-
-#: prefs.js:487
-msgid "Translation API key"
-msgstr "翻譯 API 金鑰"
-
-#: prefs.js:488
-msgid "Checking Secret Service…"
-msgstr "正在檢查 Secret Service…"
-
-#: prefs.js:492
-msgid "Configure"
-msgstr "設定"
-
-#: prefs.js:505
-msgid "Saved in GNOME Secret Service; the key is not displayed"
-msgstr "已儲存在 GNOME Secret Service 中；金鑰不會顯示"
-
-#: prefs.js:506
-msgid "Not configured"
-msgstr "尚未設定"
-
-#: prefs.js:522
-msgid "API key"
-msgstr "API 金鑰"
-
-#: prefs.js:526
-msgid "Translation credential"
-msgstr "翻譯憑證"
-
-#: prefs.js:528
-msgid ""
-"The saved key is not displayed. Enter a new key to replace it, or leave "
-"blank to keep it."
-msgstr "已儲存的金鑰不會顯示。輸入新金鑰可取代，留空則保留原金鑰。"
-
-#: prefs.js:529
-msgid ""
-"The key will be stored in GNOME Secret Service and sent only to the "
-"configured endpoint."
-msgstr "金鑰將儲存在 GNOME Secret Service 中，且只傳送到已設定的端點。"
-
-#: prefs.js:534
-msgid "Cancel"
-msgstr "取消"
-
-#: prefs.js:536
-msgid "Remove"
-msgstr "移除"
-
-#: prefs.js:540
-msgid "Save"
-msgstr "儲存"
-
-#: prefs.js:550
-msgid "API key cannot be empty"
-msgstr "API 金鑰不能為空"
-
-#: prefs.js:554
-msgid "API key contains invalid characters"
-msgstr "API 金鑰包含無效字元"
-
-#: prefs.js:570
-msgid "Could not update credential in Secret Service"
-msgstr "無法更新 Secret Service 中的憑證"
-
-#: prefs.js:581
-msgid "Could not open credential configuration"
-msgstr "無法開啟憑證設定"
-
-#: prefs.js:589
+#: prefs.js:236
 msgid "Choose among currently available players from the extension popup."
 msgstr "請在擴充套件的彈出選單中選擇目前可用的播放器。"
 
-#: prefs.js:593
+#: prefs.js:240
 msgid "Preferred player"
 msgstr "偏好播放器"
 
-#: prefs.js:608
+#: prefs.js:255
 msgid "Storage"
 msgstr "儲存空間"
 
-#: prefs.js:609
+#: prefs.js:256
 msgid "Cached lyrics are stored locally and expire automatically."
 msgstr "歌詞快取儲存在本機，並會自動到期。"
 
-#: prefs.js:613
+#: prefs.js:260
 msgid "Lyrics cache"
 msgstr "歌詞快取"
 
-#: prefs.js:614
+#: prefs.js:261
 msgid "Positive results: 30 days; unavailable lyrics: 24 hours"
 msgstr "有效結果：30 天；無歌詞結果：24 小時"
 
-#: prefs.js:618
+#: prefs.js:265
 msgid "Clear Lyrics Cache"
 msgstr "清除歌詞快取"
 
-#: prefs.js:629
+#: prefs.js:276
 #, javascript-format
 msgid "%d cached lyrics result (including missing lyrics)"
 msgid_plural "%d cached lyrics results (including missing lyrics)"
 msgstr[0] "已快取 %d 項歌詞結果（含找不到歌詞）"
 
-#: prefs.js:634 prefs.js:678 prefs.js:723
+#: prefs.js:281 prefs.js:325 prefs.js:370
 msgid "Could not inspect cache"
 msgstr "無法檢查快取"
 
-#: prefs.js:648
+#: prefs.js:295
 #, javascript-format
 msgid "Could not clear cache: %s"
 msgstr "無法清除快取：%s"
 
-#: prefs.js:658
+#: prefs.js:305
 msgid "Translation cache"
 msgstr "翻譯快取"
 
-#: prefs.js:659
+#: prefs.js:306
 msgid "Checking cached translations…"
 msgstr "正在檢查翻譯快取…"
 
-#: prefs.js:663
+#: prefs.js:310
 msgid "Clear Translation Cache"
 msgstr "清除翻譯快取"
 
-#: prefs.js:675
+#: prefs.js:322
 #, javascript-format
 msgid "%d cached song"
 msgid_plural "%d cached songs"
 msgstr[0] "已快取 %d 首歌曲"
 
-#: prefs.js:690
+#: prefs.js:337
 msgid "Translation cache cleared"
 msgstr "翻譯快取已清除"
 
-#: prefs.js:694
+#: prefs.js:341
 msgid "Could not clear translation cache"
 msgstr "無法清除翻譯快取"
 
-#: prefs.js:703
+#: prefs.js:350
 msgid "Artwork cache"
 msgstr "封面快取"
 
-#: prefs.js:704
+#: prefs.js:351
 msgid "Checking cached artwork…"
 msgstr "正在檢查封面快取…"
 
-#: prefs.js:708
+#: prefs.js:355
 msgid "Clear Artwork Cache"
 msgstr "清除封面快取"
 
-#: prefs.js:719
+#: prefs.js:366
 #, javascript-format
 msgid "%d cached image"
 msgid_plural "%d cached images"
 msgstr[0] "已快取 %d 張封面圖片"
 
-#: prefs.js:736
+#: prefs.js:383
 msgid "Could not clear artwork cache"
 msgstr "無法清除封面快取"
+
+#: prefs.js:392 prefs.js:398 prefs.js:474
+msgid "Translation"
+msgstr "翻譯"
+
+#: prefs.js:399
+msgid ""
+"Supports Responses and Chat Completions. Translations never change original "
+"timing."
+msgstr "支援 Responses 和 Chat Completions。翻譯不會改變原歌詞時間軸。"
+
+#: prefs.js:405
+msgid "Enable translation"
+msgstr "啟用翻譯"
+
+#: prefs.js:406
+msgid "Original lyrics remain available if translation fails"
+msgstr "翻譯失敗時仍保留原歌詞"
+
+#: prefs.js:410
+msgid "Translate automatically"
+msgstr "自動翻譯"
+
+#: prefs.js:411
+msgid "Use a cached translation first; otherwise contact the provider"
+msgstr "優先使用快取的翻譯，否則請求翻譯服務"
+
+#: prefs.js:414
+msgid "Target language"
+msgstr "目標語言"
+
+#: prefs.js:419
+msgid "e.g. zh-CN, en, ja"
+msgstr "例如 zh-TW、en、ja"
+
+#: prefs.js:436
+msgid "Enter a valid BCP 47 language code, such as zh-CN, en, or ja"
+msgstr "請輸入有效的 BCP 47 語言代碼，例如 zh-CN、en 或 ja"
+
+#: prefs.js:461
+msgid "Popup display"
+msgstr "彈出選單顯示"
+
+#: prefs.js:463
+msgid "Original + Translation"
+msgstr "原文 + 翻譯"
+
+#: prefs.js:464
+msgid "Original only"
+msgstr "僅原文"
+
+#: prefs.js:465
+msgid "Translation only"
+msgstr "僅翻譯"
+
+#: prefs.js:471
+msgid "Panel lyrics"
+msgstr "頂欄歌詞"
+
+#: prefs.js:473
+msgid "Original"
+msgstr "原文"
+
+#: prefs.js:479
+msgid "Active provider"
+msgstr "目前模型服務"
+
+#: prefs.js:483
+msgid "Active model"
+msgstr "目前模型"
+
+#: prefs.js:490
+msgid "Model providers"
+msgstr "模型服務清單"
+
+#: prefs.js:491
+msgid ""
+"Save multiple OpenAI-compatible services, fetch their available models, and "
+"switch between them."
+msgstr "可儲存多個 OpenAI 相容服務、擷取可用模型清單並隨時切換。"
+
+#: prefs.js:494 prefs.js:903
+msgid "Add provider"
+msgstr "新增模型服務"
+
+#: prefs.js:527
+msgid "Active"
+msgstr "目前使用"
+
+#: prefs.js:532 prefs.js:743
+#, javascript-format
+msgid "%d model"
+msgid_plural "%d models"
+msgstr[0] "%d 個模型"
+
+#: prefs.js:535 prefs.js:569
+msgid "No models configured"
+msgstr "尚未設定模型"
+
+#: prefs.js:576
+msgid "Open the provider below to fetch or add models"
+msgstr "開啟下方模型服務以擷取或新增模型"
+
+#: prefs.js:597
+msgid "Use"
+msgstr "使用"
+
+#: prefs.js:624
+msgid "API key saved"
+msgstr "已儲存 API 金鑰"
+
+#: prefs.js:624
+msgid "API key not set"
+msgstr "未設定 API 金鑰"
+
+#: prefs.js:630 prefs.js:1377 prefs.js:1509 prefs.js:1611
+msgid "Secret Service unavailable"
+msgstr "Secret Service 無法使用"
+
+#: prefs.js:676
+msgid "Select models"
+msgstr "選擇模型"
+
+#: prefs.js:685 prefs.js:910 prefs.js:1057 prefs.js:1402
+msgid "Cancel"
+msgstr "取消"
+
+#: prefs.js:686
+msgid "Apply"
+msgstr "套用"
+
+#: prefs.js:701
+msgid "Search models…"
+msgstr "搜尋模型…"
+
+#: prefs.js:716
+msgid "Clear selection"
+msgstr "清除已選"
+
+#: prefs.js:746
+#, javascript-format
+msgid "%d selected"
+msgid_plural "%d selected"
+msgstr[0] "已選 %d 個"
+
+#: prefs.js:918 prefs.js:1408
+msgid "Save"
+msgstr "儲存"
+
+#: prefs.js:931
+msgid "Service"
+msgstr "服務設定"
+
+#: prefs.js:936
+msgid "Name"
+msgstr "名稱"
+
+#: prefs.js:942
+msgid "API protocol"
+msgstr "API 協定"
+
+#: prefs.js:944
+msgid "Automatic from address"
+msgstr "依位址自動選擇"
+
+#: prefs.js:956
+msgid "API address"
+msgstr "API 位址"
+
+#: prefs.js:962
+msgid "Translation backend"
+msgstr "翻譯後端"
+
+#: prefs.js:968
+msgid "Translation API key"
+msgstr "翻譯 API 金鑰"
+
+#: prefs.js:969
+msgid "Checking Secret Service…"
+msgstr "正在檢查 Secret Service…"
+
+#: prefs.js:973
+msgid "Configure"
+msgstr "設定"
+
+#: prefs.js:980
+msgid "Use for translation"
+msgstr "設為目前翻譯服務"
+
+#: prefs.js:982 prefs.js:1336 prefs.js:1680
+msgid "Currently active translation provider"
+msgstr "目前正在使用的翻譯服務"
+
+#: prefs.js:983 prefs.js:1681
+msgid "Switch active translation to this provider"
+msgstr "切換為目前翻譯服務"
+
+#: prefs.js:991
+msgid "Models"
+msgstr "模型"
+
+#: prefs.js:992
+msgid "Fetch available models from the service or add model names manually."
+msgstr "可從服務介面擷取可用模型，或手動輸入模型名稱。"
+
+#: prefs.js:997
+msgid "Fetch models from GET /models with the saved API key"
+msgstr "使用已儲存的 API 金鑰從 GET /models 擷取模型清單"
+
+#: prefs.js:999
+msgid "Model list"
+msgstr "模型清單"
+
+#: prefs.js:1004
+msgid "Fetch models"
+msgstr "擷取模型清單"
+
+#: prefs.js:1011
+msgid "Add model"
+msgstr "新增模型"
+
+#: prefs.js:1020
+msgid "Connection"
+msgstr "連線"
+
+#: prefs.js:1024
+msgid ""
+"Tests the entered address, protocol and selected model with the saved key. "
+"May incur a charge."
+msgstr "使用已儲存的金鑰測試輸入的位址、協定和所選模型，可能產生費用。"
+
+#: prefs.js:1026
+msgid "Translation connection"
+msgstr "翻譯連線"
+
+#: prefs.js:1031
+msgid "Check connection"
+msgstr "檢查連線"
+
+#: prefs.js:1041
+msgid "Delete provider"
+msgstr "刪除模型服務"
+
+#: prefs.js:1051
+msgid "Delete provider?"
+msgstr "刪除模型服務？"
+
+#: prefs.js:1053
+msgid ""
+"The saved configuration and its API key in Secret Service will be removed."
+msgstr "已儲存的設定及 Secret Service 中對應的 API 金鑰將會移除。"
+
+#: prefs.js:1058
+msgid "Delete"
+msgstr "刪除"
+
+#: prefs.js:1127
+msgid "Provider name cannot be empty"
+msgstr "服務名稱不可為空"
+
+#: prefs.js:1131 prefs.js:1477 prefs.js:1570
+msgid "The API address does not match the selected protocol"
+msgstr "API 位址與所選協定不符"
+
+#: prefs.js:1240
+msgid "No models added yet"
+msgstr "尚未新增模型"
+
+#: prefs.js:1241
+msgid "Fetch models from the service or enter a model name above"
+msgstr "請點擊擷取模型清單或在上方手動輸入模型名稱"
+
+#: prefs.js:1290
+msgid "Remove model"
+msgstr "移除模型"
+
+#: prefs.js:1362
+msgid "Provider saved"
+msgstr "模型服務已儲存"
+
+#: prefs.js:1372
+msgid "Saved in Secret Service; the key is not displayed"
+msgstr "已儲存在 Secret Service 中；金鑰不會顯示"
+
+#: prefs.js:1373
+msgid "Not configured"
+msgstr "尚未設定"
+
+#: prefs.js:1390
+msgid "API key"
+msgstr "API 金鑰"
+
+#: prefs.js:1394
+msgid "Translation credential"
+msgstr "翻譯憑證"
+
+#: prefs.js:1396
+msgid ""
+"The saved key is not displayed. Enter a new key to replace it, or leave "
+"blank to keep it."
+msgstr "已儲存的金鑰不會顯示。輸入新金鑰可取代，留空則保留原金鑰。"
+
+#: prefs.js:1397
+msgid ""
+"The key will be stored in Secret Service and sent only to the configured "
+"endpoint."
+msgstr "金鑰將儲存在 Secret Service 中，僅傳送至設定的端點。"
+
+#: prefs.js:1404
+msgid "Remove"
+msgstr "移除"
+
+#: prefs.js:1416
+msgid "API key cannot be empty"
+msgstr "API 金鑰不能為空"
+
+#: prefs.js:1420
+msgid "API key contains invalid characters"
+msgstr "API 金鑰包含無效字元"
+
+#: prefs.js:1445
+msgid "Could not update credential in Secret Service"
+msgstr "無法更新 Secret Service 中的憑證"
+
+#: prefs.js:1456
+msgid "Could not open credential configuration"
+msgstr "無法開啟憑證設定"
+
+#: prefs.js:1484
+msgid "Fetching models…"
+msgstr "正在擷取模型清單…"
+
+#: prefs.js:1512
+msgid "Could not fetch models: verify the API address and key"
+msgstr "擷取模型清單失敗：請檢查 API 位址與金鑰"
+
+#: prefs.js:1529
+msgid "No models returned by this endpoint; add models manually"
+msgstr "此端點未傳回任何模型，請手動新增模型"
+
+#: prefs.js:1533
+#, javascript-format
+msgid "Found %d model"
+msgid_plural "Found %d models"
+msgstr[0] "已擷取 %d 個模型"
+
+#: prefs.js:1574
+msgid "Select or add a model first"
+msgstr "請先選擇或新增一個模型"
+
+#: prefs.js:1581
+msgid "Checking connection…"
+msgstr "正在檢查連線…"
+
+#: prefs.js:1603
+msgid "Connection successful: model and structured responses are available"
+msgstr "連線成功：模型與結構化回應可用"
+
+#: prefs.js:1608
+msgid "Connection check failed: invalid structured response"
+msgstr "連線檢查失敗：結構化回應無效"
+
+#: prefs.js:1609
+msgid "Connection check failed: verify the API address, protocol and model"
+msgstr "連線檢查失敗：請檢查 API 位址、協定和模型"
 
 #: ui-utils.js:3
 msgid "Translation request timed out"
@@ -611,3 +780,22 @@ msgstr "無法連線至翻譯伺服器"
 #: ui-utils.js:10
 msgid "Translation network error"
 msgstr "翻譯網路錯誤"
+
+#~ msgid "Model"
+#~ msgstr "模型"
+
+#~ msgid "Model cannot be empty"
+#~ msgstr "模型不可為空"
+
+#~ msgid ""
+#~ "Tests the entered address, protocol and model with the saved key. May "
+#~ "incur a charge."
+#~ msgstr "使用已儲存的金鑰測試輸入的位址、協定和模型，可能產生費用。"
+
+#~ msgid "Saved in GNOME Secret Service; the key is not displayed"
+#~ msgstr "已儲存在 GNOME Secret Service 中；金鑰不會顯示"
+
+#~ msgid ""
+#~ "The key will be stored in GNOME Secret Service and sent only to the "
+#~ "configured endpoint."
+#~ msgstr "金鑰將儲存在 GNOME Secret Service 中，且只傳送到已設定的端點。"

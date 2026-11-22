@@ -1709,6 +1709,7 @@ export async function run() {
         serviceCreations++;
         return origCreateService();
     };
+    settings.set_string('translation-provider', 'custom-deepseek');
     settings.set_string('translation-api-endpoint', 'https://proxy.example/v1');
     settings.set_string('translation-api-protocol', 'chat-completions');
     settings.set_string('translation-model', 'custom-runtime-model');
@@ -1718,13 +1719,14 @@ export async function run() {
     `simultaneous backend changes should coalesce into one service replacement (count=${serviceCreations})`);
     assert(initialTranslationService._providers.size === 0,
         'replacing the translation service should destroy the old provider');
-    assert(instance._translationService._providers.get('openai').model ===
+    assert(instance._translationService._providers.get('custom-deepseek').model ===
         'custom-runtime-model' &&
-        instance._translationService._providers.get('openai')._endpoint ===
+        instance._translationService._providers.get('custom-deepseek')._endpoint ===
             'https://proxy.example/v1/chat/completions' &&
-        instance._translationService._providers.get('openai')._protocol === 'chat-completions',
-    'the replacement provider should use the new model and resolve the base address with the selected protocol');
+        instance._translationService._providers.get('custom-deepseek')._protocol === 'chat-completions',
+    'the replacement provider should use the custom provider ID, new model and resolved base address');
     instance._createTranslationService = origCreateService;
+    settings.set_string('translation-provider', 'openai');
     settings.set_string(
         'translation-api-endpoint', 'https://api.openai.com/v1/responses');
     settings.set_string('translation-api-protocol', 'auto');

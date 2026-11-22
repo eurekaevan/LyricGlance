@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: LyricGlance 0.9.0\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/LyricGlance/issues\n"
-"POT-Creation-Date: 2026-11-22 11:08+0800\n"
+"POT-Creation-Date: 2026-11-22 12:54+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -75,7 +75,7 @@ msgstr ""
 msgid "Global +0.0 s  ·  Effective +0.0 s"
 msgstr ""
 
-#: indicator.js:799 indicator.js:1318 indicator.js:1330 prefs.js:588
+#: indicator.js:799 indicator.js:1318 indicator.js:1330 prefs.js:235
 msgid "Player"
 msgstr ""
 
@@ -128,7 +128,7 @@ msgstr ""
 msgid "Refresh"
 msgstr ""
 
-#: indicator.js:1166 prefs.js:450
+#: indicator.js:1166 prefs.js:1494 prefs.js:1590
 msgid "Translation API key is not configured"
 msgstr ""
 
@@ -146,19 +146,19 @@ msgstr ""
 msgid "Translation provider error"
 msgstr ""
 
-#: indicator.js:1170 prefs.js:464
+#: indicator.js:1170 prefs.js:91
 msgid "Translation API key was rejected"
 msgstr ""
 
-#: indicator.js:1171 prefs.js:465
+#: indicator.js:1171 prefs.js:92
 msgid "Translation access was denied"
 msgstr ""
 
-#: indicator.js:1172 prefs.js:466
+#: indicator.js:1172 prefs.js:93
 msgid "Translation quota or spending limit reached"
 msgstr ""
 
-#: indicator.js:1173 prefs.js:467
+#: indicator.js:1173 prefs.js:94
 msgid "Translation rate limited"
 msgstr ""
 
@@ -192,7 +192,7 @@ msgstr ""
 msgid "Global %s  ·  Effective %s"
 msgstr ""
 
-#: indicator.js:1296 prefs.js:595 prefs.js:603
+#: indicator.js:1296 prefs.js:242 prefs.js:250
 msgid "Auto"
 msgstr ""
 
@@ -201,392 +201,564 @@ msgstr ""
 msgid "Player: %s"
 msgstr ""
 
-#: prefs.js:77
+#: prefs.js:115
 msgid "General"
 msgstr ""
 
-#: prefs.js:82
+#: prefs.js:120
 msgid "Panel"
 msgstr ""
 
-#: prefs.js:85
+#: prefs.js:123
 msgid "Show music note icon"
 msgstr ""
 
-#: prefs.js:89
+#: prefs.js:127
 msgid "Panel position"
 msgstr ""
 
-#: prefs.js:91
+#: prefs.js:129
 msgid "Left"
 msgstr ""
 
-#: prefs.js:92
+#: prefs.js:130
 msgid "Right"
 msgstr ""
 
-#: prefs.js:93
+#: prefs.js:131
 msgid "Center"
 msgstr ""
 
-#: prefs.js:94
+#: prefs.js:132
 msgid "Far left"
 msgstr ""
 
-#: prefs.js:95
+#: prefs.js:133
 msgid "Far right"
 msgstr ""
 
-#: prefs.js:99
+#: prefs.js:137
 msgid "Left and Right stay near the center; Far positions use the outer edge"
 msgstr ""
 
-#: prefs.js:103
+#: prefs.js:141
 msgid "Maximum panel width"
 msgstr ""
 
-#: prefs.js:104
+#: prefs.js:142
 msgid "Maximum width of lyrics in the top bar"
 msgstr ""
 
-#: prefs.js:127
+#: prefs.js:165
 msgid "Hide lyrics when paused"
 msgstr ""
 
-#: prefs.js:128
+#: prefs.js:166
 msgid "Keep the popup state while hiding the panel item"
 msgstr ""
 
-#: prefs.js:130
+#: prefs.js:168
 msgid "Lyrics"
 msgstr ""
 
-#: prefs.js:135
+#: prefs.js:173
 msgid "Show title when lyrics are unavailable"
 msgstr ""
 
-#: prefs.js:139
+#: prefs.js:177
 msgid "Word-synced highlighting"
 msgstr ""
 
-#: prefs.js:140
+#: prefs.js:178
 msgid "Highlight the current word when timing is available"
 msgstr ""
 
-#: prefs.js:143
+#: prefs.js:181
 msgid "Use LrcAPI as a fallback"
 msgstr ""
 
-#: prefs.js:144
+#: prefs.js:182
 msgid ""
 "When LRCLIB has no synchronized lyrics, send the song title, artist and "
 "album to LrcAPI"
 msgstr ""
 
-#: prefs.js:146
+#: prefs.js:184
 msgid "LrcAPI endpoint"
 msgstr ""
 
-#: prefs.js:161 prefs.js:312
+#: prefs.js:199 prefs.js:1129 prefs.js:1472 prefs.js:1565
 msgid "Use HTTPS, or HTTP only for a local loopback endpoint"
 msgstr ""
 
-#: prefs.js:174
+#: prefs.js:212
 msgid "Global lyrics offset"
 msgstr ""
 
-#: prefs.js:175
+#: prefs.js:213
 msgid "Added to each track-specific offset"
 msgstr ""
 
-#: prefs.js:197 prefs.js:273
-msgid "Translation"
-msgstr ""
-
-#: prefs.js:198
-msgid ""
-"Supports Responses and Chat Completions. Translations never change original "
-"timing."
-msgstr ""
-
-#: prefs.js:204
-msgid "Enable translation"
-msgstr ""
-
-#: prefs.js:205
-msgid "Original lyrics remain available if translation fails"
-msgstr ""
-
-#: prefs.js:209
-msgid "Translate automatically"
-msgstr ""
-
-#: prefs.js:210
-msgid "Use a cached translation first; otherwise contact the provider"
-msgstr ""
-
-#: prefs.js:213
-msgid "Target language"
-msgstr ""
-
-#: prefs.js:218
-msgid "e.g. zh-CN, en, ja"
-msgstr ""
-
-#: prefs.js:235
-msgid "Enter a valid BCP 47 language code, such as zh-CN, en, or ja"
-msgstr ""
-
-#: prefs.js:260
-msgid "Popup display"
-msgstr ""
-
-#: prefs.js:262
-msgid "Original + Translation"
-msgstr ""
-
-#: prefs.js:263
-msgid "Original only"
-msgstr ""
-
-#: prefs.js:264
-msgid "Translation only"
-msgstr ""
-
-#: prefs.js:270
-msgid "Panel lyrics"
-msgstr ""
-
-#: prefs.js:272
-msgid "Original"
-msgstr ""
-
-#: prefs.js:278
-msgid "API protocol"
-msgstr ""
-
-#: prefs.js:279
-msgid "Automatic from address"
-msgstr ""
-
-#: prefs.js:284
-msgid "API address"
-msgstr ""
-
-#: prefs.js:290
-msgid "Model"
-msgstr ""
-
-#: prefs.js:296
-msgid "Translation backend"
-msgstr ""
-
-#: prefs.js:300
-msgid "Apply"
-msgstr ""
-
-#: prefs.js:314
-msgid "The API address does not match the selected protocol"
-msgstr ""
-
-#: prefs.js:316
-msgid "Model cannot be empty"
-msgstr ""
-
-#: prefs.js:372
-msgid ""
-"Tests the entered address, protocol and model with the saved key. May incur "
-"a charge."
-msgstr ""
-
-#: prefs.js:374
-msgid "Translation connection"
-msgstr ""
-
-#: prefs.js:379
-msgid "Check connection"
-msgstr ""
-
-#: prefs.js:441
-msgid "Checking connection…"
-msgstr ""
-
-#: prefs.js:459
-msgid "Connection successful: model and structured responses are available"
-msgstr ""
-
-#: prefs.js:469
-msgid "Connection check failed: invalid structured response"
-msgstr ""
-
-#: prefs.js:472 prefs.js:510
-msgid "Secret Service unavailable"
-msgstr ""
-
-#: prefs.js:474
-msgid "Connection check failed: verify the API address, protocol and model"
-msgstr ""
-
-#: prefs.js:487
-msgid "Translation API key"
-msgstr ""
-
-#: prefs.js:488
-msgid "Checking Secret Service…"
-msgstr ""
-
-#: prefs.js:492
-msgid "Configure"
-msgstr ""
-
-#: prefs.js:505
-msgid "Saved in GNOME Secret Service; the key is not displayed"
-msgstr ""
-
-#: prefs.js:506
-msgid "Not configured"
-msgstr ""
-
-#: prefs.js:522
-msgid "API key"
-msgstr ""
-
-#: prefs.js:526
-msgid "Translation credential"
-msgstr ""
-
-#: prefs.js:528
-msgid ""
-"The saved key is not displayed. Enter a new key to replace it, or leave "
-"blank to keep it."
-msgstr ""
-
-#: prefs.js:529
-msgid ""
-"The key will be stored in GNOME Secret Service and sent only to the "
-"configured endpoint."
-msgstr ""
-
-#: prefs.js:534
-msgid "Cancel"
-msgstr ""
-
-#: prefs.js:536
-msgid "Remove"
-msgstr ""
-
-#: prefs.js:540
-msgid "Save"
-msgstr ""
-
-#: prefs.js:550
-msgid "API key cannot be empty"
-msgstr ""
-
-#: prefs.js:554
-msgid "API key contains invalid characters"
-msgstr ""
-
-#: prefs.js:570
-msgid "Could not update credential in Secret Service"
-msgstr ""
-
-#: prefs.js:581
-msgid "Could not open credential configuration"
-msgstr ""
-
-#: prefs.js:589
+#: prefs.js:236
 msgid "Choose among currently available players from the extension popup."
 msgstr ""
 
-#: prefs.js:593
+#: prefs.js:240
 msgid "Preferred player"
 msgstr ""
 
-#: prefs.js:608
+#: prefs.js:255
 msgid "Storage"
 msgstr ""
 
-#: prefs.js:609
+#: prefs.js:256
 msgid "Cached lyrics are stored locally and expire automatically."
 msgstr ""
 
-#: prefs.js:613
+#: prefs.js:260
 msgid "Lyrics cache"
 msgstr ""
 
-#: prefs.js:614
+#: prefs.js:261
 msgid "Positive results: 30 days; unavailable lyrics: 24 hours"
 msgstr ""
 
-#: prefs.js:618
+#: prefs.js:265
 msgid "Clear Lyrics Cache"
 msgstr ""
 
-#: prefs.js:629
+#: prefs.js:276
 #, javascript-format
 msgid "%d cached lyrics result (including missing lyrics)"
 msgid_plural "%d cached lyrics results (including missing lyrics)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: prefs.js:634 prefs.js:678 prefs.js:723
+#: prefs.js:281 prefs.js:325 prefs.js:370
 msgid "Could not inspect cache"
 msgstr ""
 
-#: prefs.js:648
+#: prefs.js:295
 #, javascript-format
 msgid "Could not clear cache: %s"
 msgstr ""
 
-#: prefs.js:658
+#: prefs.js:305
 msgid "Translation cache"
 msgstr ""
 
-#: prefs.js:659
+#: prefs.js:306
 msgid "Checking cached translations…"
 msgstr ""
 
-#: prefs.js:663
+#: prefs.js:310
 msgid "Clear Translation Cache"
 msgstr ""
 
-#: prefs.js:675
+#: prefs.js:322
 #, javascript-format
 msgid "%d cached song"
 msgid_plural "%d cached songs"
 msgstr[0] ""
 msgstr[1] ""
 
-#: prefs.js:690
+#: prefs.js:337
 msgid "Translation cache cleared"
 msgstr ""
 
-#: prefs.js:694
+#: prefs.js:341
 msgid "Could not clear translation cache"
 msgstr ""
 
-#: prefs.js:703
+#: prefs.js:350
 msgid "Artwork cache"
 msgstr ""
 
-#: prefs.js:704
+#: prefs.js:351
 msgid "Checking cached artwork…"
 msgstr ""
 
-#: prefs.js:708
+#: prefs.js:355
 msgid "Clear Artwork Cache"
 msgstr ""
 
-#: prefs.js:719
+#: prefs.js:366
 #, javascript-format
 msgid "%d cached image"
 msgid_plural "%d cached images"
 msgstr[0] ""
 msgstr[1] ""
 
-#: prefs.js:736
+#: prefs.js:383
 msgid "Could not clear artwork cache"
+msgstr ""
+
+#: prefs.js:392 prefs.js:398 prefs.js:474
+msgid "Translation"
+msgstr ""
+
+#: prefs.js:399
+msgid ""
+"Supports Responses and Chat Completions. Translations never change original "
+"timing."
+msgstr ""
+
+#: prefs.js:405
+msgid "Enable translation"
+msgstr ""
+
+#: prefs.js:406
+msgid "Original lyrics remain available if translation fails"
+msgstr ""
+
+#: prefs.js:410
+msgid "Translate automatically"
+msgstr ""
+
+#: prefs.js:411
+msgid "Use a cached translation first; otherwise contact the provider"
+msgstr ""
+
+#: prefs.js:414
+msgid "Target language"
+msgstr ""
+
+#: prefs.js:419
+msgid "e.g. zh-CN, en, ja"
+msgstr ""
+
+#: prefs.js:436
+msgid "Enter a valid BCP 47 language code, such as zh-CN, en, or ja"
+msgstr ""
+
+#: prefs.js:461
+msgid "Popup display"
+msgstr ""
+
+#: prefs.js:463
+msgid "Original + Translation"
+msgstr ""
+
+#: prefs.js:464
+msgid "Original only"
+msgstr ""
+
+#: prefs.js:465
+msgid "Translation only"
+msgstr ""
+
+#: prefs.js:471
+msgid "Panel lyrics"
+msgstr ""
+
+#: prefs.js:473
+msgid "Original"
+msgstr ""
+
+#: prefs.js:479
+msgid "Active provider"
+msgstr ""
+
+#: prefs.js:483
+msgid "Active model"
+msgstr ""
+
+#: prefs.js:490
+msgid "Model providers"
+msgstr ""
+
+#: prefs.js:491
+msgid ""
+"Save multiple OpenAI-compatible services, fetch their available models, and "
+"switch between them."
+msgstr ""
+
+#: prefs.js:494 prefs.js:903
+msgid "Add provider"
+msgstr ""
+
+#: prefs.js:527
+msgid "Active"
+msgstr ""
+
+#: prefs.js:532 prefs.js:743
+#, javascript-format
+msgid "%d model"
+msgid_plural "%d models"
+msgstr[0] ""
+msgstr[1] ""
+
+#: prefs.js:535 prefs.js:569
+msgid "No models configured"
+msgstr ""
+
+#: prefs.js:576
+msgid "Open the provider below to fetch or add models"
+msgstr ""
+
+#: prefs.js:597
+msgid "Use"
+msgstr ""
+
+#: prefs.js:624
+msgid "API key saved"
+msgstr ""
+
+#: prefs.js:624
+msgid "API key not set"
+msgstr ""
+
+#: prefs.js:630 prefs.js:1377 prefs.js:1509 prefs.js:1611
+msgid "Secret Service unavailable"
+msgstr ""
+
+#: prefs.js:676
+msgid "Select models"
+msgstr ""
+
+#: prefs.js:685 prefs.js:910 prefs.js:1057 prefs.js:1402
+msgid "Cancel"
+msgstr ""
+
+#: prefs.js:686
+msgid "Apply"
+msgstr ""
+
+#: prefs.js:701
+msgid "Search models…"
+msgstr ""
+
+#: prefs.js:716
+msgid "Clear selection"
+msgstr ""
+
+#: prefs.js:746
+#, javascript-format
+msgid "%d selected"
+msgid_plural "%d selected"
+msgstr[0] ""
+msgstr[1] ""
+
+#: prefs.js:918 prefs.js:1408
+msgid "Save"
+msgstr ""
+
+#: prefs.js:931
+msgid "Service"
+msgstr ""
+
+#: prefs.js:936
+msgid "Name"
+msgstr ""
+
+#: prefs.js:942
+msgid "API protocol"
+msgstr ""
+
+#: prefs.js:944
+msgid "Automatic from address"
+msgstr ""
+
+#: prefs.js:956
+msgid "API address"
+msgstr ""
+
+#: prefs.js:962
+msgid "Translation backend"
+msgstr ""
+
+#: prefs.js:968
+msgid "Translation API key"
+msgstr ""
+
+#: prefs.js:969
+msgid "Checking Secret Service…"
+msgstr ""
+
+#: prefs.js:973
+msgid "Configure"
+msgstr ""
+
+#: prefs.js:980
+msgid "Use for translation"
+msgstr ""
+
+#: prefs.js:982 prefs.js:1336 prefs.js:1680
+msgid "Currently active translation provider"
+msgstr ""
+
+#: prefs.js:983 prefs.js:1681
+msgid "Switch active translation to this provider"
+msgstr ""
+
+#: prefs.js:991
+msgid "Models"
+msgstr ""
+
+#: prefs.js:992
+msgid "Fetch available models from the service or add model names manually."
+msgstr ""
+
+#: prefs.js:997
+msgid "Fetch models from GET /models with the saved API key"
+msgstr ""
+
+#: prefs.js:999
+msgid "Model list"
+msgstr ""
+
+#: prefs.js:1004
+msgid "Fetch models"
+msgstr ""
+
+#: prefs.js:1011
+msgid "Add model"
+msgstr ""
+
+#: prefs.js:1020
+msgid "Connection"
+msgstr ""
+
+#: prefs.js:1024
+msgid ""
+"Tests the entered address, protocol and selected model with the saved key. "
+"May incur a charge."
+msgstr ""
+
+#: prefs.js:1026
+msgid "Translation connection"
+msgstr ""
+
+#: prefs.js:1031
+msgid "Check connection"
+msgstr ""
+
+#: prefs.js:1041
+msgid "Delete provider"
+msgstr ""
+
+#: prefs.js:1051
+msgid "Delete provider?"
+msgstr ""
+
+#: prefs.js:1053
+msgid ""
+"The saved configuration and its API key in Secret Service will be removed."
+msgstr ""
+
+#: prefs.js:1058
+msgid "Delete"
+msgstr ""
+
+#: prefs.js:1127
+msgid "Provider name cannot be empty"
+msgstr ""
+
+#: prefs.js:1131 prefs.js:1477 prefs.js:1570
+msgid "The API address does not match the selected protocol"
+msgstr ""
+
+#: prefs.js:1240
+msgid "No models added yet"
+msgstr ""
+
+#: prefs.js:1241
+msgid "Fetch models from the service or enter a model name above"
+msgstr ""
+
+#: prefs.js:1290
+msgid "Remove model"
+msgstr ""
+
+#: prefs.js:1362
+msgid "Provider saved"
+msgstr ""
+
+#: prefs.js:1372
+msgid "Saved in Secret Service; the key is not displayed"
+msgstr ""
+
+#: prefs.js:1373
+msgid "Not configured"
+msgstr ""
+
+#: prefs.js:1390
+msgid "API key"
+msgstr ""
+
+#: prefs.js:1394
+msgid "Translation credential"
+msgstr ""
+
+#: prefs.js:1396
+msgid ""
+"The saved key is not displayed. Enter a new key to replace it, or leave "
+"blank to keep it."
+msgstr ""
+
+#: prefs.js:1397
+msgid ""
+"The key will be stored in Secret Service and sent only to the configured "
+"endpoint."
+msgstr ""
+
+#: prefs.js:1404
+msgid "Remove"
+msgstr ""
+
+#: prefs.js:1416
+msgid "API key cannot be empty"
+msgstr ""
+
+#: prefs.js:1420
+msgid "API key contains invalid characters"
+msgstr ""
+
+#: prefs.js:1445
+msgid "Could not update credential in Secret Service"
+msgstr ""
+
+#: prefs.js:1456
+msgid "Could not open credential configuration"
+msgstr ""
+
+#: prefs.js:1484
+msgid "Fetching models…"
+msgstr ""
+
+#: prefs.js:1512
+msgid "Could not fetch models: verify the API address and key"
+msgstr ""
+
+#: prefs.js:1529
+msgid "No models returned by this endpoint; add models manually"
+msgstr ""
+
+#: prefs.js:1533
+#, javascript-format
+msgid "Found %d model"
+msgid_plural "Found %d models"
+msgstr[0] ""
+msgstr[1] ""
+
+#: prefs.js:1574
+msgid "Select or add a model first"
+msgstr ""
+
+#: prefs.js:1581
+msgid "Checking connection…"
+msgstr ""
+
+#: prefs.js:1603
+msgid "Connection successful: model and structured responses are available"
+msgstr ""
+
+#: prefs.js:1608
+msgid "Connection check failed: invalid structured response"
+msgstr ""
+
+#: prefs.js:1609
+msgid "Connection check failed: verify the API address, protocol and model"
 msgstr ""
 
 #: ui-utils.js:3
