@@ -4,6 +4,8 @@
 
 ### Added
 
+- Lyrics translation supports both Responses and Chat Completions, with protocol selection, a resolved request address preview, and `/v1` base URLs. Connection checks use the same protocol and address as translation.
+
 - GNOME Shell 51 support alongside 50, with packaged Shell regressions in the Fedora 44/45 CI matrix and the Fedora 45 release workflow. `make shell-check` runs the same isolated runtime check locally.
 - Offline language detection for unmarked lyrics skips translation only when sufficiently long, consistent samples confidently match the target language. Explicit source language takes precedence; uncertain and mixed-language text still reaches the configured translator.
 - Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics that omit credentials and request contents.

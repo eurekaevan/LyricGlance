@@ -12,7 +12,9 @@ import {
     clearTranslationCache,
     countTranslationCache,
 } from './translation-cache.js';
-import {normalizeTranslationEndpoint, OpenAITranslationProvider} from './translation-provider.js';
+import {
+    normalizeTranslationEndpoint, OpenAITranslationProvider, resolveTranslationEndpoint,
+} from './translation-provider.js';
 import {translationNetworkErrorText} from './ui-utils.js';
 
 function bindSwitch(settings, key, title, subtitle = '') {
@@ -190,7 +192,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
 
         const translationGroup = new Adw.PreferencesGroup({
             title: _('Translation'),
-            description: _('Uses an OpenAI-compatible Responses API. Translations never change original timing.'),
+            description: _('Supports Responses and Chat Completions. Translations never change original timing.'),
         });
         page.add(translationGroup);
         translationGroup.add(bindSwitch(
@@ -268,8 +270,15 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                 {value: 'translated', label: _('Translation')},
             ],
             signalIds));
+        const protocols = ['auto', 'responses', 'chat-completions'];
+        const protocolRow = new Adw.ComboRow({
+            title: _('API protocol'),
+            model: Gtk.StringList.new([_('Automatic from address'), 'Responses', 'Chat Completions']),
+            selected: Math.max(0, protocols.indexOf(settings.get_string('translation-api-protocol'))),
+        });
+        translationGroup.add(protocolRow);
         const endpointRow = new Adw.EntryRow({
-            title: _('Responses API endpoint'),
+            title: _('API address'),
             text: settings.get_string('translation-api-endpoint'),
         });
         translationGroup.add(endpointRow);
@@ -282,7 +291,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
 
         const backendRow = new Adw.ActionRow({
             title: _('Translation backend'),
-            subtitle: _('Valid endpoint and model changes are saved together on Apply or when closing this window'),
+            use_markup: false,
         });
         const applyBackendButton = new Gtk.Button({
             label: _('Apply'),
@@ -290,42 +299,64 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         });
         backendRow.add_suffix(applyBackendButton);
         translationGroup.add(backendRow);
+        const readBackend = () => {
+            const protocol = protocols[protocolRow.selected];
+            const endpoint = normalizeTranslationEndpoint(endpointRow.text);
+            const resolved = endpoint && resolveTranslationEndpoint(endpoint, protocol);
+            const model = modelRow.text.trim();
+            let error = null;
+            if (!endpoint)
+                error = _('Use HTTPS, or HTTP only for a local loopback endpoint');
+            else if (!resolved)
+                error = _('The API address does not match the selected protocol');
+            else if (!model)
+                error = _('Model cannot be empty');
+            return {endpoint, protocol, model, resolved, error};
+        };
+        const updateBackendPreview = () => {
+            const {resolved, error} = readBackend();
+            if (resolved) {
+                const protocol = resolved.protocol === 'responses' ? 'Responses' : 'Chat Completions';
+                backendRow.subtitle = `${protocol} · ${resolved.endpoint}`;
+            } else {
+                backendRow.subtitle = error;
+            }
+        };
         let backendDirty = false;
-        for (const row of [endpointRow, modelRow]) {
-            row.connect('notify::text', () => {
-                backendDirty = true;
-            });
-        }
+        const markBackendDirty = () => {
+            backendDirty = true;
+            updateBackendPreview();
+        };
+        endpointRow.connect('notify::text', markBackendDirty);
+        modelRow.connect('notify::text', markBackendDirty);
+        protocolRow.connect('notify::selected', markBackendDirty);
+        updateBackendPreview();
+        // Delay only these writes so Shell sees one consistent backend change.
+        const backendSettings = this.getSettings();
+        backendSettings.delay();
         const saveBackend = () => {
             if (!backendDirty)
                 return true;
-            const endpoint = normalizeTranslationEndpoint(endpointRow.text);
-            const model = modelRow.text.trim();
-            if (!endpoint) {
-                backendRow.subtitle = _(
-                    'Use HTTPS, or HTTP only for a local loopback endpoint');
-                return false;
-            }
-            if (!model) {
-                backendRow.subtitle = _('Model cannot be empty');
+            const {endpoint, protocol, model, error} = readBackend();
+            if (error) {
+                backendRow.subtitle = error;
                 return false;
             }
 
-            if (settings.get_string('translation-api-endpoint') !== endpoint)
-                settings.set_string('translation-api-endpoint', endpoint);
-            if (settings.get_string('translation-model') !== model)
-                settings.set_string('translation-model', model);
+            backendSettings.set_string('translation-api-endpoint', endpoint);
+            backendSettings.set_string('translation-api-protocol', protocol);
+            backendSettings.set_string('translation-model', model);
+            backendSettings.apply();
             endpointRow.text = endpoint;
             modelRow.text = model;
             backendDirty = false;
-            backendRow.subtitle = _('Translation backend updated');
             return true;
         };
         applyBackendButton.connect('clicked', saveBackend);
 
         const credentialStore = new TranslationCredentialStore();
         const connectionHint = _(
-            'Uses the entered endpoint/model and saved key. Sends a small request that may incur a charge.');
+            'Tests the entered address, protocol and model with the saved key. May incur a charge.');
         const connectionRow = new Adw.ActionRow({
             title: _('Translation connection'),
             subtitle: connectionHint,
@@ -347,20 +378,15 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
         };
         endpointRow.connect('notify::text', cancelConnectionCheck);
         modelRow.connect('notify::text', cancelConnectionCheck);
+        protocolRow.connect('notify::selected', cancelConnectionCheck);
         signalIds.push(settings.connect(
             'changed::translation-credential-generation', cancelConnectionCheck));
         connectionButton.connect('clicked', async () => {
             if (connectionCheck || cancellable.is_cancelled())
                 return;
-            const endpoint = normalizeTranslationEndpoint(endpointRow.text);
-            const model = modelRow.text.trim();
-            if (!endpoint) {
-                connectionRow.subtitle = _(
-                    'Use HTTPS, or HTTP only for a local loopback endpoint');
-                return;
-            }
-            if (!model) {
-                connectionRow.subtitle = _('Model cannot be empty');
+            const {endpoint, protocol, model, error} = readBackend();
+            if (error) {
+                connectionRow.subtitle = error;
                 return;
             }
             const request = new Gio.Cancellable();
@@ -379,7 +405,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                     return;
                 }
                 provider = new OpenAITranslationProvider({
-                    endpoint, model, timeoutSeconds: 15,
+                    endpoint, protocol, model, timeoutSeconds: 15,
                 });
                 await provider.checkConnection(credential, request);
                 if (!request.is_cancelled()) {
@@ -399,7 +425,7 @@ export default class LyricGlancePreferences extends ExtensionPreferences {
                     connectionRow.subtitle = !provider
                         ? _('Secret Service unavailable')
                         : messages[error.code] ?? _(
-                            'Connection check failed: the endpoint or model may not support Responses API');
+                            'Connection check failed: verify the API address, protocol and model');
                 }
             } finally {
                 credential = null;

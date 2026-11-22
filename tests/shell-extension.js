@@ -1709,22 +1709,25 @@ export async function run() {
         serviceCreations++;
         return origCreateService();
     };
-    settings.set_string('translation-api-endpoint', 'https://proxy.example/v1/responses');
+    settings.set_string('translation-api-endpoint', 'https://proxy.example/v1');
+    settings.set_string('translation-api-protocol', 'chat-completions');
     settings.set_string('translation-model', 'custom-runtime-model');
     await Scripting.sleep(80);
     assert(serviceCreations === 1 &&
         instance._translationService !== initialTranslationService,
-    `simultaneous endpoint and model changes should coalesce into one service replacement (count=${serviceCreations})`);
+    `simultaneous backend changes should coalesce into one service replacement (count=${serviceCreations})`);
     assert(initialTranslationService._providers.size === 0,
         'replacing the translation service should destroy the old provider');
     assert(instance._translationService._providers.get('openai').model ===
         'custom-runtime-model' &&
         instance._translationService._providers.get('openai')._endpoint ===
-            'https://proxy.example/v1/responses',
-    'the coalesced replacement provider should use both newly configured values');
+            'https://proxy.example/v1/chat/completions' &&
+        instance._translationService._providers.get('openai')._protocol === 'chat-completions',
+    'the replacement provider should use the new model and resolve the base address with the selected protocol');
     instance._createTranslationService = origCreateService;
     settings.set_string(
         'translation-api-endpoint', 'https://api.openai.com/v1/responses');
+    settings.set_string('translation-api-protocol', 'auto');
     settings.set_string(
         'translation-model', 'gpt-5.4-mini-2026-03-17');
     await Scripting.sleep(80);

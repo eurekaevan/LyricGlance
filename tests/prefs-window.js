@@ -134,8 +134,8 @@ application.connect('activate', async app => {
                     .length === 2,
                 'preferences should contain width and global-offset SpinRows');
                 assert(widgets.filter(widget => widget instanceof Adw.ComboRow)
-                    .length === 3,
-                'preferences should expose position, popup, and panel choices');
+                    .length === 4,
+                'preferences should expose position, popup, panel, and API protocol choices');
                 assert(widgets.filter(widget => widget instanceof Adw.EntryRow)
                     .length === 4,
                 'preferences should expose translation and fallback endpoint entries');
@@ -191,14 +191,18 @@ application.connect('activate', async app => {
                 const endpointRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText(
-                        'Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
+                        'API address', 'API 地址', 'API 位址'));
+                const protocolRow = widgets.find(widget => widget instanceof Adw.ComboRow &&
+                    widget.title === uiText('API protocol', 'API 协议', 'API 協定'));
+                const backendRow = widgets.find(widget => widget instanceof Adw.ActionRow &&
+                    widget.title === uiText('Translation backend', '翻译后端', '翻譯後端'));
                 const modelRow = widgets.find(widget =>
                     widget instanceof Adw.EntryRow &&
                     widget.title === uiText('Model', '模型'));
                 const applyButton = widgets.find(widget =>
                     widget instanceof Gtk.Button &&
                     widget.label === uiText('Apply', '应用', '套用'));
-                assert(endpointRow && modelRow && applyButton,
+                assert(endpointRow && modelRow && protocolRow && backendRow && applyButton,
                 'preferences should expose the configurable translation backend');
                 if (screenshotPath)
                     await takeWidgetScreenshot(window, screenshotPath);
@@ -239,11 +243,15 @@ application.connect('activate', async app => {
                 const originalCheck = OpenAITranslationProvider.prototype.checkConnection;
                 let checkedRequest;
                 let checkedModel;
+                let checkedEndpoint;
+                let checkedProtocol;
                 let failureCode = null;
                 TranslationCredentialStore.prototype.lookup = async () => 'test-key';
                 OpenAITranslationProvider.prototype.checkConnection = async function (key, request) {
                     assert(key === 'test-key', 'the check must use the saved credential');
                     checkedModel = this.model;
+                    checkedEndpoint = this._endpoint;
+                    checkedProtocol = this._protocol;
                     checkedRequest = request;
                     await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
                         resolve();
@@ -256,8 +264,11 @@ application.connect('activate', async app => {
                     }
                 };
                 try {
-                    endpointRow.text = 'http://127.0.0.1:28883/responses';
+                    endpointRow.text = 'http://127.0.0.1:28883/proxy/v1/';
+                    protocolRow.selected = 2;
                     modelRow.text = 'unsaved-test-model';
+                    assert(backendRow.subtitle.includes('http://127.0.0.1:28883/proxy/v1/chat/completions'),
+                        'the preview must show the resolved route for the selected protocol');
                     connectionButton.emit('clicked');
                     assert(!connectionButton.sensitive,
                         'connection checks must disable duplicate submission');
@@ -268,11 +279,14 @@ application.connect('activate', async app => {
                         }));
                     }
                     assert(connectionButton.sensitive && checkedModel === 'unsaved-test-model' &&
+                        checkedProtocol === 'chat-completions' &&
+                        checkedEndpoint === 'http://127.0.0.1:28883/proxy/v1/chat/completions' &&
                         connectionRow.subtitle === uiText(
                             'Connection successful: model and structured responses are available',
                             '连接成功：模型和结构化响应可用',
                             '連線成功：模型與結構化回應可用') &&
-                        settings.get_string('translation-model') === 'gpt-5.4-mini-2026-03-17',
+                        settings.get_string('translation-model') === 'gpt-5.4-mini-2026-03-17' &&
+                        settings.get_string('translation-api-protocol') === 'auto',
                     'checks must use entered values, show success and leave saved settings intact');
                     failureCode = 'authentication_error';
                     connectionButton.emit('clicked');
@@ -293,6 +307,12 @@ application.connect('activate', async app => {
                         'editing the model must cancel the active check');
                     connectionButton.emit('clicked');
                     await Promise.resolve();
+                    protocolRow.selected = 1;
+                    assert(checkedRequest.is_cancelled() && connectionButton.sensitive,
+                        'changing protocol must cancel the active check');
+                    protocolRow.selected = 2;
+                    connectionButton.emit('clicked');
+                    await Promise.resolve();
                     modelRow.text = '';
                     applyButton.emit('clicked');
                     assert(window.visible && settings.get_string('translation-model') ===
@@ -311,10 +331,13 @@ application.connect('activate', async app => {
                         widget instanceof Adw.EntryRow && widget.title === uiText('Model', '模型'));
                     const reopenedEndpoint = descendants(reopened).find(widget =>
                         widget instanceof Adw.EntryRow && widget.title === uiText(
-                            'Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
+                            'API address', 'API 地址', 'API 位址'));
+                    const reopenedProtocol = descendants(reopened).find(widget => widget instanceof Adw.ComboRow &&
+                        widget.title === protocolRow.title);
                     assert(reopenedModel.text === 'changed-during-check' &&
-                        reopenedEndpoint.text === 'http://127.0.0.1:28883/responses',
-                    'closing without Apply must persist both valid fields for a reopened window');
+                        reopenedEndpoint.text === 'http://127.0.0.1:28883/proxy/v1/' &&
+                        reopenedProtocol.selected === 2,
+                    'closing without Apply must persist address, model and protocol for a reopened window');
                     reopened.close();
 
                     for (const [endpointDraft, modelDraft] of [
@@ -326,17 +349,18 @@ application.connect('activate', async app => {
                         draftWindow.present();
                         const rows = descendants(draftWindow);
                         const draftEndpoint = rows.find(widget => widget instanceof Adw.EntryRow &&
-                            widget.title === uiText('Responses API endpoint', 'Responses API 端点', 'Responses API 端點'));
+                            widget.title === uiText('API address', 'API 地址', 'API 位址'));
                         const draftModel = rows.find(widget => widget instanceof Adw.EntryRow &&
                             widget.title === uiText('Model', '模型'));
-                        assert(draftEndpoint.text === 'http://127.0.0.1:28883/responses' &&
+                        assert(draftEndpoint.text === 'http://127.0.0.1:28883/proxy/v1/' &&
                             draftModel.text === 'changed-during-check',
                         'reopening must show the last saved backend rather than discarded drafts');
                         draftEndpoint.text = endpointDraft;
                         draftModel.text = modelDraft;
                         draftWindow.close();
                         assert(!draftWindow.visible &&
-                            settings.get_string('translation-api-endpoint') === 'http://127.0.0.1:28883/responses' &&
+                            settings.get_string('translation-api-endpoint') === 'http://127.0.0.1:28883/proxy/v1/' &&
+                            settings.get_string('translation-api-protocol') === 'chat-completions' &&
                             settings.get_string('translation-model') === 'changed-during-check',
                         'invalid drafts must allow closing without partially overwriting the saved backend');
                     }

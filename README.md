@@ -95,15 +95,20 @@ gnome-extensions prefs lyric-glance@eureka
 
 ## 翻译设置
 
-翻译默认关闭。Preferences 可配置完整的 OpenAI-compatible Responses API 端点、模型和
-API 密钥；默认端点是 `https://api.openai.com/v1/responses`。API 密钥只写入 GNOME
-Secret Service/libsecret，不进入 GSettings、JSON cache、请求日志或 Git；端点和模型
-作为普通设置保存并即时生效。为避免明文泄露密钥，远程端点必须使用 HTTPS，本机
+翻译默认关闭。设置支持 OpenAI 兼容的 Responses 和 Chat Completions，可以填写完整端点
+或以 `/v1` 结尾的基础地址，末尾斜杠可省略。默认端点是 `https://api.openai.com/v1/responses`。
+选择协议后，基础地址会补上 `/responses` 或 `/chat/completions`，保留代理路径。
+“根据地址自动选择”识别完整的 `/chat/completions` 端点，其余地址默认使用 Responses。
+设置页显示最终请求地址。完整端点原样使用，已知接口后缀与显式选择的协议冲突时会提示修改。
+
+API 密钥只写入 GNOME Secret Service/libsecret，不进入 GSettings、JSON cache、请求日志或 Git。
+为避免明文泄露密钥，远程端点必须使用 HTTPS，本机
 `localhost`/loopback 调试端点可使用 HTTP。
 
 自定义端点会接收 Bearer API 密钥、歌曲标题/艺术家和待翻译歌词，请只配置可信服务。
-端点必须兼容 Responses API 的 structured output 请求和响应格式；仅兼容 Chat
-Completions 的服务不能直接使用。模型名称不再固定，但该模型仍须由所配置的端点支持。
+模型必须支持所选协议。Chat Completions 优先请求 JSON Schema，服务明确拒绝兼容参数时，
+才改用 JSON 对象模式或旧版 `max_tokens`，最终仍校验译文行 ID 和完整性。
+缓存按最终地址及协议隔离，同一接口的基础地址和完整地址可复用译文。
 
 翻译使用缓存优先的行级文档：每行以稳定 `lineId` 对齐，并校验原歌词 hash。请求失败时
 原歌词仍可用。自动翻译也必须先显式启用翻译功能。
@@ -145,10 +150,10 @@ API 返回的本批结果必须覆盖全部请求行且译文非空，否则报�
 | --- | --- |
 | `response_too_large` | 响应正文超过大小上限，默认 4 MiB |
 | `response_json` | 外层响应不是合法 JSON |
-| `response_not_completed` | 响应声明了非 `completed` 状态，且不属于下述输出上限 |
-| `output_limit` | 状态为 `incomplete`，原因为 `max_output_tokens` |
-| `missing_output` | 缺少有效的 `output` 数组 |
-| `missing_output_text` | 输出中找不到字符串形式的 `output_text` |
+| `response_not_completed` | 响应声明未正常结束，且不属于下述输出上限 |
+| `output_limit` | Responses 因 `max_output_tokens` 未完成，或 Chat Completions 返回 `finish_reason: "length"` |
+| `missing_output` | Responses 缺少有效的 `output` 数组，或 Chat Completions 缺少首条 `choices` 结果 |
+| `missing_output_text` | 找不到协议对应的译文正文 |
 | `translation_json` | 译文正文不是合法 JSON |
 | `line_schema` | 译文行结构或 ID 校验失败 |
 | `missing_lines` | 结果未覆盖本批全部请求行 |
@@ -158,7 +163,8 @@ API 返回的本批结果必须覆盖全部请求行且译文非空，否则报�
 [`incomplete` 状态](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)
 同样不能当作完整译文，不自动追加收费请求来修补格式。
 
-为降低支持该设置的模型的推理开销，请求默认尝试 `reasoning.effort: "none"`。
+为降低支持该设置的模型的推理开销，Responses 默认尝试 `reasoning.effort: "none"`，
+Chat Completions 使用 `reasoning_effort: "none"`。
 仅当有界错误响应明确指出 reasoning 不受支持时，才去掉后重试一次，并在当前客户端实例中记住；
 并发在途请求各自保留一次回退机会，其他 400 不会禁用该参数。歌词按最多 20 行、3000 字符
 尽量均分，保留顺序和邻接上下文；单条超长行保持完整。最多 3 批并发，
@@ -167,16 +173,16 @@ API 返回的本批结果必须覆盖全部请求行且译文非空，否则报�
 401 或明确的无效密钥提示归为认证错误；未知 403 显示为访问被拒绝；安全白名单中明确的
 额度或消费限额错误单独显示，不凭 403 猜测余额状态，也不显示原始错误文本。
 
-端点和模型在点击“应用”或关闭设置窗口时一并保存；“应用”会校验输入并提示错误。
-关窗时只保存合法输入，非法草稿直接丢弃，不阻止关闭，也不覆盖已保存的端点或模型。
+地址、协议和模型在点击“应用”或关闭设置窗口时一并保存。“应用”会校验输入并提示错误。
+关窗时只保存合法输入，非法草稿会丢弃并保留已保存的配置。
 API 密钥仍需在凭据对话框中点击“保存”，不会以明文回显；
 再次打开时留空并保存会保留原密钥，只有“移除”才删除已保存密钥。
 存储区分别显示歌词缓存结果数（包含未找到结果）和成功翻译的缓存数；翻译鉴权失败、
 连接检查成功但尚未翻译歌曲时，翻译缓存为零是正常情况，并不代表歌词缓存没有保存。
 
-设置中可点击“检查连通性”，使用当前输入的端点、模型和已保存密钥，验证一次实际的
-Responses API 结构化响应；检查不会自动应用输入，也不需要开启歌词翻译。
-它只发送固定测试文本 `Hello`，不发送当前歌曲或写入翻译缓存，输出上限为 512 tokens，
+设置中可点击“检查连通性”，使用当前输入的地址、协议、模型和已保存密钥验证实际的
+结构化响应。检查不会自动应用输入，也不需要开启歌词翻译。
+它只发送固定测试文本 `Hello`，不发送当前歌曲或写入翻译缓存，输出上限为 2048 tokens，
 可能产生少量 API 费用。界面区分密钥、限流、网络及响应格式问题；修改输入或关闭窗口会
 取消检查。它证明这次请求可用，不保证后续长歌词请求的额度或服务稳定性。
 

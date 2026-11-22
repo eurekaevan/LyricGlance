@@ -56,7 +56,16 @@
     </key>
     <key name="translation-api-endpoint" type="s">
       <default>'https://api.openai.com/v1/responses'</default>
-      <summary>OpenAI-compatible Responses API endpoint</summary>
+      <summary>OpenAI-compatible API endpoint or v1 base URL</summary>
+    </key>
+    <key name="translation-api-protocol" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="responses"/>
+        <choice value="chat-completions"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Translation API protocol</summary>
     </key>
     <key name="translation-model" type="s">
       <default>'gpt-5.4-mini-2026-03-17'</default>

@@ -10,6 +10,7 @@ import {TranslationService, TranslationStatus} from '../translation-service.js';
 import {
     normalizeTranslationEndpoint,
     OpenAITranslationProvider,
+    resolveTranslationEndpoint,
     TranslationProviderError,
     translationNetworkReason,
 } from '../translation-provider.js';
@@ -75,7 +76,7 @@ let retryAfter = '0';
 let observed = null;
 let cancelDuringRequest = null;
 let httpError = null;
-server.add_handler(null, (_server, message) => {
+server.add_handler(null, (_server, message, path) => {
     requestCount++;
     if (mode === 'slow') {
         server.pause_message(message);
@@ -92,8 +93,33 @@ server.add_handler(null, (_server, message) => {
     observed = {
         authorization: message.get_request_headers().get_one('Authorization'),
         userAgent: message.get_request_headers().get_one('User-Agent'),
+        path,
         body: JSON.parse(body),
     };
+    if (path.endsWith('/chat/completions') || mode === 'custom-chat') {
+        const {messages, response_format: format} = observed.body;
+        let rejectedField = null;
+        if (mode === 'chat-compatibility') {
+            if (format.type === 'json_schema')
+                rejectedField = 'response_format.type';
+            else if (observed.body.max_completion_tokens)
+                rejectedField = 'max_completion_tokens';
+            else if (observed.body.reasoning_effort)
+                rejectedField = 'reasoning_effort';
+        }
+        const output = rejectedField
+            ? {error: {code: 'unsupported_parameter', param: rejectedField}}
+            : {choices: [{
+                finish_reason: mode === 'chat-truncated' ? 'length' : 'stop',
+                message: {content: JSON.stringify({lines: JSON.parse(messages[1].content).lines
+                    .filter((_line, index) => mode !== 'chat-partial' || index === 0)
+                    .map(line => ({id: line.id, text: `[zh-CN] ${line.text}`}))})},
+            }]};
+        message.set_status(rejectedField ? Soup.Status.BAD_REQUEST : Soup.Status.OK, null);
+        message.set_response('application/json', Soup.MemoryUse.COPY,
+            new TextEncoder().encode(JSON.stringify(output)));
+        return;
+    }
     if (mode === 'http-error') {
         message.set_status(httpError.status, null);
         message.set_response('application/json', Soup.MemoryUse.COPY,
@@ -255,6 +281,16 @@ async function run() {
             null &&
         normalizeTranslationEndpoint('not a URL') === null,
     'translation endpoints should be credential-safe HTTP(S) URLs');
+    assert(resolveTranslationEndpoint(`${endpoint}/proxy/v1//`, 'chat-completions').endpoint ===
+        `${endpoint}/proxy/v1/chat/completions` &&
+        resolveTranslationEndpoint(`${endpoint}/v1`).endpoint === `${endpoint}/v1/responses` &&
+        resolveTranslationEndpoint(`${endpoint}/v1/chat/completions`, 'responses') === null &&
+        resolveTranslationEndpoint(`${endpoint}/v1?secret=query`, 'chat-completions') === null &&
+        resolveTranslationEndpoint(`${endpoint}/v1?`, 'chat-completions') === null &&
+        resolveTranslationEndpoint(`${endpoint}/v1#`, 'chat-completions') === null &&
+        resolveTranslationEndpoint(`${endpoint}/custom`, 'chat-completions').endpoint ===
+            `${endpoint}/custom`,
+    'base URLs should preserve proxy prefixes and complete routes should not be rewritten');
 
     let provider = new OpenAITranslationProvider({
         endpoint,
@@ -272,6 +308,62 @@ async function run() {
         !JSON.stringify(observed.body).includes('unit-test-token'),
     'the OpenAI provider should use authenticated strict structured output without putting the credential in JSON');
     provider.destroy();
+
+    provider = new OpenAITranslationProvider({endpoint: `${endpoint}/proxy/v1/`});
+    await provider.checkConnection('connection-test-token', null);
+    assert(observed.path === '/proxy/v1/responses' && observed.body.text.format.type === 'json_schema',
+        'automatic base URLs must use the same Responses route and body in connection checks');
+    const directResponses = new OpenAITranslationProvider({endpoint: `${endpoint}/proxy/v1/responses`});
+    assert(provider.configurationId === directResponses.configurationId,
+        'base and full addresses for the same backend should share a cache identity');
+    provider.destroy();
+    directResponses.destroy();
+
+    provider = new OpenAITranslationProvider({
+        endpoint: `${endpoint}/proxy/v1`, protocol: 'chat-completions',
+    });
+    result = await translate(provider);
+    assert(result.length === 2 && result[0].text === '[zh-CN] Hello' &&
+        observed.path === '/proxy/v1/chat/completions' &&
+        observed.authorization === 'Bearer unit-test-token' &&
+        observed.body.messages[0].role === 'system' &&
+        observed.body.response_format.json_schema.strict &&
+        observed.body.reasoning_effort === 'none' &&
+        observed.body.max_completion_tokens === 12_000 &&
+        !Object.hasOwn(observed.body, 'input'),
+    'Chat Completions must send chat-specific fields to the resolved route and parse choices');
+    const chatIdentity = provider.configurationId;
+    const autoChat = new OpenAITranslationProvider({endpoint: `${endpoint}/proxy/v1/chat/completions`});
+    await autoChat.checkConnection('connection-test-token', null);
+    assert(autoChat.configurationId === chatIdentity &&
+        observed.body.max_completion_tokens === 2048 &&
+        JSON.parse(observed.body.messages[1].content).lines[0].text === 'Hello',
+    'legacy full chat URLs should select Chat Completions and share the resolved cache identity');
+    autoChat.destroy();
+
+    mode = 'chat-compatibility';
+    const beforeChatFallback = requestCount;
+    await translate(provider);
+    assert(requestCount === beforeChatFallback + 4 &&
+        observed.body.response_format.type === 'json_object' &&
+        observed.body.max_tokens === 12_000 && !Object.hasOwn(observed.body, 'reasoning_effort'),
+    'compatibility fallbacks must respond to explicit field rejections and remain bounded');
+    await translate(provider);
+    assert(requestCount === beforeChatFallback + 5, 'learned chat options should be reused');
+    for (const failure of ['chat-truncated', 'chat-partial']) {
+        mode = failure;
+        await expectCode(() => translate(provider), 'invalid_response',
+            'chat output must be complete in both protocol status and lyric lines');
+    }
+    provider.destroy();
+    mode = 'custom-chat';
+    provider = new OpenAITranslationProvider({endpoint: `${endpoint}/custom`, protocol: 'chat-completions'});
+    const sameAddressResponses = new OpenAITranslationProvider({endpoint: `${endpoint}/custom`});
+    await translate(provider);
+    assert(observed.path === '/custom' && provider.configurationId !== sameAddressResponses.configurationId,
+        'custom full routes can select either protocol with separate caches');
+    provider.destroy();
+    sameAddressResponses.destroy();
 
     mode = 'alias-success';
     provider = new OpenAITranslationProvider({endpoint});

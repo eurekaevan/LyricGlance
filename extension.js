@@ -258,6 +258,9 @@ export default class LyricGlanceExtension extends Extension {
         connect('translation-api-endpoint', () => {
             this._scheduleReplaceTranslationService();
         });
+        connect('translation-api-protocol', () => {
+            this._scheduleReplaceTranslationService();
+        });
         connect('translation-model', () => {
             this._scheduleReplaceTranslationService();
         });
@@ -506,6 +509,7 @@ export default class LyricGlanceExtension extends Extension {
             providerOptions: {
                 endpoint: this._settings.get_string(
                     'translation-api-endpoint'),
+                protocol: this._settings.get_string('translation-api-protocol'),
                 model: this._settings.get_string('translation-model'),
             },
         });
@@ -519,9 +523,9 @@ export default class LyricGlanceExtension extends Extension {
     }
 
     _scheduleReplaceTranslationService() {
-        // Coalesce rapid endpoint + model updates (including cross-process
+        // Coalesce rapid backend updates (including cross-process
         // dconf notifications from Preferences) so we never send a request
-        // with the new endpoint and old model.
+        // with a partially updated configuration.
         this._cancelTranslation();
         this._cancelReplaceTranslationIdle();
         this._replaceTranslationIdleId = GLib.timeout_add(

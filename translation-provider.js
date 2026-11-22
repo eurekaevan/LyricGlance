@@ -51,7 +51,7 @@ export function normalizeTranslationEndpoint(endpoint) {
         const scheme = uri.get_scheme()?.toLowerCase();
         const host = uri.get_host()?.toLowerCase();
         if (!['http', 'https'].includes(scheme) || !uri.get_host() ||
-            uri.get_userinfo() || uri.get_query() || uri.get_fragment())
+            uri.get_userinfo() !== null || uri.get_query() !== null || uri.get_fragment() !== null)
             return null;
         if (scheme === 'http' && !['localhost', '127.0.0.1', '::1']
             .includes(host))
@@ -63,10 +63,33 @@ export function normalizeTranslationEndpoint(endpoint) {
     return value;
 }
 
-function providerConfigurationId(endpoint) {
+export function resolveTranslationEndpoint(endpoint, protocol = 'auto') {
+    const value = normalizeTranslationEndpoint(endpoint);
+    if (!value)
+        return null;
+
+    const path = GLib.Uri.parse(value, GLib.UriFlags.NONE).get_path().replace(/\/+$/, '');
+    const endpointProtocol = path.endsWith('/chat/completions') ? 'chat-completions'
+        : path.endsWith('/responses') ? 'responses' : null;
+    const selected = protocol === 'auto' ? endpointProtocol ?? 'responses' : protocol;
+    if (!['responses', 'chat-completions'].includes(selected) ||
+        (endpointProtocol && selected !== endpointProtocol))
+        return null;
+
+    const suffix = selected === 'chat-completions' ? '/chat/completions' : '/responses';
+    return {
+        protocol: selected,
+        endpoint: path.endsWith('/v1') ? value.replace(/\/+$/, '') + suffix : value,
+    };
+}
+
+function providerConfigurationId(endpoint, protocol) {
+    // The original identity already represents Responses. Keep its cache usable.
+    const parts = [endpoint ?? 'invalid', TRANSLATION_PROMPT_VERSION];
+    if (protocol === 'chat-completions')
+        parts.push(protocol);
     return GLib.compute_checksum_for_string(
-        GLib.ChecksumType.SHA256,
-        JSON.stringify([endpoint ?? 'invalid', TRANSLATION_PROMPT_VERSION]), -1);
+        GLib.ChecksumType.SHA256, JSON.stringify(parts), -1);
 }
 
 async function readResponse(session, message, limit, cancellable) {
@@ -155,7 +178,27 @@ function stripMarkdownFence(text) {
     return match ? match[1].trim() : trimmed;
 }
 
-function outputText(response) {
+function outputText(response, protocol) {
+    if (protocol === 'chat-completions') {
+        const choice = response?.choices?.[0];
+        if (!choice)
+            throw invalidResponse('missing_output');
+        if (choice.message?.refusal)
+            throw new TranslationProviderError(
+                'provider_error', 'Provider refused the translation');
+        if (choice.finish_reason && choice.finish_reason !== 'stop')
+            throw invalidResponse(choice.finish_reason === 'length'
+                ? 'output_limit' : 'response_not_completed');
+        if (typeof choice.message?.content !== 'string' || !choice.message.content.trim())
+            throw invalidResponse('missing_output_text');
+        return choice.message.content;
+    }
+
+    if (response?.status && response.status !== 'completed') {
+        throw invalidResponse(response.status === 'incomplete' &&
+            response.incomplete_details?.reason === 'max_output_tokens'
+            ? 'output_limit' : 'response_not_completed');
+    }
     if (!response || !Array.isArray(response.output))
         throw invalidResponse('missing_output');
 
@@ -199,7 +242,7 @@ function responseSchema(ids) {
     };
 }
 
-function requestBody(document, options, model, reasoningEffort) {
+function requestBody(document, options, model, reasoningEffort, chatOptions) {
     const input = {
         title: document.metadata?.title ?? '',
         artist: document.metadata?.artist ?? '',
@@ -210,32 +253,46 @@ function requestBody(document, options, model, reasoningEffort) {
         contextAfter: options.chunk.contextAfter.map(line => line.text),
     };
     const ids = options.chunk.lines.map(line => line.id);
+    const instructions = [
+        'Translate song lyrics into the requested target language.',
+        'Lyrics may mix languages: translate every line, including words or lines in languages other than sourceLanguage, into the target language.',
+        'sourceLanguage is only a hint, not a filter. Detect the language of each line and phrase.',
+        'Translate meaningful foreign-language phrases, including English refrains inside mixed-language lines; do not preserve them merely because they use Latin letters.',
+        'Text already in the target language and proper names may remain unchanged.',
+        'Use the full supplied context to preserve meaning and repeated lines.',
+        'Write concise, natural lyrics. Do not censor, embellish, or explain.',
+        'Never alter IDs. Return exactly one translation for every requested line ID as structured JSON, without omitting lines in other languages.',
+        'The JSON must be an object with a top-level "lines" array; each item has exactly "id" and "text" string fields.',
+        'Example shape: {"lines":[{"id":"<exact requested ID>","text":"<translated text>"}]}. Do not use another top-level field or Markdown fences.',
+        'Do not add timestamps. Preserve non-lyric semantics when present.',
+    ].join(' ');
+    const schema = {name: 'lyrics_translation', strict: true, schema: responseSchema(ids)};
+    const maxTokens = options.maxOutputTokens ?? 12_000;
+    if (chatOptions) {
+        const {jsonSchema, tokenField} = chatOptions;
+        const body = {
+            model,
+            messages: [
+                {role: 'system', content: instructions},
+                {role: 'user', content: JSON.stringify(input)},
+            ],
+            response_format: jsonSchema
+                ? {type: 'json_schema', json_schema: schema}
+                : {type: 'json_object'},
+            [tokenField]: maxTokens,
+        };
+        if (reasoningEffort)
+            body.reasoning_effort = reasoningEffort;
+        return body;
+    }
+
     const body = {
         model,
         store: false,
-        instructions: [
-            'Translate song lyrics into the requested target language.',
-            'Lyrics may mix languages: translate every line, including words or lines in languages other than sourceLanguage, into the target language.',
-            'sourceLanguage is only a hint, not a filter. Detect the language of each line and phrase.',
-            'Translate meaningful foreign-language phrases, including English refrains inside mixed-language lines; do not preserve them merely because they use Latin letters.',
-            'Text already in the target language and proper names may remain unchanged.',
-            'Use the full supplied context to preserve meaning and repeated lines.',
-            'Write concise, natural lyrics. Do not censor, embellish, or explain.',
-            'Never alter IDs. Return exactly one translation for every requested line ID as structured JSON, without omitting lines in other languages.',
-            'The JSON must be an object with a top-level "lines" array; each item has exactly "id" and "text" string fields.',
-            'Example shape: {"lines":[{"id":"<exact requested ID>","text":"<translated text>"}]}. Do not use another top-level field or Markdown fences.',
-            'Do not add timestamps. Preserve non-lyric semantics when present.',
-        ].join(' '),
+        instructions,
         input: JSON.stringify(input),
-        text: {
-            format: {
-                type: 'json_schema',
-                name: 'lyrics_translation',
-                strict: true,
-                schema: responseSchema(ids),
-            },
-        },
-        max_output_tokens: options.maxOutputTokens ?? 12_000,
+        text: {format: {type: 'json_schema', ...schema}},
+        max_output_tokens: maxTokens,
     };
     // Reasoning models (e.g. Qwen3.8 defaults to xhigh) otherwise spend most
     // of the request thinking, which translation does not need.
@@ -247,6 +304,7 @@ function requestBody(document, options, model, reasoningEffort) {
 export class OpenAITranslationProvider {
     constructor({
         endpoint = OPENAI_RESPONSES_URL,
+        protocol = 'auto',
         model = OPENAI_MODEL,
         timeoutSeconds = 120,
         maxResponseBytes = MAX_RESPONSE_BYTES,
@@ -255,8 +313,12 @@ export class OpenAITranslationProvider {
         this.id = OPENAI_PROVIDER_ID;
         this.model = typeof model === 'string' ? model.trim() : '';
         this.requiresCredential = true;
-        this._endpoint = normalizeTranslationEndpoint(endpoint);
-        this.configurationId = providerConfigurationId(this._endpoint);
+        const resolved = resolveTranslationEndpoint(endpoint, protocol);
+        this._endpoint = resolved?.endpoint ?? null;
+        this._protocol = resolved?.protocol;
+        this.configurationId = providerConfigurationId(this._endpoint, this._protocol);
+        this._chatOptions = this._protocol === 'chat-completions'
+            ? {jsonSchema: true, tokenField: 'max_completion_tokens'} : null;
         this._reasoningEffort = reasoningEffort;
         this._cooldownUntilUs = 0;
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
@@ -318,8 +380,9 @@ export class OpenAITranslationProvider {
         message.get_request_headers().append(
             'Authorization', `Bearer ${options.credential}`);
         const reasoningEffort = this._reasoningEffort;
+        const chatOptions = this._chatOptions ? {...this._chatOptions} : null;
         const encoded = new TextEncoder().encode(JSON.stringify(
-            requestBody(document, options, this.model, reasoningEffort)));
+            requestBody(document, options, this.model, reasoningEffort, chatOptions)));
         message.set_request_body_from_bytes(
             'application/json', GLib.Bytes.new(encoded));
 
@@ -405,19 +468,33 @@ export class OpenAITranslationProvider {
             throw new TranslationProviderError(
                 'permission_denied', 'Translation access was denied');
         }
-        const reasoningParam = ['reasoning', 'reasoning.effort'].includes(apiError?.param);
-        const unsupportedReasoning = (reasoningParam &&
-            ['unsupported_parameter', 'unsupported_value', 'unknown_parameter',
-                'invalid_value'].includes(apiError?.code)) ||
-            (typeof apiError?.message === 'string' &&
-                (reasoningParam || /\breasoning(?:[._ ]effort)?\b/i.test(apiError.message)) &&
-                /unsupported|not supported|unknown parameter|unrecognized|invalid value|must be one of|does not support/i
-                    .test(apiError.message));
-        if ((status === 400 || status === 422) && reasoningEffort && unsupportedReasoning) {
-            // Each in-flight request owns its retry, even if a sibling already
-            // disabled reasoning for subsequent requests on this provider.
-            this._reasoningEffort = null;
-            return this._request(document, options, cancellable, attempt);
+        if (status === 400 || status === 422) {
+            const unsupported = (fields, pattern) => {
+                const matched = fields.includes(apiError?.param);
+                return (matched && ['unsupported_parameter', 'unsupported_value', 'unknown_parameter',
+                    'invalid_value'].includes(apiError?.code)) ||
+                    (typeof apiError?.message === 'string' && (matched || pattern.test(apiError.message)) &&
+                        /unsupported|not supported|unknown parameter|unrecognized|invalid value|must be one of|does not support/i
+                            .test(apiError.message));
+            };
+            // Use the options sent by this request, since a sibling may have
+            // already learned which fields the backend rejects.
+            if (reasoningEffort && unsupported(
+                ['reasoning', 'reasoning.effort', 'reasoning_effort'], /\breasoning(?:[._ ]effort)?\b/i)) {
+                this._reasoningEffort = null;
+                return this._request(document, options, cancellable, attempt);
+            }
+            if (chatOptions?.jsonSchema && unsupported(
+                ['response_format', 'response_format.type', 'response_format.json_schema'],
+                /\b(?:json_schema|response_format)\b/i)) {
+                this._chatOptions.jsonSchema = false;
+                return this._request(document, options, cancellable, attempt);
+            }
+            if (chatOptions?.tokenField === 'max_completion_tokens' &&
+                unsupported(['max_completion_tokens'], /\bmax_completion_tokens\b/i)) {
+                this._chatOptions.tokenField = 'max_tokens';
+                return this._request(document, options, cancellable, attempt);
+            }
         }
         if (status < 200 || status >= 300) {
             throw new TranslationProviderError(
@@ -430,12 +507,7 @@ export class OpenAITranslationProvider {
         } catch {
             throw invalidResponse('response_json');
         }
-        if (response?.status && response.status !== 'completed') {
-            throw invalidResponse(response.status === 'incomplete' &&
-                response.incomplete_details?.reason === 'max_output_tokens'
-                ? 'output_limit' : 'response_not_completed');
-        }
-        const text = outputText(response);
+        const text = outputText(response, this._protocol);
         let translated;
         try {
             translated = JSON.parse(stripMarkdownFence(text));
