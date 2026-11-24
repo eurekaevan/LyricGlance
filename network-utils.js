@@ -2,7 +2,7 @@ import './io-promisify.js';
 
 import GLib from 'gi://GLib';
 
-export const VERSION = '0.9.0';
+export const VERSION = '2026-11-22';
 export const USER_AGENT = `LyricGlance/${VERSION} (lyric-glance@eureka)`;
 const READ_CHUNK_BYTES = 64 * 1024;
 

@@ -106,10 +106,30 @@ assert(metadata.url === 'https://github.com/eurekaevan/LyricGlance' &&
     !Object.hasOwn(metadata, 'version'),
 'preferences should load release metadata without deprecated version');
 const directory = Gio.File.new_for_path(extensionPath);
-const effectiveLocale = GLib.getenv('LC_ALL') ??
-    GLib.getenv('LANGUAGE') ?? GLib.getenv('LANG') ?? '';
-const simplifiedChinese = effectiveLocale.startsWith('zh_CN');
-const traditionalChinese = effectiveLocale.startsWith('zh_TW');
+function resolveCatalogLocale() {
+    const baseLocale = GLib.getenv('LC_ALL') ||
+        GLib.getenv('LC_MESSAGES') || GLib.getenv('LANG') || '';
+    if (!baseLocale || baseLocale === 'C' || baseLocale === 'POSIX' ||
+        baseLocale.startsWith('C.') || baseLocale.startsWith('POSIX.'))
+        return '';
+    const language = GLib.getenv('LANGUAGE');
+    const candidates = language ? language.split(':') : [baseLocale];
+    for (const candidate of candidates) {
+        if (!candidate)
+            continue;
+        if (candidate === 'C' || candidate === 'POSIX' ||
+            candidate.startsWith('C.'))
+            return '';
+        if (/^zh_CN([.@]|$)/.test(candidate))
+            return 'zh_CN';
+        if (/^zh_TW([.@]|$)/.test(candidate))
+            return 'zh_TW';
+    }
+    return '';
+}
+const effectiveLocale = resolveCatalogLocale();
+const simplifiedChinese = effectiveLocale === 'zh_CN';
+const traditionalChinese = effectiveLocale === 'zh_TW';
 const uiText = (english, chinese, traditional = chinese) =>
     traditionalChinese ? traditional : simplifiedChinese ? chinese : english;
 
@@ -385,10 +405,19 @@ application.connect('activate', async app => {
                         settings.get_string('translation-api-protocol') === 'chat-completions',
                     'clicking Save in the provider editor must persist changes immediately');
 
-                    settings.set_string('translation-model', 'external-synced-model');
+                    const externalProviders = JSON.parse(settings.get_string('translation-providers'));
+                    externalProviders[0].models = [...externalProviders[0].models, 'external-synced-model'];
+                    externalProviders[0].model = 'external-synced-model';
+                    settings.set_string('translation-providers', JSON.stringify(externalProviders));
                     assert(activeModelRow.model.get_string(activeModelRow.selected) === 'external-synced-model',
-                        'external GSettings model changes should sync into the Preferences UI');
-                    settings.set_string('translation-model', 'gpt-5.4-mini-2026-03-17');
+                        'external translation-providers JSON changes should sync into the Preferences UI');
+                    settings.set_string('translation-model', 'stale-legacy-ignored');
+                    assert(activeModelRow.model.get_string(activeModelRow.selected) === 'external-synced-model',
+                        'stale legacy scalar keys must not override a populated translation-providers catalog');
+                    externalProviders[0].models = externalProviders[0].models.filter(
+                        model => model !== 'external-synced-model');
+                    externalProviders[0].model = 'gpt-5.4-mini-2026-03-17';
+                    settings.set_string('translation-providers', JSON.stringify(externalProviders));
 
                     endpointRow.text = 'https://api.openai.com/v1/responses';
                     protocolRow.selected = 0;

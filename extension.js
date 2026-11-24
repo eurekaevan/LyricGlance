@@ -10,6 +10,7 @@ import {LyricsSynchronizer} from './lyrics-synchronizer.js';
 import {MprisManager} from './mpris.js';
 import {OffsetStore, trackKey} from './storage.js';
 import {sourceLyricsHash} from './translation-document.js';
+import {loadActiveTranslationProvider} from './translation-provider.js';
 import {
     TranslationService,
     TranslationStatus,
@@ -82,6 +83,7 @@ export default class LyricGlanceExtension extends Extension {
         this._wordTimerId = 0;
         this._progressTimerId = 0;
         this._replaceTranslationIdleId = 0;
+        this._translationConfigKey = null;
         this._state = null;
         this._currentTrackKey = null;
         this._currentTrackIdentity = null;
@@ -178,6 +180,7 @@ export default class LyricGlanceExtension extends Extension {
 
         this._translationService?.destroy();
         this._translationService = null;
+        this._translationConfigKey = null;
 
         this._offsetStore?.destroy();
         this._offsetStore = null;
@@ -251,6 +254,9 @@ export default class LyricGlanceExtension extends Extension {
         });
         connect('translation-target-language', () => {
             this._restartTranslation();
+        });
+        connect('translation-providers', () => {
+            this._scheduleReplaceTranslationService();
         });
         connect('translation-provider', () => {
             this._scheduleReplaceTranslationService();
@@ -517,20 +523,28 @@ export default class LyricGlanceExtension extends Extension {
         this._updateIndicatorAndSchedule(true);
     }
 
+    _activeTranslationProviderConfig() {
+        return loadActiveTranslationProvider(this._settings);
+    }
+
+    _translationConfigSignature(config) {
+        return JSON.stringify([
+            config.id,
+            config.endpoint,
+            config.protocol,
+            config.model,
+        ]);
+    }
+
     _activeTranslationProviderId() {
-        return this._settings.get_string('translation-provider').trim() || 'openai';
+        return this._activeTranslationProviderConfig().id;
     }
 
     _createTranslationService() {
-        return new TranslationService({
-            providerOptions: {
-                id: this._activeTranslationProviderId(),
-                endpoint: this._settings.get_string(
-                    'translation-api-endpoint'),
-                protocol: this._settings.get_string('translation-api-protocol'),
-                model: this._settings.get_string('translation-model'),
-            },
-        });
+        const providerOptions = this._activeTranslationProviderConfig();
+        this._translationConfigKey =
+            this._translationConfigSignature(providerOptions);
+        return new TranslationService({providerOptions});
     }
 
     _cancelReplaceTranslationIdle() {
@@ -541,6 +555,13 @@ export default class LyricGlanceExtension extends Extension {
     }
 
     _scheduleReplaceTranslationService() {
+        if (!this._settings)
+            return;
+        const nextKey = this._translationConfigSignature(
+            this._activeTranslationProviderConfig());
+        if (!this._replaceTranslationIdleId &&
+            nextKey === this._translationConfigKey)
+            return;
         // Coalesce rapid backend updates (including cross-process
         // dconf notifications from Preferences) so we never send a request
         // with a partially updated configuration.

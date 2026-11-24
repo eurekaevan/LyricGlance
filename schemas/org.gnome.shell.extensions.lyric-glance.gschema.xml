@@ -58,6 +58,8 @@
       <default>''</default>
       <summary>JSON-encoded list of configured translation model providers</summary>
     </key>
+    <!-- Legacy single-provider keys retained for migration/corruption fallback
+         when translation-providers is empty or malformed; mirrored on save. -->
     <key name="translation-api-endpoint" type="s">
       <default>'https://api.openai.com/v1/responses'</default>
       <summary>OpenAI-compatible API endpoint or v1 base URL</summary>

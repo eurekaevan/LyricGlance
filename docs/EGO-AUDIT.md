@@ -1,6 +1,6 @@
-# LyricGlance EGO Review Audit for 0.9.0
+# LyricGlance EGO Review Audit — 2026-11-22
 
-Initial audit: 2026-08-23. Latest full source/package recheck: 2026-11-07. Latest targeted follow-ups: 2026-11-19.
+Initial audit: 2026-08-23 (0.9.0). Latest full source/package recheck: 2026-11-07. Latest targeted follow-ups: 2026-11-19. Release version and workflow alignment: 2026-11-22.
 
 Sources checked:
 
@@ -11,7 +11,7 @@ Sources checked:
 - [GNOME Shell 50 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-50.html)
 - [GNOME Shell 51 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)
 
-This document retains dated source and package audits. “PASS” refers to the recorded checkout and date, not automatic verification of later changes. Current automated results and remaining live desktop gates are tracked in [EGO-CHECKLIST.md](EGO-CHECKLIST.md); runtime behavior and test entry points are documented in the [README](../README.md).
+This document retains dated source and package audits. “PASS” refers to the recorded checkout and date, not automatic verification of later changes. Current automated results and remaining live desktop gates are tracked in [EGO-CHECKLIST.md](EGO-CHECKLIST.md); user-facing documentation lives in the [README](../README.md), and architecture, diagnostics, and test entry points are documented in [development.md](development.md).
 
 Documentation/source alignment rechecked on 2026-11-19: invalid Preferences drafts allow closing without replacing saved backend values; the current ZIP has 35 files and installation adds one compiled schema (36 total). Older file counts and successful shexli results below remain evidence for their dated archive only. LrcAPI timestamp-only rejection and title allocation guards are covered by the targeted fixes below. The README diagnostic table now includes every fixed invalid-response reason emitted by the provider, including response-size and non-completed-status failures.
 

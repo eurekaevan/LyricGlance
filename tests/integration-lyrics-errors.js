@@ -38,6 +38,7 @@ const invalidProvider = new LyricsProvider({
     persistentCache: false,
 });
 let invalidCallbacks = 0;
+const debounceStartUs = GLib.get_monotonic_time();
 waitForCallback(loop => {
     invalidProvider.fetch(track, (lines, status) => {
         invalidCallbacks++;
@@ -46,9 +47,12 @@ waitForCallback(loop => {
         loop.quit();
     });
 });
+const debounceElapsedUs = GLib.get_monotonic_time() - debounceStartUs;
 invalidProvider.destroy();
 assert(invalidCallbacks === 1,
     'an invalid URI should complete exactly once');
+assert(debounceElapsedUs >= 550_000,
+    'default LyricsProvider timers must enforce the real-time track debounce window');
 
 const failedProvider = new LyricsProvider({
     apiUrl: 'http://127.0.0.1:9/api/get',

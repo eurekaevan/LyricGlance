@@ -2,6 +2,7 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {normalizeLyricsPayload} from '../lyrics-normalizer.js';
+import {USER_AGENT} from '../network-utils.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -14,7 +15,7 @@ function assert(condition, message) {
 const session = new Soup.Session({
     timeout: 15,
     'idle-timeout': 15,
-    'user-agent': 'LyricGlance/0.9.0 (lyric-glance@eureka)',
+    'user-agent': USER_AGENT,
 });
 function fetchRecord(id) {
     const message = Soup.Message.new(

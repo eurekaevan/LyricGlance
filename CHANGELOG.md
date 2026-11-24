@@ -2,14 +2,17 @@
 
 ## Unreleased
 
+## [2026-11-22]
+
 ### Added
 
+- Multi-provider translation configuration supporting multiple custom OpenAI-compatible services (Responses and Chat Completions), switching active providers and enabled models, fetching model lists via `GET .../models` with search/selection, and per-provider API keys in GNOME Secret Service with cleanup on deletion or canceled creation.
+- Artwork cache count display and Clear Artwork Cache action in Preferences, plus a manual "Translate anyway" popup override when offline same-language detection skips translation.
 - Lyrics translation supports both Responses and Chat Completions, with protocol selection, a resolved request address preview, and `/v1` base URLs. Connection checks use the same protocol and address as translation.
-
-- GNOME Shell 51 support alongside 50, with packaged Shell regressions in the Fedora 44/45 CI matrix and the Fedora 45 release workflow. `make shell-check` runs the same isolated runtime check locally.
+- GNOME Shell 51 support alongside 50, with packaged Shell regressions shared across the Fedora 44/45 CI matrix and the release workflow. `make shell-check` runs the same isolated runtime check locally.
 - Offline language detection for unmarked lyrics skips translation only when sufficiently long, consistent samples confidently match the target language. Explicit source language takes precedence; uncertain and mixed-language text still reaches the configured translator.
 - Translation transport failures now distinguish timeout, DNS, TLS, proxy and connection errors, with localized UI and safe batch/size/timing diagnostics that omit credentials and request contents.
-- Translation settings can check the entered endpoint/model with the saved key using a small synthetic Responses API request, with localized outcomes and cancellation on edits or window close.
+- Translation settings can check the entered endpoint, protocol, and model with the saved key using a small synthetic request (2048-token output cap), with localized outcomes and cancellation on edits or window close.
 - Traditional Chinese (`zh_TW`) interface translations for the Shell popup and Preferences.
 - Overflowing panel titles loop for tracks without lyrics and provider-marked instrumental tracks. Instrumental explanations remain in the popup; pause, hover and reduced motion are respected.
 - MPRIS playback, pause, previous/next and seek controls in the popup, with capability checks and cancellation when the active track or player changes.
@@ -19,6 +22,8 @@
 
 ### Changed
 
+- Unified the release version to `2026-11-22` across `network-utils.js` (`VERSION`/`USER_AGENT`), `CHANGELOG.md`, gettext catalog headers, and EGO release documentation. Release automation now validates the `YYYY-MM-DD` tag, updated `VERSION`, gettext `Project-Id-Version` headers, and matching `CHANGELOG.md` section/link before running the Fedora 44/45 (Shell 50/51) test matrix.
+- Hardened remote artwork loading to HTTPS (plus loopback HTTP only), at most three safe redirects without HTTPS downgrade or private/loopback redirection, and raster image MIME validation. `max-panel-width` (default 500 px, range 150–1000 px) now controls both preferred and maximum panel width instead of a fixed 320 px preferred width; `make shexli-check` fails on any reported `EGO-*` finding; lyrics cache eviction trims with hysteresis; and GSettings adds explicit choices for `translation-display-mode` and `panel-lyrics-language`.
 - Reused existing JSON file helpers across both caches and removed null-only timestamp wrappers, redundant guards/validation and a forwarding method. Refreshed gettext source references, removed obsolete catalog entries without changing active translations, and clarified current versus historical verification records.
 - Removed unused UI lookup/multiline paths, one-use forwarding methods and unconsumed translation options/error fields. Module-only helpers and defaults no longer expose unused exports; runtime behavior and cache formats are unchanged.
 - Removed unused internal LRC lookup helpers/re-exports, artwork state, provider labels, build variables and an unreferenced fixture. Parser tests now exercise the document/synchronizer path used at runtime; maintenance docs distinguish deterministic checks from live tests.
@@ -29,6 +34,10 @@
 
 ### Fixed
 
+- Bounded `Retry-After` cooldown delays to 1 second through 5 minutes and lowered the offline same-language detection threshold for pure-Han lyrics to 60 Han characters.
+- LRCLIB lookups now upgrade plain-only `/api/get` responses via `/api/search` when synchronized lyrics exist, fall back on empty 200 `/api/get` stubs, preserve higher-scoring exact instrumental matches over lower-scoring synced candidates, and prevent short-token artist substring false matches.
+- MPRIS playback tracking now preserves positive playback rates when players pause with `Rate=0`, avoids resetting the clock on display-only album metadata updates, stops rescheduling boundary timers at or beyond track duration, restores authoritative progress on cancelled slider drags, hides the previous track's lyrics source label while loading, and avoids fabricating a pan timeline when track duration is 0 with a positive offset.
+- Translation and Preferences reliability: retry transient HTTP 503 gateway errors once, strip Markdown code fences around valid JSON before strict validation, keep displayed translations when a forced refresh fails while bypassing stale cache on retry, coalesce simultaneous endpoint/model updates into a single service replacement, validate BCP 47 target language on Apply, keep Preferences rows synchronized with external GSettings changes, disable Pango markup parsing on dynamic ActionRows, reject malformed credentials (control characters, whitespace, or non-ASCII), and safely reject oversized or deeply nested LRC, plain-text, and Lyricsfile payloads.
 - Translation request coalescing now subscribes every caller and immediately replays the latest status. Forced refresh replaces equivalent ordinary work instead of returning a pending cache hit; repeated refreshes still share work, canceled jobs cannot be reused, and superseded results cannot refill memory with the old entry. Existing network-permission and UI generation guards remain intact.
 - Popup title allocation checks now use actual allocation boxes. Full cancellation resets pan widths and repeat offsets, and panel/title loops wait for visible labels and copies to be fully allocated before transitioning, including same-width repeated lyrics and animation/reduced-motion restoration. The panel title's left fade follows actual displacement, leaving its first glyph clear during the initial hold or a pause at zero.
 - Background timeline refreshes and layout restarts preserve the hovered panel's reading position, including ending holds, word follow, reduced-motion pages and title loops. Resizing clamps the held offset to the new range; leaving hover catches up using the latest timeline after pending layout settles. New content and removal of overflow still reset the pan.
@@ -87,4 +96,5 @@ Packaged Shell regressions cover these scrolling changes; fresh-session desktop 
 - Preferences cancels outstanding Secret Service and cache operations and disconnects its settings signals when closed.
 - Translation rate-limit waits now remove their timeout and cancellation signal on every completion path.
 
+[2026-11-22]: https://github.com/eurekaevan/LyricGlance/releases/tag/2026-11-22
 [0.9.0]: https://github.com/eurekaevan/LyricGlance/releases/tag/v0.9.0

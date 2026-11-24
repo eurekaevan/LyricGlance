@@ -1,11 +1,7 @@
 import Clutter from 'gi://Clutter';
-import Atk from 'gi://Atk';
-import Cogl from 'gi://Cogl';
 import GLib from 'gi://GLib';
-import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
-import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -15,31 +11,29 @@ import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {ArtworkView} from './artwork-view.js';
+import {
+    MAX_LAYOUT_WAIT_RETRIES,
+    PanelLabelLayout,
+    PanelLabelView,
+    TITLE_LOOP_GAP,
+    createTitleCopy,
+    loopTitle,
+    measureLabelText,
+} from './panel-label-view.js';
 import {animationsEnabled, musicIcon} from './shell-ui-utils.js';
 import {
     comfortableScrollTarget,
     formatDuration,
     getLineVisualLevel,
-    normalizePanelTimeline,
-    panelPanState,
-    panelTimelinesEqual,
-    wordPanState,
     translationNetworkErrorText,
 } from './ui-utils.js';
 
 const OFFSET_STEP_MS = 500;
 const MIN_OFFSET_MS = -10_000;
 const MAX_OFFSET_MS = 10_000;
-const PANEL_TEXT_OPACITY = 150;
-const PANEL_TEXT_FADE_MS = 140;
-const PANEL_PAN_END_PADDING = 8;
-const PANEL_PAN_CATCH_UP_MS = 200;
-const PANEL_EDGE_FADE_WIDTH = 8;
-const TITLE_LOOP_GAP = 32;
-const TITLE_LOOP_SPEED = 35;
 const LYRIC_TRANSITION_MS = 160;
 const SCROLL_TRANSITION_MS = 220;
-const MAX_LAYOUT_WAIT_RETRIES = 12;
+
 function sameControlTarget(a, b) {
     return a === b || Boolean(a && b && a.busName === b.busName &&
         a.generation === b.generation && a.trackKey === b.trackKey);
@@ -61,56 +55,6 @@ function createMetadataLabel(styleClass) {
     return label;
 }
 
-function measureLabelText(label) {
-    // Preferred actor sizes can be fixed/minimum CSS widths. Measure a copy
-    // of the shaped text without wrapping/ellipsizing instead, including ink
-    // overhang. Pango pixels use the text's resource scale, not logical units.
-    label.ensure_style();
-    const layout = label.clutter_text.get_layout().copy();
-    layout.set_width(-1);
-    layout.set_ellipsize(Pango.EllipsizeMode.NONE);
-    const [ink, logical] = layout.get_pixel_extents();
-    const left = Math.min(ink.x, logical.x);
-    const right = Math.max(ink.x + ink.width, logical.x + logical.width);
-    const scale = label.clutter_text.get_resource_scale();
-    const node = label.get_theme_node();
-    return (right - left) / scale + node.get_horizontal_padding() +
-        node.get_border_width(St.Side.LEFT) + node.get_border_width(St.Side.RIGHT);
-}
-
-function createTitleCopy(label, viewport) {
-    const copy = new St.Label({
-        style_class: label.get_style_class_name(),
-        y_align: label.y_align,
-        y_expand: label.y_expand,
-        visible: false,
-        accessible_role: Atk.Role.REDUNDANT_OBJECT,
-    });
-    copy.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
-    copy.clutter_text.set_single_line_mode(true);
-    for (const property of ['text', 'style', 'translation-x'])
-        label.bind_property(property, copy, property, GObject.BindingFlags.SYNC_CREATE);
-    viewport.layout_manager.setRepeatLabel(copy);
-    viewport.add_child(copy);
-    return copy;
-}
-
-function loopTitle(label, period, delayMs, onComplete) {
-    label.ease({
-        translation_x: -period,
-        delay: delayMs,
-        duration: Math.max(1, Math.round(
-            (period + label.translation_x) / TITLE_LOOP_SPEED * 1000)),
-        mode: Clutter.AnimationMode.LINEAR,
-        onComplete: () => {
-            // The second copy is now exactly where the first started. Both
-            // move together, so this reset preserves the visible pixels.
-            label.translation_x = 0;
-            onComplete();
-        },
-    });
-}
-
 function setButtonEnabled(button, enabled) {
     button.reactive = enabled;
     button.can_focus = enabled;
@@ -118,150 +62,6 @@ function setButtonEnabled(button, enabled) {
         button.remove_style_pseudo_class('insensitive');
     else
         button.add_style_pseudo_class('insensitive');
-}
-
-class PanelEdgeFade extends (Shell.GLSLEffect ?? Clutter.ShaderEffect) {
-    static {
-        GObject.registerClass(this);
-    }
-
-    _init() {
-        super._init({enabled: false});
-        this._edgesLocation = Shell.GLSLEffect ? this.get_uniform_location('edges') : 'edges';
-        this._edges = [];
-    }
-
-    // Register only the native hook available on the selected parent.
-    [Shell.GLSLEffect ? 'vfunc_build_pipeline' : 'vfunc_get_static_snippet']() {
-        const declarations = 'uniform vec3 edges;';
-        const code = `
-            float x = cogl_tex_coord_in[0].x;
-            float left = mix(1.0, clamp(x / edges.x, 0.0, 1.0), edges.y);
-            float right = mix(1.0, clamp((1.0 - x) / edges.x, 0.0, 1.0), edges.z);
-            cogl_color_out *= left * right;
-        `;
-        if (Shell.GLSLEffect)
-            return this.add_glsl_snippet(Cogl.SnippetHook.FRAGMENT, declarations, code, false);
-        return Cogl.Snippet.new(Cogl.SnippetHook.FRAGMENT, declarations, code);
-    }
-
-    setEdges(width, offset, textWidth) {
-        const edges = [
-            Math.min(0.5, PANEL_EDGE_FADE_WIDTH / Math.max(1, width)),
-            Math.min(1, Math.max(0, -offset / PANEL_EDGE_FADE_WIDTH)),
-            Math.min(1, Math.max(0,
-                (textWidth + offset - width) / PANEL_EDGE_FADE_WIDTH)),
-        ];
-        if (edges.every((value, index) => value === this._edges[index]))
-            return;
-        this._edges = edges;
-        this.set_uniform_float(this._edgesLocation, 3, edges);
-    }
-}
-
-class PanelLabelLayout extends Clutter.LayoutManager {
-    static {
-        GObject.registerClass(this);
-    }
-
-    _init() {
-        super._init();
-        this._panLabel = null;
-        this._panWidth = 0;
-        this._repeatLabel = null;
-        this._repeatOffset = 0;
-    }
-
-    setRepeatLabel(label) {
-        this._repeatLabel = label;
-    }
-
-    setRepeatOffset(offset) {
-        if (this._repeatOffset === offset)
-            return false;
-        this._repeatOffset = offset;
-        this.layout_changed();
-        return true;
-    }
-
-    setPanLabel(label) {
-        this._panLabel = label;
-    }
-
-    setPanWidth(width) {
-        const nextWidth = Math.max(0, Number(width) || 0);
-        if (this._panWidth === nextWidth)
-            return false;
-        this._panWidth = nextWidth;
-        this.layout_changed();
-        return true;
-    }
-
-    vfunc_get_preferred_width(container, forHeight) {
-        let naturalWidth = 0;
-        for (const child of container) {
-            if (child === this._repeatLabel)
-                continue;
-            const [, childNaturalWidth] =
-                child.get_preferred_width(forHeight);
-            naturalWidth = Math.max(naturalWidth, childNaturalWidth);
-        }
-        return [0, naturalWidth];
-    }
-
-    vfunc_get_preferred_height(container, forWidth) {
-        let minimumHeight = 0;
-        let naturalHeight = 0;
-        for (const child of container) {
-            const childWidth = child === this._panLabel && this._panWidth > 0
-                ? this._panWidth
-                : forWidth;
-            const [childMinimumHeight, childNaturalHeight] =
-                child.get_preferred_height(childWidth);
-            minimumHeight = Math.max(minimumHeight, childMinimumHeight);
-            naturalHeight = Math.max(naturalHeight, childNaturalHeight);
-        }
-        return [minimumHeight, naturalHeight];
-    }
-
-    vfunc_allocate(container, box) {
-        const viewportWidth = Math.max(0, box.get_width());
-        const viewportHeight = Math.max(0, box.get_height());
-        for (const child of container) {
-            if (!child.visible)
-                continue;
-            let childWidth = viewportWidth;
-            const fullText = child.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE;
-            if ((child === this._panLabel || child === this._repeatLabel) &&
-                fullText && this._panWidth > 0)
-                childWidth = Math.max(viewportWidth, this._panWidth);
-            else if (fullText)
-                childWidth = Math.max(viewportWidth, measureLabelText(child));
-            const childBox = new Clutter.ActorBox();
-            childBox.set_origin(child === this._repeatLabel ? this._repeatOffset : 0, 0);
-            childBox.set_size(childWidth, viewportHeight);
-            child.allocate(childBox);
-            // Native text layout may place RTL text at a nonzero origin, and
-            // italic ink may extend left of zero. Anchor the complete bounds
-            // inside the content box instead of clipping an overhanging glyph.
-            if (fullText) {
-                const [ink, logical] = child.clutter_text.get_layout().get_pixel_extents();
-                const offset = -Math.min(ink.x, logical.x) /
-                    child.clutter_text.get_resource_scale();
-                const textBox = child.clutter_text.get_allocation_box();
-                const localBox = new Clutter.ActorBox();
-                localBox.set_size(childWidth, viewportHeight);
-                const content = child.get_theme_node().get_content_box(localBox);
-                // allocate() can reuse the previous text allocation. Derive
-                // the origin from the content box so offsets never accumulate.
-                if (Math.abs(textBox.x1 - (content.x1 + offset)) > 0.01) {
-                    textBox.x1 = content.x1 + offset;
-                    textBox.x2 = content.x2 + offset;
-                    child.clutter_text.allocate(textBox);
-                }
-            }
-        }
-    }
 }
 
 class PlaybackProgressView {
@@ -418,32 +218,15 @@ export class LyricsIndicator {
         this._wordSyncEnabled = true;
         this._wordStateSignature = '';
         this._activeLyricIndex = -1;
-        this._scrollLaterId = 0;
+        this._scrollStageSignalId = 0;
         this._scrollRequest = null;
+        this._scrollRetries = 0;
         this._layoutAnchorSignalId = 0;
         this._layoutAnchorAdjustment = null;
-        this._panelPanLaterId = 0;
-        this._panelGeometryLaterId = 0;
-        this._panelNaturalWidth = 0;
-        this._panelFontKey = '';
-        this._panelWordTimeoutId = 0;
-        this._panelWords = null;
-        this._panelWordGeometry = null;
-        this._panelPanScrollable = false;
-        this._panelPanLooping = false;
-        this._panelPanTimeline = null;
-        this._panelPanTimelineAnchorUs = 0;
-        this._panelTextKey = null;
-        this._panelPanTargetX = 0;
-        this._panelPanPaused = false;
-        this._panelPlaying = false;
-        this._panelHovered = false;
-        this._panelPanRetries = 0;
         this._titlePanLaterId = 0;
         this._titlePanRetries = 0;
         this._titlePanPeriod = 0;
         this._titleViewportWidth = 0;
-        this._panelViewportWidth = 0;
         this._maxPanelWidth = 500;
         this._showIcon = true;
         this._laters = global.compositor.get_laters();
@@ -460,79 +243,20 @@ export class LyricsIndicator {
             gicon: musicIcon(),
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._label = new St.Label({
-            style_class: 'lyric-glance-panel-label',
-            text: '',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.FILL,
-            y_align: Clutter.ActorAlign.CENTER,
-            y_expand: true,
-        });
-        configureEllipsized(this._label);
-        this._panelPanLabel = new St.Label({
-            style_class: 'lyric-glance-panel-label',
-            text: '',
-            x_align: Clutter.ActorAlign.FILL,
-            y_align: Clutter.ActorAlign.CENTER,
-            y_expand: true,
-            visible: false,
-        });
-        this._panelPanLabel.clutter_text.set_ellipsize(
-            Pango.EllipsizeMode.NONE);
-        this._panelPanLabel.clutter_text.set_single_line_mode(true);
-        this._panelLabelLayout = new PanelLabelLayout();
-        this._panelLabelLayout.setPanLabel(this._panelPanLabel);
-        this._labelViewport = new St.Widget({
-            style_class: 'lyric-glance-panel-label-viewport',
-            x_expand: true,
-            y_align: Clutter.ActorAlign.CENTER,
-            y_expand: true,
-            clip_to_allocation: true,
-            layout_manager: this._panelLabelLayout,
-        });
-        this._labelViewport.add_child(this._label);
-        this._labelViewport.add_child(this._panelPanLabel);
-        this._panelTitleCopy = createTitleCopy(this._panelPanLabel, this._labelViewport);
-        this._panelFadeEffect = new PanelEdgeFade();
-        this._labelViewport.add_effect(this._panelFadeEffect);
-        this._panelPanLabel.connect('notify::translation-x', () =>
-            this._updatePanelFade());
-        this._labelViewport.connect('notify::allocation', () => {
-            const width = this._labelViewport.get_allocation_box().get_width();
-            if (width === this._panelViewportWidth)
-                return;
-            this._panelViewportWidth = width;
-            this._queuePanelPanRestart();
-        });
-        this._panelPanLabel.connect('style-changed', () =>
-            this._queuePanelGeometryCheck());
-        this._panelPanLabel.clutter_text.connect('resource-scale-changed', () =>
-            this._queuePanelGeometryCheck());
-        this._panelPanLabel.connect('notify::style', () =>
-            this._queuePanelGeometryCheck());
-        this._label.connect('style-changed', () =>
-            this._queuePanelGeometryCheck());
-        this._panelPanLabel.connect('notify::allocation', () =>
-            this._queuePanelGeometryCheck());
-        this._labelViewport.connect('notify::mapped', () => {
-            if (this._labelViewport.mapped)
-                this._schedulePanelPan();
-            else
-                this._cancelPanelPan();
+        this._panelLabelView = new PanelLabelView({
+            animationsEnabled: this._animationsEnabled,
+            isMenuOpen: () => Boolean(this.actor?.menu?.isOpen),
         });
         this.actor.connect('enter-event', () => {
-            this._panelHovered = true;
-            if (!this.actor.menu.isOpen)
-                this._pausePanelPan();
+            this._panelLabelView?.setHovered(true);
             return Clutter.EVENT_PROPAGATE;
         });
         this.actor.connect('leave-event', () => {
-            this._panelHovered = false;
-            this._resumePanelPan();
+            this._panelLabelView?.setHovered(false);
             return Clutter.EVENT_PROPAGATE;
         });
         this._panelBox.add_child(this._icon);
-        this._panelBox.add_child(this._labelViewport);
+        this._panelBox.add_child(this._panelLabelView.actor);
         this.actor.add_child(this._panelBox);
 
         this._buildMenu();
@@ -615,7 +339,7 @@ export class LyricsIndicator {
             this._titleAnimationSettings.connect(`notify::${property}`, () => {
                 this._cancelTitlePan();
                 this._queueTitlePan();
-                this._schedulePanelPan();
+                this._panelLabelView?.schedule();
             }));
         this._titleViewport.connect('notify::allocation', () => {
             const width = this._titleViewport.get_allocation_box().get_width();
@@ -862,14 +586,13 @@ export class LyricsIndicator {
                 }
                 this._menuScrollView.vadjustment.value = 0;
                 this._scheduleScrollToActive({force: true, immediate: true});
-                this._resumePanelPan();
+                this._panelLabelView?.onMenuOpenChanged(true);
                 this._titlePanRetries = 0;
                 this._queueTitlePan();
             } else {
                 this._cancelScheduledScroll();
                 this._cancelTitlePan();
-                if (this._panelHovered)
-                    this._pausePanelPan();
+                this._panelLabelView?.onMenuOpenChanged(false);
             }
             this._onPopupOpenChanged?.(open);
         });
@@ -880,65 +603,17 @@ export class LyricsIndicator {
         this._showLyricsMessage(_('No lyrics found'));
     }
 
-    setText(text, {
-        scrollable = false,
-        timeline = null,
-        contentKey = null,
-        words = null,
-        loop = false,
-    } = {}) {
+    setText(text, options = {}) {
         this._icon.visible = this._showIcon || !text;
+        const viewport = this._panelLabelView?.actor;
+        if (!viewport)
+            return;
         const iconOnly = !text;
-        if (this._labelViewport.visible === iconOnly) {
-            this._labelViewport.visible = !iconOnly;
+        if (viewport.visible === iconOnly) {
+            viewport.visible = !iconOnly;
             this._applyPanelWidth();
         }
-        const looping = Boolean(loop);
-        const canScroll = Boolean(scrollable || looping);
-        const normalizedTimeline = looping ? null : normalizePanelTimeline(timeline);
-        const timelineChanged = !panelTimelinesEqual(
-            this._panelPanTimeline, normalizedTimeline);
-        const wordsChanged = this._panelWords !== words;
-        this._panelWords = words;
-        if (wordsChanged)
-            this._panelWordGeometry = null;
-        this._panelPanTimeline = normalizedTimeline;
-        this._panelPanTimelineAnchorUs = GLib.get_monotonic_time();
-        this._label.clutter_text.set_ellipsize(
-            canScroll && (normalizedTimeline || (looping && this._animationsEnabled()))
-                ? Pango.EllipsizeMode.NONE
-                : Pango.EllipsizeMode.END);
-        if (this._label.text === text &&
-            this._panelPanScrollable === canScroll &&
-            this._panelPanLooping === looping &&
-            this._panelTextKey === contentKey) {
-            if (timelineChanged || wordsChanged)
-                this._schedulePanelPan();
-            return;
-        }
-
-        this._cancelPanelPan();
-        this._panelPanScrollable = canScroll;
-        this._panelPanLooping = looping;
-        this._panelTextKey = contentKey;
-        this._label.remove_all_transitions();
-        this._label.text = text;
-        this._panelPanLabel.text = text;
-        this._panelNaturalWidth = 0;
-        this._updatePanelFade();
-        if (!this._label.mapped || !this._animationsEnabled()) {
-            this._label.opacity = 255;
-            this._schedulePanelPan();
-            return;
-        }
-
-        this._label.opacity = PANEL_TEXT_OPACITY;
-        this._label.ease({
-            opacity: 255,
-            duration: PANEL_TEXT_FADE_MS,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-        });
-        this._schedulePanelPan();
+        this._panelLabelView.setText(text, options);
     }
 
     setTrack(metadata, trackKey) {
@@ -1038,20 +713,12 @@ export class LyricsIndicator {
 
     setProgress(positionUs, durationUs, options = {}) {
         this._progressView?.setProgress(positionUs, durationUs);
-        this._setPanelPlaying(Boolean(options.playing));
+        this._panelLabelView?.setPlaying(Boolean(options.playing));
     }
 
     clearTrack() {
         this._cancelTitlePan();
-        this._panelWords = null;
-        this._panelWordGeometry = null;
-        this._panelPanScrollable = false;
-        this._panelPanLooping = false;
-        this._panelPanTimeline = null;
-        this._panelPanTimelineAnchorUs = 0;
-        this._panelTextKey = null;
-        this._cancelPanelPan();
-        this._setPanelPlaying(false);
+        this._panelLabelView?.clear();
         this._titleLabel.text = '';
         this._artistLabel.text = '';
         this._albumLabel.text = '';
@@ -1213,11 +880,14 @@ export class LyricsIndicator {
             Boolean(current) && this.actor.menu.isOpen && !reposition &&
                 this._animationsEnabled());
 
-        if (current && this.actor.menu.isOpen)
+        if (current && this.actor.menu.isOpen) {
             this._scheduleScrollToActive({
                 force: reposition,
                 immediate: reposition,
             });
+        } else {
+            this._cancelScheduledScroll();
+        }
     }
 
     setWordSyncEnabled(enabled) {
@@ -1225,7 +895,7 @@ export class LyricsIndicator {
         this._wordStateSignature = '';
         if (!this._wordSyncEnabled && this._activeLyricIndex >= 0)
             this._resetLineText(this._activeLyricIndex);
-        this._schedulePanelPan();
+        this._panelLabelView?.setWordSyncEnabled(this._wordSyncEnabled);
     }
 
     setCurrentWordStates(index, states) {
@@ -1287,7 +957,7 @@ export class LyricsIndicator {
 
     setShowIcon(visible) {
         this._showIcon = Boolean(visible);
-        this._icon.visible = this._showIcon || !this._label.text;
+        this._icon.visible = this._showIcon || !this._panelLabelView?.text;
         this._applyPanelWidth();
     }
 
@@ -1340,9 +1010,9 @@ export class LyricsIndicator {
             this.actor.container.show();
             this.actor.show();
             if (!wasVisible)
-                this._schedulePanelPan();
+                this._panelLabelView?.schedule();
         } else {
-            this._cancelPanelPan();
+            this._panelLabelView?.cancel();
             this.actor.hide();
             this.actor.container.hide();
         }
@@ -1397,365 +1067,18 @@ export class LyricsIndicator {
     }
 
     _applyPanelWidth() {
-        if (!this._labelViewport || !this._panelBox)
+        if (!this._panelLabelView?.actor || !this._panelBox)
             return;
-        // Stop an active translation before width/style invalidation. A
-        // running transition can otherwise request a stage-view update while
-        // the panel hierarchy is waiting for its new allocation.
-        this._cancelPanelPan({preserveDisplay:
-            this._panelPanPaused && this._panelPanLabel.visible});
+        this._panelLabelView.prepareWidthChange();
         const reservedForIcon = this._icon.visible ? 22 : 0;
-        const preferredWidth = this._labelViewport.visible
+        const preferredWidth = this._panelLabelView.actor.visible
             ? this._maxPanelWidth
             : Math.min(22, this._maxPanelWidth);
         const labelWidth = Math.max(1,
             this._maxPanelWidth - reservedForIcon);
         this._panelBox.natural_width = preferredWidth;
         this._panelBox.set_style(`max-width: ${this._maxPanelWidth}px;`);
-        this._labelViewport.set_style(`max-width: ${labelWidth}px;`);
-        // A preference or icon change can leave the allocated width unchanged
-        // under external constraints. Restart after layout even when no width
-        // notification arrives, since the active pan was cancelled above.
-        this._queuePanelPanRestart();
-    }
-
-    _setPanelPlaying(playing) {
-        if (this._panelPlaying === playing)
-            return;
-        const nowUs = GLib.get_monotonic_time();
-        if (this._panelPanTimeline) {
-            this._panelPanTimeline = {
-                ...this._panelPanTimeline,
-                positionMs: this._panelPanPositionAt(nowUs),
-            };
-            this._panelPanTimelineAnchorUs = nowUs;
-        }
-        this._panelPlaying = playing;
-        if (this._panelPanLooping) {
-            if (playing)
-                this._resumePanelPan();
-            else
-                this._pausePanelPan();
-            return;
-        }
-        this._schedulePanelPan();
-    }
-
-    _schedulePanelPan() {
-        this._panelPanRetries = 0;
-        this._cancelPanelPan({preserveDisplay:
-            this._panelPanLabel.visible && this._panelPanScrollable &&
-            Boolean(this._panelPanTimeline || this._panelPanLooping)});
-        this._label.clutter_text.set_ellipsize(
-            this._panelPanScrollable && (this._panelPanTimeline ||
-                (this._panelPanLooping && this._animationsEnabled()))
-                ? Pango.EllipsizeMode.NONE
-                : Pango.EllipsizeMode.END);
-        this._updatePanelFade();
-        this._queuePanelPan();
-    }
-
-    _updatePanelFade() {
-        const width = this._panelViewportWidth;
-        const textWidth = this._panelNaturalWidth;
-        const active = this._panelPanScrollable &&
-            (this._panelPanTimeline || this._panelPanLooping) &&
-            this._animationsEnabled() && width > 0 && textWidth > width + 1;
-        this._panelFadeEffect.enabled = Boolean(active);
-        if (active) {
-            const offset = this._panelPanLabel.visible
-                ? this._panelPanLabel.translation_x : 0;
-            this._panelFadeEffect.setEdges(width,
-                offset,
-                // The repeating copy keeps overflowing on the right, while
-                // the left fade follows the actual displacement from the start.
-                this._panelPanLooping ? width - offset + PANEL_EDGE_FADE_WIDTH : textWidth);
-        }
-    }
-
-    _queuePanelPan(laterType = Meta.LaterType.IDLE) {
-        if (this._panelPanLaterId) {
-            this._laters.remove(this._panelPanLaterId);
-            this._panelPanLaterId = 0;
-        }
-        if (!this._panelPanScrollable ||
-            (!this._panelPanTimeline && !this._panelPanLooping) ||
-            !this._labelViewport?.mapped)
-            return;
-
-        this._panelPanLaterId = this._laters.add(
-            laterType,
-            () => {
-                this._panelPanLaterId = 0;
-                this._startPanelPan();
-                return GLib.SOURCE_REMOVE;
-            });
-    }
-
-    _queuePanelPanRestart() {
-        if (!this._panelPanScrollable ||
-            (!this._panelPanTimeline && !this._panelPanLooping) ||
-            !this._labelViewport?.mapped)
-            return;
-        // Style/font and allocation changes must restart outside allocation.
-        if (this._panelPanLaterId)
-            this._laters.remove(this._panelPanLaterId);
-        this._panelPanLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
-            this._panelPanLaterId = 0;
-            this._panelWordGeometry = null;
-            this._schedulePanelPan();
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _queuePanelGeometryCheck() {
-        if (this._panelGeometryLaterId || !this._panelPanScrollable ||
-            (!this._panelPanTimeline && !this._panelPanLooping) ||
-            !this._labelViewport?.mapped)
-            return;
-        this._panelGeometryLaterId = this._laters.add(Meta.LaterType.IDLE, () => {
-            this._panelGeometryLaterId = 0;
-            if (!this._panelPanScrollable ||
-                (!this._panelPanTimeline && !this._panelPanLooping) ||
-                !this._labelViewport?.mapped)
-                return GLib.SOURCE_REMOVE;
-            this._panelPanLabel.ensure_style();
-            const width = measureLabelText(this._panelPanLabel);
-            const fontKey = this._panelPanLabel.get_theme_node().get_font().to_string() +
-                '/' + this._panelPanLabel.clutter_text.get_resource_scale();
-            const origin = this._panelPanLabel.clutter_text.get_allocation_box().x1 +
-                this._panelPanLabel.clutter_text.translation_x;
-            if (width !== this._panelNaturalWidth ||
-                fontKey !== this._panelFontKey ||
-                (this._panelWordGeometry && this._panelWordGeometry.origin !== origin)) {
-                this._panelWordGeometry = null;
-                this._schedulePanelPan();
-            }
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _startPanelPan() {
-        if (this._panelWordTimeoutId) {
-            GLib.source_remove(this._panelWordTimeoutId);
-            this._panelWordTimeoutId = 0;
-        }
-        if (!this._panelPanScrollable ||
-            (!this._panelPanTimeline && !this._panelPanLooping) ||
-            !this._labelViewport?.mapped)
-            return;
-        if (this._panelPanLooping && !this._animationsEnabled()) {
-            this._cancelPanelPan();
-            return;
-        }
-
-        const naturalWidth = measureLabelText(this._panelPanLabel);
-        this._panelNaturalWidth = naturalWidth;
-        this._panelFontKey = this._panelPanLabel.get_theme_node().get_font().to_string() +
-            '/' + this._panelPanLabel.clutter_text.get_resource_scale();
-        // Actor.width may report a preferred width while layout is invalid.
-        // Only allocation notifications provide the actual text viewport.
-        const viewportWidth = this._panelViewportWidth;
-        const overflow = Math.ceil(naturalWidth - viewportWidth);
-        if (!(viewportWidth > 0) || overflow <= 0) {
-            this._cancelPanelPan();
-            this._updatePanelFade();
-            return;
-        }
-
-        // Changing the custom layout invalidates the actor hierarchy. Let
-        // Clutter process that change before updating visibility, and wait
-        // again for visible labels before starting a transition below.
-        const panWidthChanged = this._panelLabelLayout.setPanWidth(naturalWidth);
-        const repeatChanged = this._panelPanLooping &&
-            this._panelLabelLayout.setRepeatOffset(naturalWidth + TITLE_LOOP_GAP);
-        if (panWidthChanged || repeatChanged) {
-            if (++this._panelPanRetries <= MAX_LAYOUT_WAIT_RETRIES) {
-                this._queuePanelPan(Meta.LaterType.BEFORE_REDRAW);
-                return;
-            }
-            this._cancelPanelPan();
-            this._label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
-            this._updatePanelFade();
-            return;
-        }
-        // Hidden labels are skipped by the layout manager. Show them first,
-        // then wait for valid full-width allocations before any transition.
-        this._panelPanLabel.show();
-        this._panelTitleCopy.visible = this._panelPanLooping;
-        this._label.hide();
-        if (!this._labelViewport.has_allocation() ||
-            !this._panelPanLabel.has_allocation() ||
-            this._panelPanLabel.get_allocation_box().get_width() < naturalWidth - 0.5 ||
-            (this._panelPanLooping && (!this._panelTitleCopy.has_allocation() ||
-                this._panelTitleCopy.get_allocation_box().get_width() < naturalWidth - 0.5))) {
-            if (++this._panelPanRetries <= MAX_LAYOUT_WAIT_RETRIES) {
-                this._queuePanelPan(Meta.LaterType.BEFORE_REDRAW);
-                return;
-            }
-            this._cancelPanelPan();
-            this._label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
-            this._updatePanelFade();
-            return;
-        }
-        this._panelPanRetries = 0;
-        const preservePosition = this._panelPanPaused && this._panelPanLabel.visible;
-        if (this._panelPanLooping) {
-            this._panelPanLabel.remove_all_transitions();
-            this._panelPanLabel.translation_x = preservePosition
-                ? Math.clamp(this._panelPanLabel.translation_x,
-                    -(naturalWidth + TITLE_LOOP_GAP), 0) : 0;
-            this._updatePanelFade();
-            this._panelPanTargetX = -(naturalWidth + TITLE_LOOP_GAP);
-            this._continuePanelTitlePan(preservePosition ? 0 : 1000);
-            return;
-        }
-        const panState = this._panelPanState(this._panelPanPositionAt());
-        if (!panState)
-            return;
-        this._panelPanLabel.remove_all_transitions();
-        // A refreshed timeline or layout must not move hovered text. Clamp
-        // only to the full new range, not the current word/page's target.
-        const minimumX = -(overflow <= PANEL_PAN_END_PADDING
-            ? overflow : overflow + PANEL_PAN_END_PADDING);
-        this._panelPanLabel.translation_x = preservePosition
-            ? Math.clamp(this._panelPanLabel.translation_x, minimumX, 0)
-            : panState.initialX;
-        this._updatePanelFade();
-        this._panelPanTargetX = panState.targetX;
-        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
-        if (hoverPaused || preservePosition) {
-            this._panelPanPaused = true;
-            if (!hoverPaused)
-                this._resumePanelPan();
-            return;
-        }
-        const shouldAnimate = this._panelPlaying && panState.shouldAnimate;
-        if (shouldAnimate) {
-            this._panelPanLabel.ease({
-                translation_x: this._panelPanTargetX,
-                delay: Math.min(2_147_483_647, panState.delayMs),
-                duration: Math.min(2_147_483_647, panState.durationMs),
-                mode: Clutter.AnimationMode.LINEAR,
-            });
-        }
-        if (this._panelPlaying && panState.nextMs) {
-            this._panelWordTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
-                Math.min(2_147_483_647, Math.max(1, Math.ceil(
-                    (panState.nextMs - this._panelPanPositionAt()) /
-                    this._panelPanTimeline.playbackRate))), () => {
-                    this._panelWordTimeoutId = 0;
-                    this._startPanelPan();
-                    return GLib.SOURCE_REMOVE;
-                });
-            GLib.Source.set_name_by_id(
-                this._panelWordTimeoutId, '[LyricGlance] panel word pan');
-        }
-    }
-
-    _isPanelTextRtl() {
-        return !this._panelPanLooping &&
-            Pango.find_base_dir(this._label?.text ?? '', -1) ===
-                Pango.Direction.RTL;
-    }
-
-    _orientPanelPanState(panState, distance) {
-        if (!panState || !this._isPanelTextRtl())
-            return panState;
-        return {
-            ...panState,
-            initialX: -distance - panState.initialX,
-            targetX: -distance - panState.targetX,
-        };
-    }
-
-    _panelPanState(positionMs) {
-        const naturalWidth = this._panelNaturalWidth;
-        const width = this._panelViewportWidth;
-        const overflow = Math.ceil(naturalWidth - width);
-        const distance = overflow <= PANEL_PAN_END_PADDING
-            ? overflow : overflow + PANEL_PAN_END_PADDING;
-        if (!this._animationsEnabled()) {
-            return this._orientPanelPanState(
-                panelPanState(this._panelPanTimeline, positionMs,
-                    distance, Math.max(1, width * 0.8)),
-                distance);
-        }
-        if (overflow > PANEL_PAN_END_PADDING &&
-            this._wordSyncEnabled && this._panelWords?.length) {
-            const layout = this._panelPanLabel.clutter_text.get_layout();
-            const serial = layout.get_serial();
-            const resourceScale = this._panelPanLabel.clutter_text.get_resource_scale();
-            const textOrigin = this._panelPanLabel.clutter_text.get_allocation_box().x1 +
-                this._panelPanLabel.clutter_text.translation_x;
-            if (this._panelWordGeometry?.serial !== serial ||
-                this._panelWordGeometry.endMs !== this._panelPanTimeline.endMs ||
-                this._panelWordGeometry.scale !== resourceScale ||
-                this._panelWordGeometry.origin !== textOrigin) {
-                let byteIndex = 0;
-                let previousEndMs = this._panelPanTimeline.startMs;
-                let previousEndX = 0;
-                const measured = [];
-                const encoder = new TextEncoder();
-                const words = this._panelWords;
-                let valid = words.map(word => word.text).join('') === this._label.text;
-                // Bidirectional runs and split graphemes cannot be followed
-                // reliably with a monotonically moving horizontal focus.
-                let characterByte = 0;
-                let characterX = -Infinity;
-                for (const character of this._label.text) {
-                    const rectangle = layout.index_to_pos(characterByte);
-                    if (rectangle.width < 0 || rectangle.x < characterX)
-                        valid = false;
-                    characterX = rectangle.x;
-                    const codePoint = character.codePointAt(0);
-                    characterByte += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 :
-                        codePoint <= 0xffff ? 3 : 4;
-                }
-                for (let index = 0; valid && index < words.length; index++) {
-                    const word = words[index];
-                    const start = layout.index_to_pos(byteIndex);
-                    byteIndex += encoder.encode(word.text).length;
-                    const end = layout.index_to_pos(byteIndex);
-                    const startX = start.x / Pango.SCALE / resourceScale + textOrigin;
-                    const endX = end.x / Pango.SCALE / resourceScale + textOrigin;
-                    const endMs = word.endMs ?? words[index + 1]?.startMs ??
-                        this._panelPanTimeline.endMs;
-                    valid = Number.isFinite(word.startMs) && Number.isFinite(endMs) &&
-                        word.startMs >= previousEndMs && endMs > word.startMs &&
-                        endMs <= this._panelPanTimeline.endMs && start.width >= 0 &&
-                        startX >= previousEndX && endX > startX;
-                    measured.push({startMs: word.startMs, endMs, startX, endX});
-                    previousEndMs = endMs;
-                    previousEndX = endX;
-                }
-                this._panelWordGeometry = {serial,
-                    scale: resourceScale,
-                    origin: textOrigin,
-                    endMs: this._panelPanTimeline.endMs,
-                    words: valid ? measured : null};
-            }
-            const state = wordPanState(this._panelPanTimeline, positionMs,
-                this._panelWordGeometry.words, width, distance);
-            if (state)
-                return state;
-        }
-        return this._orientPanelPanState(
-            panelPanState(this._panelPanTimeline, positionMs, distance),
-            distance);
-    }
-
-    _continuePanelTitlePan(delayMs = 0) {
-        if (!this._panelPanLooping || !this._panelPanLabel.visible ||
-            !this._labelViewport.mapped || !this._animationsEnabled())
-            return;
-        if (!this._panelPlaying || (this._panelHovered && !this.actor.menu.isOpen)) {
-            this._panelPanPaused = true;
-            return;
-        }
-        this._panelPanPaused = false;
-        loopTitle(this._panelPanLabel, -this._panelPanTargetX, delayMs,
-            () => this._continuePanelTitlePan());
+        this._panelLabelView.setMaxWidth(labelWidth);
     }
 
     _queueTitlePan(laterType = Meta.LaterType.IDLE) {
@@ -1847,102 +1170,6 @@ export class LyricsIndicator {
             this._titleLabel.translation_x = 0;
     }
 
-    _panelPanPositionAt(nowUs = GLib.get_monotonic_time()) {
-        const timeline = this._panelPanTimeline;
-        if (!timeline)
-            return 0;
-        const elapsedMs = this._panelPlaying &&
-            this._panelPanTimelineAnchorUs > 0
-            ? Math.max(0, nowUs - this._panelPanTimelineAnchorUs) / 1000 *
-                timeline.playbackRate
-            : 0;
-        return Math.min(timeline.endMs, timeline.positionMs + elapsedMs);
-    }
-
-    _cancelPanelPan({preserveDisplay = false} = {}) {
-        if (!preserveDisplay)
-            this._panelPanRetries = 0;
-        if (this._panelGeometryLaterId) {
-            this._laters.remove(this._panelGeometryLaterId);
-            this._panelGeometryLaterId = 0;
-        }
-        if (this._panelWordTimeoutId) {
-            GLib.source_remove(this._panelWordTimeoutId);
-            this._panelWordTimeoutId = 0;
-        }
-        if (this._panelPanLaterId && this._laters) {
-            this._laters.remove(this._panelPanLaterId);
-            this._panelPanLaterId = 0;
-        }
-        this._panelPanLabel?.remove_all_transitions();
-        if (this._panelPanLabel && !preserveDisplay) {
-            this._panelPanLabel.translation_x = 0;
-            this._panelPanLabel.hide();
-            this._panelTitleCopy.hide();
-            this._panelLabelLayout.setPanWidth(0);
-            this._panelLabelLayout.setRepeatOffset(0);
-        }
-        if (!preserveDisplay) {
-            this._label?.show();
-            this._panelPanPaused = false;
-        }
-        this._panelPanTargetX = 0;
-    }
-
-    _pausePanelPan() {
-        const hoverPaused = this._panelHovered && !this.actor.menu.isOpen;
-        if (hoverPaused && this._panelPanLabel?.visible)
-            this._panelPanPaused = true;
-        const hadWordTimer = Boolean(this._panelWordTimeoutId);
-        if (hadWordTimer) {
-            GLib.source_remove(this._panelWordTimeoutId);
-            this._panelWordTimeoutId = 0;
-            this._panelPanPaused = true;
-        }
-        const transition =
-            this._panelPanLabel?.get_transition('translation-x');
-        if (!transition)
-            return;
-        const currentX = this._panelPanLabel.translation_x;
-        this._panelPanLabel.remove_transition('translation-x');
-        this._panelPanLabel.translation_x = currentX;
-        this._panelPanPaused =
-            hoverPaused || this._panelPanLooping || hadWordTimer ||
-            Math.abs(currentX - this._panelPanTargetX) > 0.5;
-    }
-
-    _resumePanelPan() {
-        if (!this._panelPanPaused || !this._panelPlaying ||
-            !this._panelPanLabel?.visible)
-            return;
-        // A queued layout restart owns the held position until allocation
-        // settles; it will resume here using the latest geometry and clock.
-        if (this._panelPanLaterId)
-            return;
-        this._panelPanPaused = false;
-        if (!this._animationsEnabled()) {
-            this._schedulePanelPan();
-            return;
-        }
-        if (this._panelPanLooping) {
-            this._continuePanelTitlePan();
-            return;
-        }
-        // Catch the timeline where it will be when the transition finishes,
-        // rather than chasing a position already in the past.
-        const panState = this._panelPanState(
-            this._panelPanPositionAt(GLib.get_monotonic_time() +
-                PANEL_PAN_CATCH_UP_MS * 1000));
-        if (!panState)
-            return;
-        this._panelPanLabel.ease({
-            translation_x: panState.initialX,
-            duration: PANEL_PAN_CATCH_UP_MS,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-            onComplete: () => this._startPanelPan(),
-        });
-    }
-
     _clearLyricsRows() {
         this._cancelScheduledScroll();
         this._cancelLayoutAnchor();
@@ -2013,50 +1240,85 @@ export class LyricsIndicator {
     }
 
     _scheduleScrollToActive({force = false, immediate = false} = {}) {
-        if (!this.actor.menu.isOpen ||
+        if (!this.actor?.menu?.isOpen ||
             !this._lyricRows[this._activeLyricIndex])
             return;
 
         this._scrollView.vadjustment.remove_transition('value');
-        this._scrollRequest = {force, immediate};
-        if (this._scrollLaterId)
+        this._scrollRequest = {
+            force: Boolean(this._scrollRequest?.force || force),
+            immediate: Boolean(this._scrollRequest?.immediate || immediate),
+        };
+        this._scrollRetries = 0;
+        if (this._scrollStageSignalId)
             return;
 
-        this._scrollLaterId = this._laters.add(
-            Meta.LaterType.IDLE,
+        // Wait until the stage update completes relayout so row bounds and
+        // vadjustment.page_size always come from the same layout pass.
+        this._scrollStageSignalId = global.stage.connect(
+            'after-update',
             () => {
-                this._scrollLaterId = 0;
+                const row = this.actor?.menu?.isOpen
+                    ? this._lyricRows[this._activeLyricIndex]
+                    : null;
+                const ready = Boolean(row) && this._isScrollLayoutReady(row);
+                if (row && !ready &&
+                    ++this._scrollRetries <= MAX_LAYOUT_WAIT_RETRIES) {
+                    this._scrollView?.queue_redraw();
+                    return;
+                }
+
                 const request = this._scrollRequest;
+                if (this._scrollStageSignalId) {
+                    global.stage.disconnect(this._scrollStageSignalId);
+                    this._scrollStageSignalId = 0;
+                }
                 this._scrollRequest = null;
-                this._scrollToActive(request);
-                return GLib.SOURCE_REMOVE;
+                this._scrollRetries = 0;
+                if (ready)
+                    this._scrollToActive(request);
             });
+        this._scrollView.queue_redraw();
+    }
+
+    _isScrollLayoutReady(row) {
+        return Boolean(
+            this._scrollView?.mapped &&
+            row?.mapped &&
+            this.actor?.menu?.actor?.has_allocation() &&
+            this.actor?.menu?.box?.has_allocation() &&
+            this._menuScrollView?.has_allocation() &&
+            this._scrollView.has_allocation() &&
+            this._lyricsBox?.has_allocation() &&
+            row.has_allocation() &&
+            this._scrollView.vadjustment.page_size > 0);
     }
 
     _cancelScheduledScroll() {
-        if (this._scrollLaterId) {
-            this._laters.remove(this._scrollLaterId);
-            this._scrollLaterId = 0;
+        if (this._scrollStageSignalId) {
+            global.stage.disconnect(this._scrollStageSignalId);
+            this._scrollStageSignalId = 0;
         }
         this._scrollRequest = null;
+        this._scrollRetries = 0;
         this._scrollView?.vadjustment?.remove_transition('value');
     }
 
     _scrollToActive({force = false, immediate = false} = {}) {
-        if (!this.actor.menu.isOpen)
+        if (!this.actor?.menu?.isOpen)
             return;
 
         const row = this._lyricRows[this._activeLyricIndex];
         if (!row)
             return;
 
+        const bounds = this._rowVerticalBounds(row);
+        if (!bounds)
+            return;
+
         const adjustment = this._scrollView.vadjustment;
         const [value, lower, upper, , , pageSize] = adjustment.get_values();
         if (pageSize <= 0)
-            return;
-
-        const bounds = this._rowVerticalBounds(row);
-        if (!bounds)
             return;
         const target = comfortableScrollTarget({
             rowTop: bounds.y1,
@@ -2145,7 +1407,6 @@ export class LyricsIndicator {
         if (this._menuFocusSignalId)
             global.stage.disconnect(this._menuFocusSignalId);
         this._menuFocusSignalId = 0;
-        this._cancelPanelPan();
         this._cancelTitlePan();
         for (const id of this._titleAnimationSignalIds)
             this._titleAnimationSettings.disconnect(id);
@@ -2153,7 +1414,6 @@ export class LyricsIndicator {
         this._titleAnimationSettings = null;
         this._cancelScheduledScroll();
         this._cancelLayoutAnchor();
-        this._label?.remove_all_transitions();
         this._onOffsetAdjust = null;
         this._onOffsetReset = null;
         this._onPlayerSelected = null;
@@ -2166,27 +1426,22 @@ export class LyricsIndicator {
         this._mediaButtons = null;
         this._mediaErrorLabel = null;
         this._animationsEnabled = null;
+        this._panelLabelView?.destroy();
+        this._panelLabelView = null;
         this._artworkView?.destroy();
+        this._artworkView = null;
         this._progressView?.destroy();
+        this._progressView = null;
         this.actor?.destroy();
         this.actor = null;
         this._menuScrollView = null;
         this._panelBox = null;
         this._icon = null;
-        this._label = null;
-        this._panelPanLabel = null;
-        this._panelLabelLayout = null;
-        this._panelFadeEffect = null;
-        this._labelViewport = null;
-        this._panelPanTimeline = null;
-        this._panelWords = null;
-        this._panelWordGeometry = null;
         this._titleLabel = null;
         this._titleViewport = null;
+        this._titleCopy = null;
         this._artistLabel = null;
         this._albumLabel = null;
-        this._artworkView = null;
-        this._progressView = null;
         this._lyricsSourceItem = null;
         this._lyricsSourceLabel = null;
         this._lyricsBox = null;

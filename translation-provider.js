@@ -181,36 +181,54 @@ export function createTranslationProviderId(existingIds = []) {
     return `provider-${GLib.get_monotonic_time()}`;
 }
 
-export function loadTranslationProviders(settings) {
-    const raw = settings.get_string('translation-providers');
-    const savedActiveId = settings.get_string('translation-provider').trim() ||
-        OPENAI_PROVIDER_ID;
-    const activeEndpoint = settings.get_string('translation-api-endpoint');
-    const activeProtocol = settings.get_string('translation-api-protocol');
-    const activeModel = settings.get_string('translation-model').trim();
-
+function parseStoredTranslationProviders(raw) {
     const providers = [];
     const seenIds = new Set();
-    if (raw.trim()) {
-        try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                for (const item of parsed) {
-                    const normalized = normalizeTranslationProvider(item);
-                    if (!normalized || seenIds.has(normalized.id))
-                        continue;
-                    seenIds.add(normalized.id);
-                    providers.push(normalized);
-                    if (providers.length >= MAX_TRANSLATION_PROVIDERS)
-                        break;
-                }
+    if (typeof raw !== 'string' || !raw.trim())
+        return providers;
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                const normalized = normalizeTranslationProvider(item);
+                if (!normalized || seenIds.has(normalized.id))
+                    continue;
+                seenIds.add(normalized.id);
+                providers.push(normalized);
+                if (providers.length >= MAX_TRANSLATION_PROVIDERS)
+                    break;
             }
-        } catch {
-            // Fall back to the active legacy keys if stored JSON is malformed.
         }
+    } catch {
+        // Fall back to the legacy scalar keys if stored JSON is malformed.
     }
+    return providers;
+}
+
+// Single-source-of-truth contract for translation provider settings:
+// - Historical origin: the 4 scalar keys (`translation-provider`,
+//   `translation-api-endpoint`, `translation-api-protocol`, `translation-model`)
+//   belonged to the initial single-provider schema before `translation-providers`
+//   (JSON) was added for multi-provider management.
+// - Authoritative source: whenever `translation-providers` parses to at least
+//   one valid provider, `translation-providers` + `translation-provider` (the
+//   active provider ID) is the sole source of truth for both Preferences and
+//   runtime (`extension.js`). Legacy scalar keys never overwrite it.
+// - Migration & corruption fallback: when `translation-providers` is empty or
+//   malformed, both readers fall back to the legacy scalar keys. Saving writes
+//   `translation-providers` + `translation-provider` and mirrors the active
+//   provider into the legacy scalar keys solely as a corruption/downgrade
+//   fallback.
+export function loadTranslationProviders(settings) {
+    const savedActiveId = settings.get_string('translation-provider').trim() ||
+        OPENAI_PROVIDER_ID;
+    const providers = parseStoredTranslationProviders(
+        settings.get_string('translation-providers'));
 
     if (providers.length === 0) {
+        const activeEndpoint = settings.get_string('translation-api-endpoint');
+        const activeProtocol = settings.get_string('translation-api-protocol');
+        const activeModel = settings.get_string('translation-model').trim();
         const fallbackId = PROVIDER_ID_PATTERN.test(savedActiveId)
             ? savedActiveId
             : OPENAI_PROVIDER_ID;
@@ -240,24 +258,35 @@ export function loadTranslationProviders(settings) {
 
     const active = providers.find(provider => provider.id === savedActiveId) ??
         providers[0];
-    if (active.id === savedActiveId) {
-        const externalProtocol = TRANSLATION_API_PROTOCOLS.includes(activeProtocol)
-            ? activeProtocol
-            : active.protocol;
-        const externalEndpoint = normalizeTranslationEndpoint(activeEndpoint);
-        if (externalEndpoint &&
-            resolveTranslationEndpoint(externalEndpoint, externalProtocol)) {
-            active.endpoint = externalEndpoint;
-            active.protocol = externalProtocol;
-        }
-        if (activeModel && activeModel !== active.model) {
-            const updated = normalizeModelList(active.models, activeModel);
-            active.models = updated.models;
-            active.model = updated.model;
-        }
-    }
-
     return {providers, activeId: active.id};
+}
+
+export function loadActiveTranslationProvider(settings) {
+    const savedActiveId = settings.get_string('translation-provider').trim() ||
+        OPENAI_PROVIDER_ID;
+    const providers = parseStoredTranslationProviders(
+        settings.get_string('translation-providers'));
+    if (providers.length > 0) {
+        const active = providers.find(provider => provider.id === savedActiveId) ??
+            providers[0];
+        return {
+            id: active.id,
+            endpoint: active.endpoint,
+            protocol: active.protocol,
+            model: active.model,
+        };
+    }
+    const fallbackId = PROVIDER_ID_PATTERN.test(savedActiveId)
+        ? savedActiveId
+        : OPENAI_PROVIDER_ID;
+    // Legacy/corrupt fallback fails closed via OpenAITranslationProvider rather
+    // than silently substituting the default OpenAI endpoint for an invalid URL.
+    return {
+        id: fallbackId,
+        endpoint: settings.get_string('translation-api-endpoint').trim(),
+        protocol: settings.get_string('translation-api-protocol'),
+        model: settings.get_string('translation-model').trim(),
+    };
 }
 
 export function saveTranslationProviders(settings, providers, activeId) {

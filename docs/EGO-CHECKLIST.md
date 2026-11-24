@@ -1,8 +1,22 @@
-# LyricGlance EGO Submission Checklist — 0.9.0
+# LyricGlance EGO Submission Checklist — 2026-11-22
 
-Last updated: 2026-11-19
+Last updated: 2026-11-22
 
 The dated checklists below are historical records, including their package file counts and tool results. Their completed boxes do not imply that later changes have passed a new live desktop test. Track current changes separately here.
+
+## Release readiness — 2026-11-22
+
+- [x] unified release version to `2026-11-22` across `network-utils.js` (`VERSION`/`USER_AGENT`), `CHANGELOG.md` (`## [2026-11-22]` with release tag link), gettext catalog headers (`po/*.pot`, `po/*.po`), and EGO documentation; HTTP integration tests assert `USER_AGENT` from `network-utils.js`
+- [x] `.github/workflows/release.yml` validates the `YYYY-MM-DD` date tag, updated `VERSION` in `network-utils.js`, matching `Project-Id-Version` headers in `po/*.pot` and `po/*.po`, and matching non-empty `CHANGELOG.md` section/link via `tools/check-release.sh` before reusing `.github/workflows/ci.yml` (Fedora 44 / Shell 50 and Fedora 45 / Shell 51 matrix) and attaching the verified ZIP and SHA-256
+- [x] `tools/check-release.sh` passes on the current repository for `2026-11-22` (including under `gawk --posix`), rejects a mismatched tag (`2026-11-23`), and passes 40 synthetic valid/invalid date, version, gettext-header, and changelog edge cases; workflow YAML structure and shell syntax pass
+- [x] local `schema-check`, `translations-check`, all nine `unit-check` entry points, `package-check` (36 files including `panel-label-view.js`; `tools/check-release.sh` excluded), and all six `GSETTINGS_BACKEND=memory make integration` entry points pass
+- [x] local GNOME Shell 51.1 `make shell-check`, `make shell-presentation-check`, and `make prefs-check` pass under the workflow's isolated system D-Bus setup, with no `needs an allocation` warnings
+- [ ] local official `shexli` analysis remains blocked because `/home/eureka/.local/bin/shexli` runs `/usr/bin/python3` (Python 3.15) while `shexli` is only installed under `python3.14` site-packages without a local `python3.14` interpreter; aggregate `make check` therefore cannot finish locally
+- [ ] push release-prep commit(s) and verify remote CI passes on both Fedora 44 (GNOME Shell 50) and Fedora 45 (GNOME Shell 51), including zero `shexli` findings
+- [ ] install the final ZIP into a fresh GNOME Shell desktop session and verify lyric rendering/synchronization with a real song, playback/translation controls, Preferences, and post-login journal logs
+- [ ] push date tag `2026-11-22` to run the Release workflow (Fedora 44/45 matrix + GitHub Release ZIP/SHA-256 upload) and submit the verified package to EGO
+
+No git commit, push, tag, remote CI run, local extension install, real-player/provider request, or EGO upload was performed during this release-preparation pass.
 
 ## CI text-geometry readiness — 2026-11-19
 

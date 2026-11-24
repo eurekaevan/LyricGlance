@@ -127,6 +127,10 @@ export class LyricsProvider {
         persistentCache = true,
         cacheRoot = undefined,
         diskCacheOptions = {},
+        now = () => Date.now(),
+        monotonicTimeUs = () => GLib.get_monotonic_time(),
+        scheduleDelay = null,
+        cancelDelay = null,
     } = {}) {
         this._session = new Soup.Session({
             timeout: timeoutSeconds,
@@ -143,6 +147,25 @@ export class LyricsProvider {
                 GLib.ChecksumType.SHA256, this._lrcApiUrl ?? 'invalid', -1)}`
             : 'lrclib';
         this._requestSpacingMs = requestSpacingMs;
+        this._now = now;
+        this._monotonicTimeUs = monotonicTimeUs;
+        if (scheduleDelay) {
+            this._scheduleDelay = scheduleDelay;
+            this._cancelDelay = cancelDelay ?? (() => {});
+        } else {
+            this._scheduleDelay = (delayMs, callback, name) => {
+                const id = GLib.timeout_add(
+                    GLib.PRIORITY_DEFAULT,
+                    delayMs,
+                    () => {
+                        callback();
+                        return GLib.SOURCE_REMOVE;
+                    });
+                GLib.Source.set_name_by_id(id, name);
+                return id;
+            };
+            this._cancelDelay = cancelDelay ?? (id => GLib.source_remove(id));
+        }
         this._maxResponseBytes = Math.max(1, Math.floor(maxResponseBytes));
         const cacheLimit = Math.floor(maxCacheEntries);
         this._maxCacheEntries = Number.isFinite(cacheLimit)
@@ -157,7 +180,8 @@ export class LyricsProvider {
             })
             : null;
         this._cancellable = null;
-        this._delayTimerId = 0;
+        this._idleTimerId = 0;
+        this._delayTimerHandle = null;
         this._requestSerial = 0;
         this._lastRequestUs = 0;
         this._retryAfterUs = new Map();
@@ -192,20 +216,20 @@ export class LyricsProvider {
         this.cancelPending();
         this._pendingKey = key;
         this._pendingCallbacks = [{callback, onStatus}];
-        this._pendingNotBeforeUs = GLib.get_monotonic_time() + TRACK_DEBOUNCE_MS * 1000;
+        this._pendingNotBeforeUs = this._monotonicTimeUs() + TRACK_DEBOUNCE_MS * 1000;
         const serial = this._requestSerial;
 
         if (this._cache.has(key)) {
             const cached = this._cache.get(key);
             this._cache.delete(key);
             this._cache.set(key, cached);
-            this._delayTimerId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-                this._delayTimerId = 0;
+            this._idleTimerId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                this._idleTimerId = 0;
                 this._complete(serial, cached);
                 return GLib.SOURCE_REMOVE;
             });
             GLib.Source.set_name_by_id(
-                this._delayTimerId, '[LyricGlance] lyrics memory cache hit');
+                this._idleTimerId, '[LyricGlance] lyrics memory cache hit');
             return;
         }
 
@@ -237,10 +261,19 @@ export class LyricsProvider {
         this._pendingStatus = null;
         this._pendingNotBeforeUs = 0;
 
-        if (this._delayTimerId) {
-            GLib.source_remove(this._delayTimerId);
-            this._delayTimerId = 0;
+        if (this._idleTimerId) {
+            GLib.source_remove(this._idleTimerId);
+            this._idleTimerId = 0;
         }
+        this._clearDelayTimer();
+    }
+
+    _clearDelayTimer() {
+        if (this._delayTimerHandle === null)
+            return;
+        const handle = this._delayTimerHandle;
+        this._delayTimerHandle = null;
+        this._cancelDelay(handle);
     }
 
     destroy() {
@@ -254,7 +287,7 @@ export class LyricsProvider {
     }
 
     _spacingDelayMs() {
-        const elapsedMs = (GLib.get_monotonic_time() - this._lastRequestUs) / 1000;
+        const elapsedMs = (this._monotonicTimeUs() - this._lastRequestUs) / 1000;
         return Math.max(0, this._requestSpacingMs - elapsedMs);
     }
 
@@ -311,7 +344,7 @@ export class LyricsProvider {
         if (serial !== this._requestSerial)
             return;
 
-        const nowUs = GLib.get_monotonic_time();
+        const nowUs = this._monotonicTimeUs();
         const service = stage === 'lrcapi' ? 'lrcapi' : 'lrclib';
         const cooldownMs = ((this._retryAfterUs.get(service) ?? 0) - nowUs) / 1000;
         delayMs = Math.max(delayMs, this._spacingDelayMs(), cooldownMs,
@@ -339,17 +372,21 @@ export class LyricsProvider {
             return;
         }
 
-        this._delayTimerId = GLib.timeout_add(
-            GLib.PRIORITY_DEFAULT,
-            Math.min(2_147_483_647, Math.max(1, Math.ceil(delayMs))),
+        this._clearDelayTimer();
+        const clampedMs = Math.min(2_147_483_647, Math.max(1, Math.ceil(delayMs)));
+        let fired = false;
+        const handle = this._scheduleDelay(
+            clampedMs,
             () => {
-                this._delayTimerId = 0;
-                if (serial === this._requestSerial)
-                    this._sendRequest(track, key, serial, stage, attempt);
-                return GLib.SOURCE_REMOVE;
-            });
-        GLib.Source.set_name_by_id(
-            this._delayTimerId, `[LyricGlance] lyrics ${stage} delay`);
+                fired = true;
+                if (serial !== this._requestSerial)
+                    return;
+                this._delayTimerHandle = null;
+                this._sendRequest(track, key, serial, stage, attempt);
+            },
+            `[LyricGlance] lyrics ${stage} delay`);
+        if (!fired && serial === this._requestSerial)
+            this._delayTimerHandle = handle ?? null;
     }
 
     _sendRequest(track, key, serial, stage, attempt) {
@@ -360,7 +397,7 @@ export class LyricsProvider {
         // cooldown while this track is already waiting. Song changes must not
         // reset a server deadline, and very long deadlines use bounded timers.
         const service = stage === 'lrcapi' ? 'lrcapi' : 'lrclib';
-        if ((this._retryAfterUs.get(service) ?? 0) > GLib.get_monotonic_time()) {
+        if ((this._retryAfterUs.get(service) ?? 0) > this._monotonicTimeUs()) {
             this._scheduleStage(track, key, serial, stage, 0, attempt);
             return;
         }
@@ -389,7 +426,7 @@ export class LyricsProvider {
 
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
-        this._lastRequestUs = GLib.get_monotonic_time();
+        this._lastRequestUs = this._monotonicTimeUs();
 
         readResponse(this._session, message,
             this._maxResponseBytes, cancellable).then(bytes => {
@@ -407,10 +444,10 @@ export class LyricsProvider {
                     const retryValue = message.get_response_headers()
                         .get_one('Retry-After');
                     const delayMs = retryAfterDelayMs(
-                        retryValue, Date.now(), 1000 * 2 ** attempt);
+                        retryValue, this._now(), 1000 * 2 ** attempt);
                     this._retryAfterUs.set(service, Math.max(
                         this._retryAfterUs.get(service) ?? 0,
-                        GLib.get_monotonic_time() + delayMs * 1000));
+                        this._monotonicTimeUs() + delayMs * 1000));
                     if (serial !== this._requestSerial)
                         return;
                     if (attempt < MAX_RETRIES) {

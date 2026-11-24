@@ -65,7 +65,7 @@ function assertTextAllocation(label) {
 
 // Also called by the isolated virtual-monitor harness at different scales.
 export async function checkTextGeometry(view) {
-    const panelStyle = view._panelPanLabel.get_style();
+    const panelStyle = view._panelLabelView._panLabel.get_style();
     const titleStyle = view._titleLabel.get_style();
     const metadata = {title: view._titleLabel.text, artist: view._artistLabel.text,
         album: view._albumLabel.text};
@@ -74,17 +74,17 @@ export async function checkTextGeometry(view) {
     const baselineStyle = 'font-size: 20px; padding: 0; border-width: 0;';
     const waitForGeometry = async name => {
         const deadlineUs = GLib.get_monotonic_time() + 2_000_000;
-        const ready = () => !view._panelPanLaterId && !view._panelGeometryLaterId &&
-            !view._titlePanLaterId && view._labelViewport.mapped && view._titleViewport.mapped &&
-            view._labelViewport.has_allocation() && view._titleViewport.has_allocation() &&
-            [view._label, view._panelPanLabel, view._panelTitleCopy,
+        const ready = () => !view._panelLabelView._panLaterId && !view._panelLabelView._geometryLaterId &&
+            !view._titlePanLaterId && view._panelLabelView.actor.mapped && view._titleViewport.mapped &&
+            view._panelLabelView.actor.has_allocation() && view._titleViewport.has_allocation() &&
+            [view._panelLabelView._label, view._panelLabelView._panLabel, view._panelLabelView._titleCopy,
                 view._titleLabel, view._titleCopy].every(label =>
                 !label.visible || label.has_allocation());
         do {
             await Scripting.sleep(20);
         } while (!ready() && GLib.get_monotonic_time() < deadlineUs);
         assert(ready(), `${name}: text layout did not settle before its deadline ` +
-            `(panelLater=${view._panelPanLaterId}, geometryLater=${view._panelGeometryLaterId}, ` +
+            `(panelLater=${view._panelLabelView._panLaterId}, geometryLater=${view._panelLabelView._geometryLaterId}, ` +
             `titleLater=${view._titlePanLaterId}, titleMapped=${view._titleViewport.mapped}, ` +
             `titlePeriod=${view._titlePanPeriod})`);
     };
@@ -99,13 +99,13 @@ export async function checkTextGeometry(view) {
             ['italic', 'font-family: serif; font-style: italic;', 0],
             ['rtl', '', 0, 'مرحبا بالعالم هذه أغنية طويلة '.repeat(6)],
         ]) {
-            view._panelPanLabel.set_style(baselineStyle + style);
+            view._panelLabelView._panLabel.set_style(baselineStyle + style);
             view._titleLabel.set_style(baselineStyle + style);
             view.setText(sample, {loop: true});
             view.updateMetadataDisplay({...metadata, title: sample});
             await waitForGeometry(name);
             for (const [label, copy, measured] of [
-                [view._panelPanLabel, view._panelTitleCopy, view._panelNaturalWidth],
+                [view._panelLabelView._panLabel, view._panelLabelView._titleCopy, view._panelLabelView._naturalWidth],
                 [view._titleLabel, view._titleCopy, view._titlePanPeriod - 32],
             ]) {
                 const expected = referenceTextBounds(label).width + insets;
@@ -122,21 +122,21 @@ export async function checkTextGeometry(view) {
                 assertTextAllocation(label);
                 assertTextAllocation(copy);
             }
-            print(`textGeometry=${name},scale:${view._panelPanLabel.clutter_text.get_resource_scale()},` +
-                `preferred:${view._panelPanLabel.get_preferred_width(-1)[1]},` +
-                `measured:${view._panelNaturalWidth},viewport:${view._panelViewportWidth}`);
+            print(`textGeometry=${name},scale:${view._panelLabelView._panLabel.clutter_text.get_resource_scale()},` +
+                `preferred:${view._panelLabelView._panLabel.get_preferred_width(-1)[1]},` +
+                `measured:${view._panelLabelView._naturalWidth},viewport:${view._panelLabelView._viewportWidth}`);
         }
         // A CSS minimum must not invent overflow for a genuinely short string.
-        view._panelPanLabel.set_style(baselineStyle + 'min-width: 1800px;');
+        view._panelLabelView._panLabel.set_style(baselineStyle + 'min-width: 1800px;');
         view._titleLabel.set_style(baselineStyle + 'min-width: 1800px;');
         view.setText('Short', {loop: true});
         view.updateMetadataDisplay({...metadata, title: 'Short'});
         await waitForGeometry('fitting text');
-        assert(view._label.visible && !view._panelTitleCopy.visible &&
+        assert(view._panelLabelView._label.visible && !view._panelLabelView._titleCopy.visible &&
             !view._titleCopy.visible && view._titlePanPeriod === 0,
         'a minimum actor width must not make fitting text scroll');
     } finally {
-        view._panelPanLabel.set_style(panelStyle);
+        view._panelLabelView._panLabel.set_style(panelStyle);
         view._titleLabel.set_style(titleStyle);
         view.updateMetadataDisplay(metadata);
         view.setText('', {loop: false});
@@ -277,8 +277,8 @@ export async function run() {
     assert(view._panelBox.natural_width === 500 &&
         view._panelBox.natural_width_set &&
         view._panelBox.get_style().trim() === 'max-width: 500px;' &&
-        view._labelViewport.get_style().includes('478px') &&
-        view._labelViewport.clip_to_allocation && view._icon.visible &&
+        view._panelLabelView.actor.get_style().includes('478px') &&
+        view._panelLabelView.actor.clip_to_allocation && view._icon.visible &&
         Main.panel._centerBox.contains(indicator.container),
         'the default preferred and maximum panel widths should apply immediately');
 
@@ -451,23 +451,23 @@ export async function run() {
     view.setProgress(0, 220_000_000, {playing: true, immediate: true});
     view.setVisible(true);
     await Scripting.sleep(850);
-    assert(view._panelPanLabel.visible &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.visible &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'lyrics received while hidden must begin panning when the panel maps');
-    view._panelPanLabel.set_style('font-size: 1px;');
+    view._panelLabelView._panLabel.set_style('font-size: 1px;');
     await Scripting.sleep(200);
-    assert(!view._panelPanLabel.visible && view._label.visible &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    assert(!view._panelLabelView._panLabel.visible && view._panelLabelView._label.visible &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'a font change that removes overflow must cancel the stale pan');
-    view._panelPanLabel.set_style(null);
+    view._panelLabelView._panLabel.set_style(null);
     await Scripting.sleep(200);
-    assert(view._panelPanLabel.visible &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.visible &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'a font change that restores overflow must restart the pan');
-    const realLaters = view._laters;
+    const realLaters = view._panelLabelView._laters;
     const pendingPanLaters = new Set();
-    view._cancelPanelPan();
-    view._laters = {
+    view._panelLabelView.cancel();
+    view._panelLabelView._laters = {
         add(type, callback) {
             const id = realLaters.add(type, () => {
                 pendingPanLaters.delete(id);
@@ -482,105 +482,105 @@ export async function run() {
         },
     };
     try {
-        view._queuePanelPanRestart();
-        view._queuePanelPan();
+        view._panelLabelView._queueRestart();
+        view._panelLabelView._queuePan();
         assert(pendingPanLaters.size === 1,
             'queuing panel panning must replace the pending restart callback');
-        view._queuePanelPanRestart();
-        view._panelLabelLayout.setPanWidth(1);
-        view._startPanelPan();
+        view._panelLabelView._queueRestart();
+        view._panelLabelView.actor.layout_manager.setPanWidth(1);
+        view._panelLabelView._startPan();
         assert(pendingPanLaters.size === 1 &&
-            pendingPanLaters.has(view._panelPanLaterId),
+            pendingPanLaters.has(view._panelLabelView._panLaterId),
         'a pan completion or word timeout during a pending restart must retain only one Later');
-        view._cancelPanelPan();
-        assert(pendingPanLaters.size === 0 && view._panelPanLaterId === 0,
+        view._panelLabelView.cancel();
+        assert(pendingPanLaters.size === 0 && view._panelLabelView._panLaterId === 0,
             'canceling panel panning must remove every pending Later');
     } finally {
         for (const id of pendingPanLaters)
             realLaters.remove(id);
-        view._panelPanLaterId = 0;
-        view._laters = realLaters;
+        view._panelLabelView._panLaterId = 0;
+        view._panelLabelView._laters = realLaters;
     }
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
-    assert(view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
-        view._label.visible,
+    assert(view._panelLabelView._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
+        view._panelLabelView._label.visible,
     'synchronized lyrics should begin as full clipped text without an ellipsis');
     view.setProgress(119_000_000, 220_000_000, {
         playing: true,
         immediate: true,
     });
     await Scripting.sleep(950);
-    const firstPanX = view._panelPanLabel.translation_x;
-    const panNaturalWidth = referenceLabelWidth(view._panelPanLabel);
+    const firstPanX = view._panelLabelView._panLabel.translation_x;
+    const panNaturalWidth = referenceLabelWidth(view._panelLabelView._panLabel);
     print(`panelPanWidths=natural:${panNaturalWidth.toFixed(1)},` +
-        `actor:${view._panelPanLabel.width.toFixed(1)},` +
-        `viewport:${view._labelViewport.width.toFixed(1)}`);
-    assert(view._panelPanLabel.visible && !view._label.visible &&
+        `actor:${view._panelLabelView._panLabel.width.toFixed(1)},` +
+        `viewport:${view._panelLabelView.actor.width.toFixed(1)}`);
+    assert(view._panelLabelView._panLabel.visible && !view._panelLabelView._label.visible &&
         firstPanX < 0 &&
-        Math.abs(view._panelPanLabel.width - panNaturalWidth) < 0.5 &&
-        view._panelPanLabel.width > view._labelViewport.width &&
-        view._panelPanLabel.get_transition('translation-x'),
+        Math.abs(view._panelLabelView._panLabel.width - panNaturalWidth) < 0.5 &&
+        view._panelLabelView._panLabel.width > view._panelLabelView.actor.width &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'an overflowing synchronized lyric should pan at full width inside its clipped viewport');
-    assert(view._panelFadeEffect.enabled &&
-        view._labelViewport.clip_to_allocation &&
-        Math.abs(view._label.width - panNaturalWidth) < 0.5 &&
-        view._panelFadeEffect._edges[1] > 0 &&
-        view._panelFadeEffect._edges[2] === 1,
+    assert(view._panelLabelView._fadeEffect.enabled &&
+        view._panelLabelView.actor.clip_to_allocation &&
+        Math.abs(view._panelLabelView._label.width - panNaturalWidth) < 0.5 &&
+        view._panelLabelView._fadeEffect._edges[1] > 0 &&
+        view._panelLabelView._fadeEffect._edges[2] === 1,
     'clipped synchronized lyrics should fade their overflowing edges during motion');
-    view._pausePanelPan();
+    view._panelLabelView.pause();
     await Scripting.sleep(180);
-    const pausedPanX = view._panelPanLabel.translation_x;
+    const pausedPanX = view._panelLabelView._panLabel.translation_x;
     assert(Math.abs(pausedPanX - firstPanX) < 0.5,
         'hover-style pause should freeze the panel lyric pan in place');
-    view._resumePanelPan();
-    assert(view._panelPanLabel.visible && !view._label.visible &&
-        Math.abs(view._panelPanLabel.translation_x - pausedPanX) < 0.5,
+    view._panelLabelView.resume();
+    assert(view._panelLabelView._panLabel.visible && !view._panelLabelView._label.visible &&
+        Math.abs(view._panelLabelView._panLabel.translation_x - pausedPanX) < 0.5,
     'leaving hover should start catching up without resetting or jumping');
     await Scripting.sleep(100);
-    assert(view._panelPanLabel.translation_x < pausedPanX,
+    assert(view._panelLabelView._panLabel.translation_x < pausedPanX,
         'leaving hover should smoothly catch up to lyric time');
-    view._pausePanelPan();
-    const interruptedCatchUpX = view._panelPanLabel.translation_x;
+    view._panelLabelView.pause();
+    const interruptedCatchUpX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(180);
-    assert(Math.abs(view._panelPanLabel.translation_x - interruptedCatchUpX) < 0.5 &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x - interruptedCatchUpX) < 0.5 &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'hovering again should cancel catch-up without restarting linear motion');
-    view._resumePanelPan();
+    view._panelLabelView.resume();
     await Scripting.sleep(280);
     const catchUpOverflow = Math.ceil(
-        panNaturalWidth - view._labelViewport.width) + 8;
+        panNaturalWidth - view._panelLabelView.actor.width) + 8;
     const expectedCatchUpX = -catchUpOverflow *
-        ((view._panelPanPositionAt() - 600) / 3400);
-    assert(Math.abs(view._panelPanLabel.translation_x - expectedCatchUpX) < 8 &&
-        view._panelPanLabel.get_transition('translation-x'),
+        ((view._panelLabelView._positionAt() - 600) / 3400);
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x - expectedCatchUpX) < 8 &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'catch-up should reconnect to the moving timeline and continue linearly');
-    const beforeResyncX = view._panelPanLabel.translation_x;
+    const beforeResyncX = view._panelLabelView._panLabel.translation_x;
     view.setText(panningText, {
         scrollable: true,
-        timeline: panelTimeline(5000, view._panelPanPositionAt()),
+        timeline: panelTimeline(5000, view._panelLabelView._positionAt()),
     });
-    assert(view._panelPanLabel.visible && !view._label.visible &&
-        Math.abs(view._panelPanLabel.translation_x - beforeResyncX) < 0.5,
+    assert(view._panelLabelView._panLabel.visible && !view._panelLabelView._label.visible &&
+        Math.abs(view._panelLabelView._panLabel.translation_x - beforeResyncX) < 0.5,
     'resynchronizing the same line must keep the currently visible text and offset');
     settings.set_int('max-panel-width', 150);
     await Scripting.sleep(300);
-    assert(view._panelPanLabel.visible &&
-        view._panelPanLabel.width > view._labelViewport.width &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.visible &&
+        view._panelLabelView._panLabel.width > view._panelLabelView.actor.width &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'resizing an active overflow should reallocate before resuming its pan');
     settings.set_int('max-panel-width', 500);
     await Scripting.sleep(300);
-    assert(view._panelPanLabel.visible &&
-        view._panelPanLabel.width > view._labelViewport.width,
+    assert(view._panelLabelView._panLabel.visible &&
+        view._panelLabelView._panLabel.width > view._panelLabelView.actor.width,
     'restoring the panel width should keep the active pan allocated');
     const panelAllocationStarts = [];
-    const panelEase = view._panelPanLabel.ease;
-    view._panelPanLabel.ease = function (params) {
+    const panelEase = view._panelLabelView._panLabel.ease;
+    view._panelLabelView._panLabel.ease = function (params) {
         panelAllocationStarts.push({allocated: this.has_allocation(),
-            viewportAllocated: view._labelViewport.has_allocation(),
+            viewportAllocated: view._panelLabelView.actor.has_allocation(),
             width: this.get_allocation_box().get_width(),
             natural: referenceLabelWidth(this)});
         return panelEase.call(this, params);
@@ -589,7 +589,7 @@ export async function run() {
         view.setText('Short', {scrollable: true,
             timeline: panelTimeline(5000), contentKey: 'allocation-short'});
         await Scripting.sleep(100);
-        assert(!view._panelPanLabel.visible,
+        assert(!view._panelLabelView._panLabel.visible,
             'the fitting middle lyric must remove the moving label from layout');
         view.setText(panningText, {scrollable: true,
             timeline: panelTimeline(5000, 1000), contentKey: 'allocation-repeat'});
@@ -599,10 +599,10 @@ export async function run() {
         'a repeated same-width lyric must be fully allocated before starting a transition: ' +
             JSON.stringify(panelAllocationStarts));
     } finally {
-        view._panelPanLabel.ease = panelEase;
+        view._panelLabelView._panLabel.ease = panelEase;
     }
     const hoverPopupWasOpen = indicator.menu.isOpen;
-    const hoverLabelStyle = view._panelPanLabel.get_style();
+    const hoverLabelStyle = view._panelLabelView._panLabel.get_style();
     indicator.menu.close();
     try {
         view.setProgress(0, 220_000_000, {playing: false});
@@ -611,65 +611,65 @@ export async function run() {
         await Scripting.sleep(120);
         view.setProgress(0, 220_000_000, {playing: true});
         await Scripting.sleep(80);
-        view._panelHovered = true;
-        view._pausePanelPan();
-        const heldX = view._panelPanLabel.translation_x;
+        view._panelLabelView._hovered = true;
+        view._panelLabelView.pause();
+        const heldX = view._panelLabelView._panLabel.translation_x;
         for (const positionMs of [4000, 7900]) {
             view.setText(panningText, {scrollable: true,
                 timeline: panelTimeline(8000, positionMs), contentKey: 'hover-refresh'});
             await Scripting.sleep(100);
-            assert(Math.abs(view._panelPanLabel.translation_x - heldX) < 0.5 &&
-                view._panelPanPaused && view._panelWordTimeoutId === 0 &&
-                !view._panelPanLabel.get_transition('translation-x'),
+            assert(Math.abs(view._panelLabelView._panLabel.translation_x - heldX) < 0.5 &&
+                view._panelLabelView._paused && view._panelLabelView._wordTimeoutId === 0 &&
+                !view._panelLabelView._panLabel.get_transition('translation-x'),
             'same-content background refreshes must preserve hover position, including the ending hold');
         }
         view.setText(panningText, {scrollable: true,
             timeline: panelTimeline(8000, 7800), contentKey: 'hover-refresh'});
-        view._panelHovered = false;
-        view._resumePanelPan();
-        assert(Math.abs(view._panelPanLabel.translation_x - heldX) < 0.5,
+        view._panelLabelView._hovered = false;
+        view._panelLabelView.resume();
+        assert(Math.abs(view._panelLabelView._panLabel.translation_x - heldX) < 0.5,
             'leaving hover during a queued refresh must not jump immediately');
         await Scripting.sleep(320);
-        assert(view._panelPanLabel.translation_x < heldX && !view._panelPanPaused,
+        assert(view._panelLabelView._panLabel.translation_x < heldX && !view._panelLabelView._paused,
             'leaving hover must catch up to the newest ending even without a next boundary');
 
-        view._panelHovered = true;
-        view._pausePanelPan();
-        const heldEndX = view._panelPanLabel.translation_x;
+        view._panelLabelView._hovered = true;
+        view._panelLabelView.pause();
+        const heldEndX = view._panelLabelView._panLabel.translation_x;
         view.setText(panningText, {scrollable: true,
             timeline: panelTimeline(8000, 1000), contentKey: 'hover-refresh'});
-        view._panelPanLabel.set_style('font-size: 10px;');
+        view._panelLabelView._panLabel.set_style('font-size: 10px;');
         await Scripting.sleep(180);
-        const resizedMinimumX = -(Math.ceil(view._panelNaturalWidth - view._panelViewportWidth) + 8);
+        const resizedMinimumX = -(Math.ceil(view._panelLabelView._naturalWidth - view._panelLabelView._viewportWidth) + 8);
         const clampedX = Math.max(resizedMinimumX, heldEndX);
         assert(resizedMinimumX < 0 &&
-            Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5 &&
-            view._panelPanPaused,
+            Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5 &&
+            view._panelLabelView._paused,
         'hovered font changes must clamp the old offset to the new range rather than seek to lyric time');
         settings.set_int('max-panel-width', 200);
-        assert(view._panelPanLabel.visible &&
-            Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5,
+        assert(view._panelLabelView._panLabel.visible &&
+            Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5,
         'a hovered width change must retain the visible reading position before layout');
         await Scripting.sleep(180);
-        assert(Math.abs(view._panelPanLabel.translation_x - clampedX) < 0.5 &&
-            view._panelPanPaused && !view._panelPanLabel.get_transition('translation-x'),
+        assert(Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5 &&
+            view._panelLabelView._paused && !view._panelLabelView._panLabel.get_transition('translation-x'),
         'hovered viewport reallocation must not restart motion');
         settings.set_int('max-panel-width', 500);
         await Scripting.sleep(180);
         view.setText(panningText, {scrollable: true,
             timeline: panelTimeline(8000, 0), contentKey: 'hover-next-line'});
         await Scripting.sleep(120);
-        assert(Math.abs(view._panelPanLabel.translation_x -
-            view._panelPanState(view._panelPanPositionAt()).initialX) < 0.5 &&
-            view._panelPanPaused,
+        assert(Math.abs(view._panelLabelView._panLabel.translation_x -
+            view._panelLabelView._panState(view._panelLabelView._positionAt()).initialX) < 0.5 &&
+            view._panelLabelView._paused,
         'a new content key must initialize its own position while remaining hover-paused');
-        view._panelPanLabel.set_style('font-size: 1px;');
+        view._panelLabelView._panLabel.set_style('font-size: 1px;');
         await Scripting.sleep(120);
-        assert(view._label.visible && !view._panelPanLabel.visible && !view._panelPanPaused,
+        assert(view._panelLabelView._label.visible && !view._panelLabelView._panLabel.visible && !view._panelLabelView._paused,
             'removing overflow must release the paused pan and show the fitted label');
     } finally {
-        view._panelHovered = false;
-        view._panelPanLabel.set_style(hoverLabelStyle);
+        view._panelLabelView._hovered = false;
+        view._panelLabelView._panLabel.set_style(hoverLabelStyle);
         settings.set_int('max-panel-width', 500);
         if (hoverPopupWasOpen)
             indicator.menu.open();
@@ -687,31 +687,31 @@ export async function run() {
     for (let index = 0; index < 8; index++) {
         panConstraint.width = index % 2 ? 200 : 750;
         await Scripting.sleep(150);
-        panViewportWidths.push(view._labelViewport.width);
-        assert(view._panelPanLabel.visible &&
-            view._panelPanLabel.get_transition('translation-x'),
+        panViewportWidths.push(view._panelLabelView.actor.width);
+        assert(view._panelLabelView._panLabel.visible &&
+            view._panelLabelView._panLabel.get_transition('translation-x'),
         'external panel constraints should reallocate and restart an active pan');
-        const actualWidth = view._labelViewport.width;
+        const actualWidth = view._panelLabelView.actor.width;
         const actualOverflow = Math.ceil(
-            referenceLabelWidth(view._panelPanLabel) - actualWidth);
-        assert(view._panelPanTargetX === -(actualOverflow + 8),
+            referenceLabelWidth(view._panelLabelView._panLabel) - actualWidth);
+        assert(view._panelLabelView._targetX === -(actualOverflow + 8),
             'external compression must set the endpoint from allocated text width');
         print(`externalPanelWidth=setting:${settings.get_int('max-panel-width')},` +
-            `box:${view._panelBox.width},text:${actualWidth},target:${view._panelPanTargetX}`);
+            `box:${view._panelBox.width},text:${actualWidth},target:${view._panelLabelView._targetX}`);
         if (index === 0) {
             settings.set_int('max-panel-width', 640);
             await Scripting.sleep(150);
-            assert(view._labelViewport.width === actualWidth &&
-                view._panelPanLabel.visible &&
-                view._panelPanLabel.get_transition('translation-x'),
+            assert(view._panelLabelView.actor.width === actualWidth &&
+                view._panelLabelView._panLabel.visible &&
+                view._panelLabelView._panLabel.get_transition('translation-x'),
             'changing a width preference without changing the constrained allocation must resume panning');
             settings.set_int('max-panel-width', 500);
             await Scripting.sleep(150);
             view.setShowIcon(view._showIcon);
             await Scripting.sleep(150);
-            assert(view._labelViewport.width === actualWidth &&
-                view._panelPanLabel.visible &&
-                view._panelPanLabel.get_transition('translation-x'),
+            assert(view._panelLabelView.actor.width === actualWidth &&
+                view._panelLabelView._panLabel.visible &&
+                view._panelLabelView._panLabel.get_transition('translation-x'),
             'reapplying the icon preference must not stop a constrained pan');
         }
     }
@@ -721,64 +721,64 @@ export async function run() {
     view.setText(panningText, {scrollable: true,
         timeline: panelTimeline(8000, 8000), contentKey: 'compressed-ending'});
     await Scripting.sleep(200);
-    const [compressedTextX] = view._panelPanLabel.get_transformed_position();
-    const [compressedViewportX] = view._labelViewport.get_transformed_position();
-    assert(Math.abs(compressedTextX + view._panelPanLabel.width -
-        compressedViewportX - view._labelViewport.width + 8) <= 1.5,
+    const [compressedTextX] = view._panelLabelView._panLabel.get_transformed_position();
+    const [compressedViewportX] = view._panelLabelView.actor.get_transformed_position();
+    assert(Math.abs(compressedTextX + view._panelLabelView._panLabel.width -
+        compressedViewportX - view._panelLabelView.actor.width + 8) <= 1.5,
     'the final glyph must reach the actual viewport ending under external compression');
     view.setProgress(0, 8000000, {playing: false});
     panConstraint.width = 200;
     view.setText('A lyric that fits before compression', {scrollable: true,
         timeline: panelTimeline(8000, 8000), contentKey: 'compression-fit-boundary'});
     await Scripting.sleep(150);
-    const fitNaturalWidth = referenceLabelWidth(view._panelPanLabel);
-    assert(fitNaturalWidth < view._labelViewport.width &&
-        !view._panelPanLabel.visible && !view._panelFadeEffect.enabled,
+    const fitNaturalWidth = referenceLabelWidth(view._panelLabelView._panLabel);
+    assert(fitNaturalWidth < view._panelLabelView.actor.width &&
+        !view._panelLabelView._panLabel.visible && !view._panelLabelView._fadeEffect.enabled,
     'a lyric that fits its allocated viewport must remain static');
     panConstraint.width = 750;
     await Scripting.sleep(150);
     print(`compressedFit=natural:${fitNaturalWidth},` +
-        `viewport:${view._labelViewport.width},offset:${view._panelPanLabel.translation_x}`);
-    assert(fitNaturalWidth > view._labelViewport.width &&
-        view._panelPanLabel.visible &&
-        Math.abs(fitNaturalWidth + view._panelPanLabel.translation_x -
-            view._labelViewport.width + 8) <= 1.5,
+        `viewport:${view._panelLabelView.actor.width},offset:${view._panelLabelView._panLabel.translation_x}`);
+    assert(fitNaturalWidth > view._panelLabelView.actor.width &&
+        view._panelLabelView._panLabel.visible &&
+        Math.abs(fitNaturalWidth + view._panelLabelView._panLabel.translation_x -
+            view._panelLabelView.actor.width + 8) <= 1.5,
     'external compression must reveal the ending even when the lyric originally fitted');
     panConstraint.width = 200;
     await Scripting.sleep(150);
-    assert(!view._panelPanLabel.visible && view._label.visible &&
-        view._panelWordTimeoutId === 0 && !view._panelFadeEffect.enabled,
+    assert(!view._panelLabelView._panLabel.visible && view._panelLabelView._label.visible &&
+        view._panelLabelView._wordTimeoutId === 0 && !view._panelLabelView._fadeEffect.enabled,
     'releasing external space must restore a static fitting lyric and clear scrolling state');
     view.setProgress(0, 8000000, {playing: true});
     panConstraint.destroy();
     settings.set_string('panel-position', 'center');
     await Scripting.sleep(150);
-    view._pausePanelPan();
-    view._resumePanelPan();
+    view._panelLabelView.pause();
+    view._panelLabelView.resume();
     view.setText(panningText, {
         scrollable: true,
         timeline: panelTimeline(5000),
         contentKey: 'repeated-line-2',
     });
-    assert(view._panelPanLabel.translation_x === 0 &&
-        !view._panelPanLabel.visible && view._label.visible,
+    assert(view._panelLabelView._panLabel.translation_x === 0 &&
+        !view._panelLabelView._panLabel.visible && view._panelLabelView._label.visible,
     'a repeated lyric with a new line ID should still reset the old panel pan');
     await Scripting.sleep(280);
-    assert(Math.abs(view._panelPanLabel.translation_x) < 0.5,
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x) < 0.5,
         'a new line should cancel catch-up and preserve its initial hold');
     view.setText('The next line', {
         scrollable: true,
         timeline: panelTimeline(3000),
     });
-    assert(view._panelPanLabel.translation_x === 0 &&
-        !view._panelPanLabel.visible && view._label.visible,
+    assert(view._panelLabelView._panLabel.translation_x === 0 &&
+        !view._panelLabelView._panLabel.visible && view._panelLabelView._label.visible,
     'a line change should cancel the old panel pan and reset to the new start');
     view.setText(panningText, {scrollable: false});
     await Scripting.sleep(120);
-    assert(!view._panelPanLabel.visible && view._label.visible,
+    assert(!view._panelLabelView._panLabel.visible && view._panelLabelView._label.visible,
         'fallback track information should remain ellipsized without panning');
-    assert(view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
-        !view._panelFadeEffect.enabled,
+    assert(view._panelLabelView._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
+        !view._panelLabelView._fadeEffect.enabled,
     'fallback text should retain its ellipsis without the lyric edge effect');
     view.setText(panningText, {
         scrollable: true,
@@ -786,26 +786,26 @@ export async function run() {
         contentKey: 'full-ending',
     });
     await Scripting.sleep(1900);
-    const [panEndX] = view._panelPanLabel.get_transformed_position();
-    const [viewportEndX] = view._labelViewport.get_transformed_position();
-    const panRight = panEndX + view._panelPanLabel.width;
-    const viewportRight = viewportEndX + view._labelViewport.width;
+    const [panEndX] = view._panelLabelView._panLabel.get_transformed_position();
+    const [viewportEndX] = view._panelLabelView.actor.get_transformed_position();
+    const panRight = panEndX + view._panelLabelView._panLabel.width;
+    const viewportRight = viewportEndX + view._panelLabelView.actor.width;
     print(`panelPanEndDelta=${(panRight - viewportRight).toFixed(1)}`);
-    assert(view._panelPanLabel.clutter_text.get_text() === panningText &&
+    assert(view._panelLabelView._panLabel.clutter_text.get_text() === panningText &&
         Math.abs(panRight - viewportRight + 8) <= 1.5,
     'the completed panel pan should reveal the full ending with eight pixels of space');
-    assert(view._panelFadeEffect._edges[2] === 0,
+    assert(view._panelLabelView._fadeEffect._edges[2] === 0,
         'the fully revealed lyric ending should not be faded');
 
     // Find a real glyph string that exceeds this viewport by only a few pixels.
     let tinyText = '';
     let tinyNaturalWidth = 0;
-    while (tinyNaturalWidth <= view._labelViewport.width) {
+    while (tinyNaturalWidth <= view._panelLabelView.actor.width) {
         tinyText += 'i';
-        view._panelPanLabel.text = tinyText;
-        tinyNaturalWidth = referenceLabelWidth(view._panelPanLabel);
+        view._panelLabelView._panLabel.text = tinyText;
+        tinyNaturalWidth = referenceLabelWidth(view._panelLabelView._panLabel);
     }
-    const tinyOverflow = Math.ceil(tinyNaturalWidth - view._labelViewport.width);
+    const tinyOverflow = Math.ceil(tinyNaturalWidth - view._panelLabelView.actor.width);
     assert(tinyOverflow > 0 && tinyOverflow <= 8,
         'the small overflow regression should exceed the viewport by at most eight pixels');
     view.setText(tinyText, {
@@ -814,12 +814,12 @@ export async function run() {
         contentKey: 'tiny-overflow',
     });
     await Scripting.sleep(300);
-    const tinyPanX = view._panelPanLabel.translation_x;
+    const tinyPanX = view._panelLabelView._panLabel.translation_x;
     assert(tinyPanX < 0 && tinyPanX > -tinyOverflow &&
-        view._panelPanTargetX === -tinyOverflow,
+        view._panelLabelView._targetX === -tinyOverflow,
     'a small overflow should move gently without adding eight pixels of travel');
     await Scripting.sleep(1050);
-    assert(Math.abs(view._panelPanLabel.translation_x + tinyOverflow) < 0.5,
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x + tinyOverflow) < 0.5,
         'small overflow motion should reveal the full ending by the line boundary');
 
     view.setProgress(119_000_000, 220_000_000, {playing: false});
@@ -830,13 +830,13 @@ export async function run() {
     });
     await Scripting.sleep(100);
     const seekOverflow = Math.ceil(
-        panNaturalWidth - view._labelViewport.width) + 8;
+        panNaturalWidth - view._panelLabelView.actor.width) + 8;
     const expectedSeekX = -seekOverflow * ((3000 - 600) / 3400);
     print(`panelPanSeekDelta=${(
-        view._panelPanLabel.translation_x - expectedSeekX).toFixed(1)}`);
-    assert(view._panelPanLabel.visible &&
-        !view._panelPanLabel.get_transition('translation-x') &&
-        Math.abs(view._panelPanLabel.translation_x - expectedSeekX) <= 1.5,
+        view._panelLabelView._panLabel.translation_x - expectedSeekX).toFixed(1)}`);
+    assert(view._panelLabelView._panLabel.visible &&
+        !view._panelLabelView._panLabel.get_transition('translation-x') &&
+        Math.abs(view._panelLabelView._panLabel.translation_x - expectedSeekX) <= 1.5,
     'a paused seek should immediately anchor the panel pan to lyric time');
 
     view.setProgress(0, 5000000, {playing: true});
@@ -846,9 +846,9 @@ export async function run() {
         await new Promise((resolve, reject) => {
             GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
                 try {
-                    assert(view._panelPanLabel.visible &&
-                        view._panelPanLabel.width + view._panelPanLabel.translation_x <=
-                            view._labelViewport.width,
+                    assert(view._panelLabelView._panLabel.visible &&
+                        view._panelLabelView._panLabel.width + view._panelLabelView._panLabel.translation_x <=
+                            view._panelLabelView.actor.width,
                     'a fast line must expose its ending before the next-line callback cancels it');
                     view.setText('Next lyric line');
                     resolve();
@@ -863,15 +863,15 @@ export async function run() {
 
     // Opening the popup must release an accidental hover freeze on its button.
     const popupWasOpen = indicator.menu.isOpen;
-    view._panelHovered = true;
+    view._panelLabelView._hovered = true;
     view.setText(panningText, {scrollable: true,
         timeline: panelTimeline(5000), contentKey: 'popup-hover'});
     view.setProgress(0, 5000000, {playing: true});
     indicator.menu.open();
     await Scripting.sleep(850);
-    assert(view._panelPanLabel.translation_x < 0 && !view._panelPanPaused,
+    assert(view._panelLabelView._panLabel.translation_x < 0 && !view._panelLabelView._paused,
         'panel lyrics should keep moving with the popup open even if its button remains hovered');
-    view._panelHovered = false;
+    view._panelLabelView._hovered = false;
     view.setProgress(0, 5000000, {playing: false});
     if (!popupWasOpen)
         indicator.menu.close();
@@ -887,99 +887,99 @@ export async function run() {
         timeline: panelTimeline(6000, 1200), contentKey: 'panel-word-gap'});
     view.setProgress(0, 6000000, {playing: true});
     await Scripting.sleep(100);
-    const gapWordX = view._panelPanLabel.translation_x;
-    assert(view._panelWordTimeoutId !== 0 &&
-        view._panelPanState(view._panelPanPositionAt()).nextMs === 1500 &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    const gapWordX = view._panelLabelView._panLabel.translation_x;
+    assert(view._panelLabelView._wordTimeoutId !== 0 &&
+        view._panelLabelView._panState(view._panelLabelView._positionAt()).nextMs === 1500 &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'playback during a word gap should hold its position until the next word starts');
     await Scripting.sleep(450);
-    assert(view._panelWordTimeoutId !== 0 &&
-        view._panelPanState(view._panelPanPositionAt()).nextMs === 2500 &&
-        view._panelPanLabel.translation_x <= gapWordX,
+    assert(view._panelLabelView._wordTimeoutId !== 0 &&
+        view._panelLabelView._panState(view._panelLabelView._positionAt()).nextMs === 2500 &&
+        view._panelLabelView._panLabel.translation_x <= gapWordX,
     'the gap callback should advance to the next word without restarting the line');
     view.setProgress(0, 6000000, {playing: false});
     view.setText(panelWordText, {scrollable: true, words: panelWords,
         timeline: panelTimeline(6000, 2000), contentKey: 'panel-words'});
     await Scripting.sleep(100);
-    const geometry = view._panelWordGeometry?.words;
+    const geometry = view._panelLabelView._wordGeometry?.words;
     assert(geometry?.length === panelWords.length,
         'Chinese, Latin, combining characters and emoji should use measured UTF-8 word boundaries');
     const focusX = (geometry[1].startX + geometry[1].endX) / 2;
-    const wordDistance = Math.ceil(view._panelPanLabel.width - view._labelViewport.width) + 8;
+    const wordDistance = Math.ceil(view._panelLabelView._panLabel.width - view._panelLabelView.actor.width) + 8;
     const expectedWordX = -Math.min(wordDistance,
-        Math.max(0, focusX - view._labelViewport.width * 0.6));
-    assert(Math.abs(view._panelPanLabel.translation_x - expectedWordX) < 1 &&
-        view._panelWordTimeoutId === 0,
+        Math.max(0, focusX - view._panelLabelView.actor.width * 0.6));
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x - expectedWordX) < 1 &&
+        view._panelLabelView._wordTimeoutId === 0,
     'a paused seek should immediately place the current word at the viewport focus');
     view.setProgress(0, 6000000, {playing: true});
     await Scripting.sleep(120);
-    assert(view._panelWordTimeoutId !== 0,
+    assert(view._panelLabelView._wordTimeoutId !== 0,
         'word follow should schedule a one-shot word boundary while playing');
     const wordHoverPopupWasOpen = indicator.menu.isOpen;
     indicator.menu.close();
-    view._panelHovered = true;
-    view._pausePanelPan();
-    const hoveredWordX = view._panelPanLabel.translation_x;
+    view._panelLabelView._hovered = true;
+    view._panelLabelView.pause();
+    const hoveredWordX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(220);
-    assert(view._panelWordTimeoutId === 0 &&
-        Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
+    assert(view._panelLabelView._wordTimeoutId === 0 &&
+        Math.abs(view._panelLabelView._panLabel.translation_x - hoveredWordX) < 0.5,
     'hover should stop both word motion and its boundary callback');
     view.setText(panelWordText, {scrollable: true,
         words: panelWords.map(word => ({...word})),
         timeline: panelTimeline(6000, 5900), contentKey: 'panel-words'});
     await Scripting.sleep(100);
-    assert(Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5 &&
-        view._panelPanPaused && view._panelWordTimeoutId === 0,
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x - hoveredWordX) < 0.5 &&
+        view._panelLabelView._paused && view._panelLabelView._wordTimeoutId === 0,
     'new word timing must not move hovered text or lose the pause at the final word');
     view.setText(panelWordText, {scrollable: true, words: panelWords,
         timeline: panelTimeline(6000, 2400), contentKey: 'panel-words'});
-    view._panelHovered = false;
-    view._resumePanelPan();
-    assert(Math.abs(view._panelPanLabel.translation_x - hoveredWordX) < 0.5,
+    view._panelLabelView._hovered = false;
+    view._panelLabelView.resume();
+    assert(Math.abs(view._panelLabelView._panLabel.translation_x - hoveredWordX) < 0.5,
         'word follow should catch up from the held position without an immediate jump');
     await Scripting.sleep(280);
-    assert(view._panelWordTimeoutId !== 0 && view._panelPanLabel.translation_x < hoveredWordX,
+    assert(view._panelLabelView._wordTimeoutId !== 0 && view._panelLabelView._panLabel.translation_x < hoveredWordX,
         'word catch-up should reconnect across the next word boundary');
     if (wordHoverPopupWasOpen)
         indicator.menu.open();
     settings.set_int('max-panel-width', 200);
     await Scripting.sleep(100);
-    assert(view._panelWordTimeoutId !== 0 &&
-        Math.abs(view._panelPanLabel.translation_x -
-            view._panelPanState(view._panelPanPositionAt()).initialX) < 8,
+    assert(view._panelLabelView._wordTimeoutId !== 0 &&
+        Math.abs(view._panelLabelView._panLabel.translation_x -
+            view._panelLabelView._panState(view._panelLabelView._positionAt()).initialX) < 8,
         'a panel resize should reconnect word focus using the new viewport width');
     settings.set_int('max-panel-width', 500);
     await Scripting.sleep(100);
     view.setProgress(0, 6000000, {playing: false});
     await Scripting.sleep(80);
-    const pausedWordX = view._panelPanLabel.translation_x;
+    const pausedWordX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(120);
-    assert(view._panelWordTimeoutId === 0 &&
-        Math.abs(view._panelPanLabel.translation_x - pausedWordX) < 0.5,
+    assert(view._panelLabelView._wordTimeoutId === 0 &&
+        Math.abs(view._panelLabelView._panLabel.translation_x - pausedWordX) < 0.5,
         'playback pause should freeze word follow and cancel its boundary timer');
     view.setProgress(0, 6000000, {playing: true});
     view.setWordSyncEnabled(false);
     await Scripting.sleep(100);
-    assert(view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._wordTimeoutId === 0,
         'disabling word sync should cancel panel word callbacks and use line motion');
     view.setWordSyncEnabled(true);
     view.setText(panelWordText, {scrollable: true,
         timeline: panelTimeline(6000, 3000), contentKey: 'panel-translation'});
     await Scripting.sleep(100);
-    assert(view._panelWords === null && view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._words === null && view._panelLabelView._wordTimeoutId === 0,
         'translated or line-only text should retain line motion without word callbacks');
     view.setText('مرحبا بالعالم '.repeat(8), {scrollable: true,
         words: [{text: 'مرحبا بالعالم '.repeat(8), startMs: 0, endMs: 6000}],
         timeline: panelTimeline(6000, 3000), contentKey: 'panel-rtl'});
     await Scripting.sleep(100);
-    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._wordGeometry?.words === null && view._panelLabelView._wordTimeoutId === 0,
         'bidirectional geometry should fall back to line motion');
     const overlappingWords = panelWords.map((word, index) =>
         ({...word, startMs: index === 1 ? 500 : word.startMs}));
     view.setText(panelWordText, {scrollable: true, words: overlappingWords,
         timeline: panelTimeline(6000, 3000), contentKey: 'panel-overlap'});
     await Scripting.sleep(100);
-    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._wordGeometry?.words === null && view._panelLabelView._wordTimeoutId === 0,
         'overlapping word times should fall back to line motion');
     const splitGrapheme = [
         {text: 'e', startMs: 0, endMs: 1000},
@@ -989,7 +989,7 @@ export async function run() {
         scrollable: true, words: splitGrapheme,
         timeline: panelTimeline(6000, 3000), contentKey: 'panel-split-grapheme'});
     await Scripting.sleep(100);
-    assert(view._panelWordGeometry?.words === null && view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._wordGeometry?.words === null && view._panelLabelView._wordTimeoutId === 0,
         'word boundaries inside a combining grapheme should fall back to line motion');
     view.setProgress(0, 6000000, {playing: false});
 
@@ -1220,7 +1220,7 @@ export async function run() {
         for (const [index, row] of view._lyricRows.entries())
             row.remove_style_class_name = removeStyleMethods[index];
     }
-    assert(view._label.text.startsWith('Synchronized lyric'),
+    assert(view._panelLabelView._label.text.startsWith('Synchronized lyric'),
         'the top-bar lyric should still update');
 
     view.setTranslationEnabled(true);
@@ -1455,6 +1455,27 @@ export async function run() {
     pendingProgress.destroy();
     assert(progressDestroyed.size === 4,
         'destroying the progress view must destroy its container, slider and labels before its parent');
+    const pendingPanelLabel = pendingView._panelLabelView;
+    const panelLabelDestroyed = new Set();
+    for (const [name, actor] of [
+        ['viewport', pendingPanelLabel.actor],
+        ['label', pendingPanelLabel._label],
+        ['panLabel', pendingPanelLabel._panLabel],
+        ['titleCopy', pendingPanelLabel._titleCopy],
+    ])
+        actor.connect('destroy', () => panelLabelDestroyed.add(name));
+    pendingPanelLabel.setHovered(true);
+    pendingPanelLabel.destroy();
+    assert(panelLabelDestroyed.size === 4 && pendingPanelLabel.actor === null &&
+        !pendingPanelLabel._hovered && pendingPanelLabel._panLaterId === 0 &&
+        pendingPanelLabel._geometryLaterId === 0,
+        'destroying the panel label view must destroy its viewport and labels before its parent');
+    pendingPanelLabel.setHovered(true);
+    pendingPanelLabel.onMenuOpenChanged(false);
+    pendingPanelLabel.setText('after destroy', {scrollable: true, loop: true});
+    pendingPanelLabel.setPlaying(true);
+    pendingPanelLabel.destroy();
+    pendingView.setText('after destroy');
     pendingView.destroy();
     finishDestroyedSeek(true);
     await Scripting.sleep(10);
@@ -1634,6 +1655,53 @@ export async function run() {
         'the new row should gain the current class');
     assert(Math.abs(view._scrollView.vadjustment.value - comfortableValue) < 1,
         'an adjacent line inside the comfortable zone should not scroll');
+    view.setCurrentLyricIndex(20, {reposition: true});
+    await Scripting.sleep(100);
+    const settledValue = view._scrollView.vadjustment.value;
+    const expandedPage = view._scrollView.vadjustment.page_size;
+    view._mediaErrorLabel.show();
+    await Scripting.sleep(100);
+    const shrunkPage = view._scrollView.vadjustment.page_size;
+    view._mediaErrorLabel.hide();
+    view.setCurrentLyricIndex(21);
+    await Scripting.sleep(260);
+    assert(shrunkPage < expandedPage &&
+        view._scrollView.vadjustment.page_size === expandedPage &&
+        !view._scrollStageSignalId &&
+        Math.abs(view._scrollView.vadjustment.value - settledValue) < 1,
+    'a line change queued alongside a sibling relayout must wait for the updated viewport before scrolling');
+    view.setCurrentLyricIndex(20, {reposition: true});
+    await Scripting.sleep(100);
+    view.setCurrentLyricIndex(5, {reposition: true});
+    view.setCurrentLyricIndex(-1);
+    view.setCurrentLyricIndex(21);
+    await Scripting.sleep(260);
+    assert(!view._scrollStageSignalId &&
+        Math.abs(view._scrollView.vadjustment.value - settledValue) < 1,
+    'clearing the active lyric must cancel any pending forced reposition');
+    const savedArtistText = view._artistLabel.text;
+    let relayoutTicks = 0;
+    let relayoutTimerId = GLib.timeout_add(GLib.PRIORITY_HIGH, 10, () => {
+        relayoutTicks++;
+        view._artistLabel.text = `${savedArtistText} ${'x'.repeat(relayoutTicks % 5 + 1)}`;
+        if (relayoutTicks < 20)
+            return GLib.SOURCE_CONTINUE;
+        relayoutTimerId = 0;
+        return GLib.SOURCE_REMOVE;
+    });
+    try {
+        view.setCurrentLyricIndex(2, {reposition: true});
+        await Scripting.sleep(260);
+        assert(!view._scrollStageSignalId &&
+            view._scrollView.vadjustment.value < settledValue - 100,
+        'continuous sibling relayouts must not drop a scheduled lyric scroll');
+    } finally {
+        if (relayoutTimerId)
+            GLib.source_remove(relayoutTimerId);
+        view._artistLabel.text = savedArtistText;
+    }
+    view.setCurrentLyricIndex(21, {reposition: true});
+    await Scripting.sleep(100);
     view.setCurrentLyricIndex(29, {reposition: true});
     await Scripting.sleep(60);
     assert(view._scrollView.vadjustment.value > comfortableValue,
@@ -1725,7 +1793,101 @@ export async function run() {
             'https://proxy.example/v1/chat/completions' &&
         instance._translationService._providers.get('custom-deepseek')._protocol === 'chat-completions',
     'the replacement provider should use the custom provider ID, new model and resolved base address');
+    settings.set_string('translation-providers', JSON.stringify([
+        {
+            id: 'openai',
+            name: 'OpenAI',
+            endpoint: 'https://api.openai.com/v1/responses',
+            protocol: 'auto',
+            models: ['gpt-5.4-mini-2026-03-17'],
+            model: 'gpt-5.4-mini-2026-03-17',
+        },
+        {
+            id: 'json-provider',
+            name: 'JSON Provider',
+            endpoint: 'https://json.example/v1',
+            protocol: 'chat-completions',
+            models: ['json-model-a', 'json-model-b'],
+            model: 'json-model-a',
+        },
+    ]));
+    settings.set_string('translation-provider', 'json-provider');
+    await Scripting.sleep(80);
+    assert(serviceCreations === 2 &&
+        instance._activeTranslationProviderId() === 'json-provider' &&
+        instance._translationService._providers.get('json-provider')?.model === 'json-model-a' &&
+        instance._translationService._providers.get('json-provider')?._endpoint ===
+            'https://json.example/v1/chat/completions',
+    'translation-providers JSON plus translation-provider must drive runtime service configuration');
+    settings.set_string('translation-model', 'stale-legacy-ignored');
+    await Scripting.sleep(80);
+    assert(serviceCreations === 2 &&
+        instance._translationService._providers.get('json-provider')?.model === 'json-model-a',
+    'stale legacy scalar key writes must not recreate or override a JSON-configured service');
+    settings.set_string('translation-providers', JSON.stringify([
+        {
+            id: 'openai',
+            name: 'OpenAI',
+            endpoint: 'https://api.openai.com/v1/responses',
+            protocol: 'auto',
+            models: ['gpt-5.4-mini-2026-03-17'],
+            model: 'gpt-5.4-mini-2026-03-17',
+        },
+        {
+            id: 'json-provider',
+            name: 'JSON Provider',
+            endpoint: 'https://json.example/v1',
+            protocol: 'chat-completions',
+            models: ['json-model-a', 'json-model-b'],
+            model: 'json-model-b',
+        },
+    ]));
+    await Scripting.sleep(80);
+    assert(serviceCreations === 3 &&
+        instance._translationService._providers.get('json-provider')?.model === 'json-model-b',
+    'direct updates to the active provider in translation-providers must replace the runtime service');
+    settings.set_string('translation-providers', JSON.stringify([
+        {
+            id: 'openai',
+            name: 'OpenAI Renamed',
+            endpoint: 'https://api.openai.com/v1/responses',
+            protocol: 'auto',
+            models: ['gpt-5.4-mini-2026-03-17'],
+            model: 'gpt-5.4-mini-2026-03-17',
+        },
+        {
+            id: 'json-provider',
+            name: 'JSON Provider',
+            endpoint: 'https://json.example/v1',
+            protocol: 'chat-completions',
+            models: ['json-model-a', 'json-model-b'],
+            model: 'json-model-b',
+        },
+    ]));
+    await Scripting.sleep(80);
+    assert(serviceCreations === 3,
+        'editing an inactive provider in translation-providers must not recreate the active service');
+    settings.set_string('translation-provider', 'openai');
+    settings.set_string('translation-provider', 'json-provider');
+    await Scripting.sleep(80);
+    assert(serviceCreations === 4 &&
+        instance._activeTranslationProviderId() === 'json-provider' &&
+        instance._translationService._providers.has('json-provider'),
+    'rapid A -> B -> A switching inside the coalesce window must finish service replacement instead of stranding canceled work');
+    settings.set_string('translation-providers', '');
+    settings.set_string('translation-provider', '../invalid-id');
+    settings.set_string(
+        'translation-api-endpoint', 'https://api.openai.com/v1/responses');
+    settings.set_string('translation-api-protocol', 'auto');
+    settings.set_string(
+        'translation-model', 'gpt-5.4-mini-2026-03-17');
+    await Scripting.sleep(80);
+    assert(serviceCreations === 5 &&
+        instance._activeTranslationProviderId() === 'openai' &&
+        instance._translationService._providers.has('openai'),
+    'invalid legacy translation-provider IDs must normalize to openai in the runtime service');
     instance._createTranslationService = origCreateService;
+    settings.set_string('translation-providers', '');
     settings.set_string('translation-provider', 'openai');
     settings.set_string(
         'translation-api-endpoint', 'https://api.openai.com/v1/responses');
@@ -1895,7 +2057,7 @@ export async function run() {
     instance._onPlayerStateChanged(delayedState('Retry A'));
     delayedLookups[0].onStatus({status: 'retrying', document: null});
     assert(view._messageLabel.text === uiText('Retrying lyrics…', '正在重试歌词…', '正在重試歌詞…') &&
-        view._panelPanLooping,
+        view._panelLabelView._looping,
     'a retry must show a retry message and keep the panel title available');
     instance._onPlayerStateChanged(delayedState('Retry B'));
     delayedLookups[1].callback(null, 'unavailable');
@@ -1906,8 +2068,8 @@ export async function run() {
     fakePositionUs = 23_500_000;
     delayedLookups[2].callback(lineDocument, 'complete');
     assert(instance._currentLyricIndex === 23 &&
-        view._label.text === lineDocument.lines[23].text &&
-        view._panelPanTimeline.positionMs === 23_500,
+        view._panelLabelView._label.text === lineDocument.lines[23].text &&
+        view._panelLabelView._timeline.positionMs === 23_500,
     'late lyrics must align the row and panel timeline with the current playback clock');
     delayedLookups[0].onStatus({status: 'retrying', document: null});
     delayedLookups[0].callback(null, 'unavailable');
@@ -1932,7 +2094,7 @@ export async function run() {
         assert(delayedLookups.length === beforeClear + 1 && !instance._lyricsLoaded,
             `${phase}: clearing lyrics caches must restart the current lookup`);
         delayedLookups.at(-1).callback(null, 'complete');
-        assert(instance._lyricsLoaded && view._panelPanLooping &&
+        assert(instance._lyricsLoaded && view._panelLabelView._looping &&
             view._messageLabel.text === uiText('No lyrics found', '未找到歌词', '找不到歌詞'),
         `${phase}: a cleared lookup must reach a terminal state and restore title looping`);
     }
@@ -1968,7 +2130,7 @@ export async function run() {
     assert(delayedLookups.length === afterLatestClear,
         'an older cache clear must not cancel or restart the newest lookup');
     delayedLookups.at(-1).callback(null, 'complete');
-    assert(instance._lyricsLoaded && view._panelPanLooping,
+    assert(instance._lyricsLoaded && view._panelLabelView._looping,
         'overlapping cache clears must leave a completable current lookup');
 
     settings.set_int('cache-clear-generation', settings.get_int('cache-clear-generation') + 1);
@@ -2055,13 +2217,13 @@ export async function run() {
     instance._updateProgress();
     await Scripting.sleep(100);
     const distantWordSource = instance._wordTimerId;
-    const distantPanelSource = view._panelWordTimeoutId;
+    const distantPanelSource = view._panelLabelView._wordTimeoutId;
     assertBoundedSource(distantWordSource,
         'a distant lyric word must schedule a bounded native timeout');
     assertBoundedSource(distantPanelSource,
         'a distant panel word must schedule a bounded native timeout');
     instance._stopWordTimer();
-    view._cancelPanelPan();
+    view._panelLabelView.cancel();
     assert(!GLib.MainContext.default().find_source_by_id(distantWordSource) &&
         !GLib.MainContext.default().find_source_by_id(distantPanelSource),
     'distant word and panel sources must remain cancellable');
@@ -2074,17 +2236,17 @@ export async function run() {
     view.setLyrics(instance._lyricsDocument);
     instance._updateIndicatorAndSchedule(true);
     await Scripting.sleep(100);
-    const longWordPan = view._panelPanState(view._panelPanPositionAt());
-    const longWordTransition = view._panelPanLabel.get_transition('translation-x');
+    const longWordPan = view._panelLabelView._panState(view._panelLabelView._positionAt());
+    const longWordTransition = view._panelLabelView._panLabel.get_transition('translation-x');
     assert(longWordPan?.durationMs > 4_294_967_295 && longWordTransition &&
         longWordTransition.get_duration() <= 2_147_483_647 &&
         longWordTransition.get_duration() > 0 &&
         longWordTransition.get_delay() <= 2_147_483_647,
     'a word spanning beyond guint duration must retain a bounded native pan transition');
     instance._stopWordTimer();
-    view._cancelPanelPan();
-    assert(!view._panelPanLabel.get_transition('translation-x') &&
-        view._panelWordTimeoutId === 0,
+    view._panelLabelView.cancel();
+    assert(!view._panelLabelView._panLabel.get_transition('translation-x') &&
+        view._panelLabelView._wordTimeoutId === 0,
     'cancelling a long word must remove its native transition and panel timeout');
     // The ordinary fixture below restores its document, track and playing state.
     fakePositionUs = 1_750_000;
@@ -2098,13 +2260,13 @@ export async function run() {
     view.setTrack(offsetMetadata);
     view.setLyrics(wordDocument);
     instance._updateIndicatorAndSchedule(true);
-    assert(instance._wordTimerId !== 0 && view._label.text === markupText &&
-        view._panelPanScrollable &&
-        view._panelPanTimeline?.startMs === 0 &&
-        view._panelPanTimeline?.endMs === 3000 &&
-        view._panelPanTimeline?.positionMs === 1750 &&
-        view._panelPanTimeline?.playbackRate === 1 &&
-        view._panelWords === wordDocument.lines[0].words,
+    assert(instance._wordTimerId !== 0 && view._panelLabelView._label.text === markupText &&
+        view._panelLabelView._scrollable &&
+        view._panelLabelView._timeline?.startMs === 0 &&
+        view._panelLabelView._timeline?.endMs === 3000 &&
+        view._panelLabelView._timeline?.positionMs === 1750 &&
+        view._panelLabelView._timeline?.playbackRate === 1 &&
+        view._panelLabelView._words === wordDocument.lines[0].words,
         'a synchronized line should arm its word timer and panel timeline');
     const savedRateState = instance._state;
     const savedRatePosition = fakePositionUs;
@@ -2125,18 +2287,18 @@ export async function run() {
             for (const rate of [0.75, 1.25, 1.5, 2]) {
                 instance._state = {...savedRateState, playbackStatus: 'Playing', playbackRate: rate};
                 instance._updateIndicatorAndSchedule(true);
-                const playingPan = view._panelPanState(2500);
-                assert(view._panelPanTimeline?.playbackRate === rate && playingPan,
+                const playingPan = view._panelLabelView._panState(2500);
+                assert(view._panelLabelView._timeline?.playbackRate === rate && playingPan,
                     `${syncLevel}: panel timing must use the explicit player rate`);
                 instance._state = {...instance._state, playbackStatus: 'Paused'};
                 instance._updateIndicatorAndSchedule(true);
-                const pausedPan = view._panelPanState(2500);
-                assert(view._panelPanTimeline.playbackRate === rate &&
+                const pausedPan = view._panelLabelView._panState(2500);
+                assert(view._panelLabelView._timeline.playbackRate === rate &&
                     Math.abs(pausedPan.initialX - playingPan.initialX) < 0.001,
                 `${syncLevel}: pausing at non-default speed must preserve the horizontal position`);
                 instance._state = {...instance._state, playbackStatus: 'Playing'};
                 instance._updateIndicatorAndSchedule(true);
-                assert(view._panelPanTimeline.playbackRate === rate,
+                assert(view._panelLabelView._timeline.playbackRate === rate,
                     `${syncLevel}: resuming must retain the same timing rate`);
             }
         }
@@ -2150,11 +2312,11 @@ export async function run() {
             return 0.001;
         };
         instance._updateIndicatorAndSchedule(true);
-        const nearEndTimeline = {...view._panelPanTimeline};
+        const nearEndTimeline = {...view._panelLabelView._timeline};
         for (let repeat = 0; repeat < 3; repeat++)
             instance._updateIndicatorAndSchedule(true);
         assert(nearEndTimeline.playbackRate === 2 &&
-            panelTimelinesEqual(nearEndTimeline, view._panelPanTimeline) && delayReads === 0,
+            panelTimelinesEqual(nearEndTimeline, view._panelLabelView._timeline) && delayReads === 0,
         'near-ending resynchronization must not infer rate from a later clock/delay sample');
     } finally {
         instance._mprisManager.getDelayUntilPositionUs = savedDelay;
@@ -2170,15 +2332,15 @@ export async function run() {
     instance._translationLines = new Map([[wordDocument.lines[0].lineId,
         'Translated word-synchronized lyric']]);
     instance._updateIndicatorAndSchedule(true);
-    assert(view._label.text === 'Translated word-synchronized lyric' &&
-        view._panelWords === null,
+    assert(view._panelLabelView._label.text === 'Translated word-synchronized lyric' &&
+        view._panelLabelView._words === null,
         'the extension must not attach original word timing to translated panel text');
     instance._panelLyricsLanguage = originalPanelLanguage;
     instance._translationLines = originalPanelTranslation;
     instance._updateIndicatorAndSchedule(true);
     fakePositionUs = 2_250_000;
     instance._updateWordAndSchedule();
-    assert(view._label.text === markupText,
+    assert(view._panelLabelView._label.text === markupText,
         'word changes must not update the top-bar label');
     indicator.menu.close();
     assert(instance._wordTimerId === 0 && instance._progressTimerId === 0,
@@ -2197,9 +2359,9 @@ export async function run() {
     instance._lyricsDocument = offsetDocument;
     instance._updateIndicatorAndSchedule(true);
     assert(instance._wordTimerId === 0 &&
-        view._panelPanTimeline?.startMs === 1000 &&
-        view._panelPanTimeline?.endMs === 2000 &&
-        view._panelPanTimeline?.positionMs === 1750,
+        view._panelLabelView._timeline?.startMs === 1000 &&
+        view._panelLabelView._timeline?.endMs === 2000 &&
+        view._panelLabelView._timeline?.positionMs === 1750,
         'pause should cancel the word timer and preserve the lyric-time anchor');
     for (const [endMs, words, nextStartMs, expectedEndMs] of [
         [4000, [], 25000, 4000],
@@ -2220,7 +2382,7 @@ export async function run() {
         instance._lyricsDocument = timingDocument;
         view.setLyrics(timingDocument);
         instance._updateIndicatorAndSchedule(true);
-        assert(view._panelPanTimeline?.endMs === expectedEndMs,
+        assert(view._panelLabelView._timeline?.endMs === expectedEndMs,
             'panel timing must honor explicit ends, cap overlaps, and retain untimed fallbacks');
     }
     instance._lyricsDocument = offsetDocument;
@@ -2236,7 +2398,7 @@ export async function run() {
         view._resetButton.visible,
         'popup buttons should adjust the current track offset');
     assert(instance._currentLyricIndex === 1 &&
-        view._label.text === 'Second',
+        view._panelLabelView._label.text === 'Second',
         'a positive track offset should immediately advance the paused lyric');
     instance._setTrackOffsetMs(-1000);
     assert(instance._currentLyricIndex === -1,
@@ -2271,12 +2433,12 @@ export async function run() {
     settings.set_int('global-offset-ms', 0);
 
     settings.set_boolean('show-icon', false);
-    assert(view._label.text === 'First' && !view._icon.visible &&
-        view._labelViewport.get_style().includes('500px'),
+    assert(view._panelLabelView._label.text === 'First' && !view._icon.visible &&
+        view._panelLabelView.actor.get_style().includes('500px'),
     'show-icon should hide only the symbolic icon and release its width');
     settings.set_boolean('show-icon', true);
-    assert(view._label.text === 'First' && view._icon.visible &&
-        view._labelViewport.get_style().includes('478px'),
+    assert(view._panelLabelView._label.text === 'First' && view._icon.visible &&
+        view._panelLabelView.actor.get_style().includes('478px'),
     'show-icon should restore the symbolic icon without changing lyric text');
 
     settings.set_boolean('word-sync-enabled', false);
@@ -2294,7 +2456,7 @@ export async function run() {
         view._translationLabels[0].visible,
     'enabling translation should apply line-aligned bilingual text without rebuilding rows');
     settings.set_string('panel-lyrics-language', 'translated');
-    assert(view._label.text === '[zh-CN] First',
+    assert(view._panelLabelView._label.text === '[zh-CN] First',
         'the panel should use a loaded translation when requested');
     settings.set_string('translation-display-mode', 'translated');
     assert(!view._lyricLabels[0].visible &&
@@ -2391,18 +2553,18 @@ export async function run() {
     }
     settings.set_string('panel-lyrics-language', 'original');
     settings.set_boolean('translation-enabled', false);
-    assert(!view._translationItem.visible && view._label.text === 'First',
+    assert(!view._translationItem.visible && view._panelLabelView._label.text === 'First',
         'disabling translation should restore exact Phase 4 panel behavior');
 
     settings.set_int('max-panel-width', 640);
     assert(view._panelBox.get_style().includes('640px') &&
         view._panelBox.natural_width === 640 &&
-        view._labelViewport.get_style().includes('618px'),
+        view._panelLabelView.actor.get_style().includes('618px'),
         'maximum panel width above 320px should expand the lyric viewport immediately');
     settings.set_int('max-panel-width', 200);
     assert(view._panelBox.get_style().includes('200px') &&
         view._panelBox.natural_width === 200 &&
-        view._labelViewport.get_style().includes('178px'),
+        view._panelLabelView.actor.get_style().includes('178px'),
         'a configured maximum below the default width should cap both widths');
     settings.set_int('max-panel-width', 500);
 
@@ -2425,59 +2587,59 @@ export async function run() {
         scrollable: true,
         timeline: panelTimeline(5000),
     });
-    assert(view._label.opacity === 255 &&
+    assert(view._panelLabelView._label.opacity === 255 &&
         !view._progressView._slider.get_transition('value') &&
-        !view._panelPanLabel.get_transition('translation-x') &&
-        !view._panelFadeEffect.enabled &&
+        !view._panelLabelView._panLabel.get_transition('translation-x') &&
+        !view._panelLabelView._fadeEffect.enabled &&
         !view._titleLabel.get_transition('translation-x'),
     'animation inhibition must stop movement before deferred layout completes');
     // Width and title changes can require several native layout frames.
     const reducedMotionDeadlineUs = GLib.get_monotonic_time() + 1_000_000;
-    while ((view._panelPanLaterId || view._panelGeometryLaterId ||
-        view._titlePanLaterId || !view._panelPanLabel.visible) &&
+    while ((view._panelLabelView._panLaterId || view._panelLabelView._geometryLaterId ||
+        view._titlePanLaterId || !view._panelLabelView._panLabel.visible) &&
         GLib.get_monotonic_time() < reducedMotionDeadlineUs)
         await Scripting.sleep(20);
-    assert(view._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
-        view._panelPanLaterId === 0 && view._panelGeometryLaterId === 0 &&
+    assert(view._panelLabelView._label.opacity === 255 && !view._progressView._slider.get_transition('value') &&
+        view._panelLabelView._panLaterId === 0 && view._panelLabelView._geometryLaterId === 0 &&
         view._titlePanLaterId === 0 &&
-        !view._label.visible && view._panelPanLabel.visible &&
-        !view._panelPanLabel.get_transition('translation-x') &&
-        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
-        view._panelWordTimeoutId !== 0 &&
-        !view._panelFadeEffect.enabled &&
+        !view._panelLabelView._label.visible && view._panelLabelView._panLabel.visible &&
+        !view._panelLabelView._panLabel.get_transition('translation-x') &&
+        view._panelLabelView._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.NONE &&
+        view._panelLabelView._wordTimeoutId !== 0 &&
+        !view._panelLabelView._fadeEffect.enabled &&
         !view._titleLabel.get_transition('translation-x'),
     'disabled Shell animations should use timed pages without animated movement ' +
-        `(panLater=${view._panelPanLaterId}, geometryLater=${view._panelGeometryLaterId}, ` +
-        `titleLater=${view._titlePanLaterId}, panVisible=${view._panelPanLabel.visible}, ` +
-        `pageTimer=${view._panelWordTimeoutId})`);
-    const firstPageX = view._panelPanLabel.translation_x;
+        `(panLater=${view._panelLabelView._panLaterId}, geometryLater=${view._panelLabelView._geometryLaterId}, ` +
+        `titleLater=${view._titlePanLaterId}, panVisible=${view._panelLabelView._panLabel.visible}, ` +
+        `pageTimer=${view._panelLabelView._wordTimeoutId})`);
+    const firstPageX = view._panelLabelView._panLabel.translation_x;
     const firstPageDeadlineUs = GLib.MainContext.default()
-        .find_source_by_id(view._panelWordTimeoutId).get_ready_time() + 500_000;
-    while (view._panelPanLabel.translation_x === firstPageX &&
+        .find_source_by_id(view._panelLabelView._wordTimeoutId).get_ready_time() + 500_000;
+    while (view._panelLabelView._panLabel.translation_x === firstPageX &&
         GLib.get_monotonic_time() < firstPageDeadlineUs)
         await Scripting.sleep(20);
-    assert(view._panelPanLabel.translation_x < firstPageX &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.translation_x < firstPageX &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'reduced-motion lyrics must advance to a later page using the playback clock');
     const pageHoverPopupWasOpen = indicator.menu.isOpen;
     indicator.menu.close();
-    view._panelHovered = true;
-    view._pausePanelPan();
-    const hoveredPageX = view._panelPanLabel.translation_x;
+    view._panelLabelView._hovered = true;
+    view._panelLabelView.pause();
+    const hoveredPageX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(80);
-    assert(view._panelWordTimeoutId === 0 &&
-        view._panelPanLabel.translation_x === hoveredPageX,
+    assert(view._panelLabelView._wordTimeoutId === 0 &&
+        view._panelLabelView._panLabel.translation_x === hoveredPageX,
     'hovering must freeze the reduced-motion page and cancel its boundary timer');
     view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
     await Scripting.sleep(80);
-    assert(view._panelPanLabel.translation_x === hoveredPageX && view._panelPanPaused &&
-        view._panelWordTimeoutId === 0,
+    assert(view._panelLabelView._panLabel.translation_x === hoveredPageX && view._panelLabelView._paused &&
+        view._panelLabelView._wordTimeoutId === 0,
     'background resynchronization must not advance a hovered reduced-motion page');
     view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 2000)});
-    view._panelHovered = false;
-    view._resumePanelPan();
+    view._panelLabelView._hovered = false;
+    view._panelLabelView.resume();
     await Scripting.sleep(80);
-    assert(view._panelWordTimeoutId !== 0,
+    assert(view._panelLabelView._wordTimeoutId !== 0,
         'leaving hover must resume page scheduling from the playback clock');
     if (pageHoverPopupWasOpen) {
         indicator.menu.open();
@@ -2485,25 +2647,25 @@ export async function run() {
     }
     view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 4900)});
     await Scripting.sleep(80);
-    const finalPageX = view._panelPanLabel.translation_x;
-    assert(finalPageX < hoveredPageX && view._panelWordTimeoutId === 0,
+    const finalPageX = view._panelLabelView._panLabel.translation_x;
+    assert(finalPageX < hoveredPageX && view._panelLabelView._wordTimeoutId === 0,
         'seeking to the line ending must show its last page without a pending timer');
     view.setText(pagedText, {scrollable: true, timeline: panelTimeline(5000, 1000)});
     await Scripting.sleep(80);
-    assert(view._panelPanLabel.translation_x > finalPageX &&
-        view._panelWordTimeoutId !== 0,
+    assert(view._panelLabelView._panLabel.translation_x > finalPageX &&
+        view._panelLabelView._wordTimeoutId !== 0,
     'seeking backward must restore the earlier page and its next boundary');
     view.setProgress(10_010_000, 220_000_000, {playing: false});
-    const pausedPageX = view._panelPanLabel.translation_x;
+    const pausedPageX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(80);
-    assert(view._panelWordTimeoutId === 0 &&
-        view._panelPanLabel.translation_x === pausedPageX,
+    assert(view._panelLabelView._wordTimeoutId === 0 &&
+        view._panelLabelView._panLabel.translation_x === pausedPageX,
     'pausing must cancel the page boundary timer and keep the page still');
     view.setProgress(10_010_000, 220_000_000, {playing: true});
     reducedMotionSettings.uninhibit_animations();
     await Scripting.sleep(80);
-    assert(view._animationsEnabled() && view._panelWordTimeoutId === 0 &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._animationsEnabled() && view._panelLabelView._wordTimeoutId === 0 &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'restoring native animations must replace the page timer with continuous movement');
     if (St.ReducedMotion) {
         const motionSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.a11y.interface'});
@@ -2514,15 +2676,15 @@ export async function run() {
             motionSettings.set_string('reduced-motion', 'reduce');
             await Scripting.sleep(80);
             assert(reducedMotionSettings.enable_animations && !view._animationsEnabled() &&
-                !view._panelPanLabel.get_transition('translation-x') &&
-                view._panelWordTimeoutId !== 0 &&
+                !view._panelLabelView._panLabel.get_transition('translation-x') &&
+                view._panelLabelView._wordTimeoutId !== 0 &&
                 !view._titleLabel.get_transition('translation-x') &&
-                !view._titleCopy.visible && !view._panelFadeEffect.enabled,
+                !view._titleCopy.visible && !view._panelLabelView._fadeEffect.enabled,
             'Shell 51 reduced motion must stop active title/lyric movement while animations stay enabled');
-            const reducedPageX = view._panelPanLabel.translation_x;
+            const reducedPageX = view._panelLabelView._panLabel.translation_x;
             await Scripting.sleep(1700);
-            assert(view._panelPanLabel.translation_x < reducedPageX &&
-                !view._panelPanLabel.get_transition('translation-x'),
+            assert(view._panelLabelView._panLabel.translation_x < reducedPageX &&
+                !view._panelLabelView._panLabel.get_transition('translation-x'),
             'Shell 51 reduced motion must advance timed lyric pages');
             nativeReducedArtwork.setArtwork('file:///fast/b', 'native-reduced-a');
             await Scripting.sleep(80);
@@ -2537,8 +2699,8 @@ export async function run() {
             motionSettings.set_string('reduced-motion', originalMotion);
         }
         await Scripting.sleep(80);
-        assert(view._animationsEnabled() && view._panelWordTimeoutId === 0 &&
-            view._panelPanLabel.get_transition('translation-x'),
+        assert(view._animationsEnabled() && view._panelLabelView._wordTimeoutId === 0 &&
+            view._panelLabelView._panLabel.get_transition('translation-x'),
         'clearing Shell 51 reduced motion must restore continuous lyric movement');
     }
     view.updateMetadataDisplay({title: reducedMotionTitle,
@@ -2568,7 +2730,7 @@ export async function run() {
             text: 'Original line\nTranslated line'}],
     };
     instance._updateIndicatorAndSchedule(true);
-    assert(view._label.text === 'Original line  Translated line',
+    assert(view._panelLabelView._label.text === 'Original line  Translated line',
         'multiline merged lyrics must flatten newlines for the single-line panel');
     instance._lyricsDocument = prevDoc;
     instance._updateIndicatorAndSchedule(true);
@@ -2582,8 +2744,8 @@ export async function run() {
         contentKey: 'rtl-pan-check',
     });
     await Scripting.sleep(150);
-    const rtlStartState = view._panelPanState(0);
-    const rtlEndState = view._panelPanState(8000);
+    const rtlStartState = view._panelLabelView._panState(0);
+    const rtlEndState = view._panelLabelView._panState(8000);
     assert(rtlStartState && rtlEndState &&
         rtlStartState.initialX < 0 && rtlStartState.targetX === 0 &&
         rtlEndState.initialX === 0,
@@ -2610,12 +2772,12 @@ export async function run() {
     instance._lyricsLoaded = true;
     view.setLyrics(null);
     instance._updateIndicatorAndSchedule(true);
-    assert(indicator.visible && view._label.text === 'Offset Test' &&
-        view._panelPanLooping && !view._panelPanTimeline,
+    assert(indicator.visible && view._panelLabelView._label.text === 'Offset Test' &&
+        view._panelLabelView._looping && !view._panelLabelView._timeline,
         'no-lyrics fallback should show the title in loop mode without fake lyric timing');
     settings.set_boolean('fallback-track-info', false);
-    assert(indicator.visible && !view._label.text && view._icon.visible &&
-        !view._labelViewport.visible,
+    assert(indicator.visible && !view._panelLabelView._label.text && view._icon.visible &&
+        !view._panelLabelView.actor.visible,
         'no lyrics and no fallback should retain an icon-only media entry');
     settings.set_boolean('show-icon', false);
     assert(view._icon.visible,
@@ -2627,7 +2789,7 @@ export async function run() {
 
     await Scripting.waitTestWindows();
     await Scripting.sleep(150);
-    const panelTitleMeasure = view._panelPanLabel.clutter_text.get_layout().copy();
+    const panelTitleMeasure = view._panelLabelView._panLabel.clutter_text.get_layout().copy();
     panelTitleMeasure.set_ellipsize(Pango.EllipsizeMode.NONE);
     panelTitleMeasure.set_width(-1);
     let panelLoopTitle = 'Loop title ';
@@ -2635,28 +2797,28 @@ export async function run() {
         panelLoopTitle += 'i';
         panelTitleMeasure.set_text(panelLoopTitle, -1);
     } while (panelTitleMeasure.get_pixel_size()[0] /
-        view._panelPanLabel.clutter_text.get_resource_scale() <= view._panelViewportWidth);
+        view._panelLabelView._panLabel.clutter_text.get_resource_scale() <= view._panelLabelView._viewportWidth);
     instance._state = {playbackStatus: 'Playing',
         metadata: {...offsetMetadata, title: panelLoopTitle}};
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
     instance._updateIndicatorAndSchedule(true);
     await Scripting.sleep(150);
-    assert(view._panelPanLabel.translation_x === 0 &&
-        view._panelFadeEffect.enabled && view._panelFadeEffect._edges[1] === 0 &&
-        view._panelFadeEffect._edges[2] === 1,
+    assert(view._panelLabelView._panLabel.translation_x === 0 &&
+        view._panelLabelView._fadeEffect.enabled && view._panelLabelView._fadeEffect._edges[1] === 0 &&
+        view._panelLabelView._fadeEffect._edges[2] === 1,
     'the initial title hold must fade only the overflowing right edge');
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
     await Scripting.sleep(80);
-    assert(view._panelPanLabel.translation_x === 0 && view._panelFadeEffect._edges[1] === 0,
+    assert(view._panelLabelView._panLabel.translation_x === 0 && view._panelLabelView._fadeEffect._edges[1] === 0,
         'pausing a title at its start must preserve the complete first glyph');
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
     await Scripting.sleep(2150);
-    const panelTitlePeriod = referenceLabelWidth(view._panelPanLabel) + 32;
-    assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
-        !view._panelPanTimeline && view._panelWordTimeoutId === 0 &&
-        view._panelPanLabel.translation_x < 0 && view._panelTitleCopy.visible,
+    const panelTitlePeriod = referenceLabelWidth(view._panelLabelView._panLabel) + 32;
+    assert(view._panelLabelView._label.text === panelLoopTitle && view._panelLabelView._looping &&
+        !view._panelLabelView._timeline && view._panelLabelView._wordTimeoutId === 0 &&
+        view._panelLabelView._panLabel.translation_x < 0 && view._panelLabelView._titleCopy.visible,
     'a missing-lyrics title should scroll left without a lyric boundary timer');
-    assert(view._panelFadeEffect._edges[1] > 0 && view._panelFadeEffect._edges[2] === 1,
+    assert(view._panelLabelView._fadeEffect._edges[1] > 0 && view._panelLabelView._fadeEffect._edges[2] === 1,
         'a moving title loop must fade its clipped left edge and the incoming copy on the right');
 
     const instrumentalDocument = {source: 'test-instrumental', sourceId: null,
@@ -2664,87 +2826,87 @@ export async function run() {
     instance._lyricsDocument = instrumentalDocument;
     view.setLyrics(instrumentalDocument);
     instance._updateIndicatorAndSchedule(true);
-    assert(view._label.text === panelLoopTitle && view._panelPanLooping &&
+    assert(view._panelLabelView._label.text === panelLoopTitle && view._panelLabelView._looping &&
         view._messageLabel.text === uiText('Instrumental', '纯音乐', '純音樂'),
     'an instrumental provider flag must loop the track title while retaining the popup explanation');
-    assert(view._panelPanTargetX === -panelTitlePeriod,
+    assert(view._panelLabelView._targetX === -panelTitlePeriod,
         'the title loop must target one full title and gap, never a reverse leg');
     instance._state.playbackStatus = 'Paused';
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
-    const pausedTitleX = view._panelPanLabel.translation_x;
+    const pausedTitleX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(80);
-    assert(view._panelPanPaused && view._panelPanLabel.translation_x === pausedTitleX &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._paused && view._panelLabelView._panLabel.translation_x === pausedTitleX &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'pause must freeze the title copies at their current position');
     instance._state.playbackStatus = 'Playing';
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: true});
-    assert(view._panelPanLabel.translation_x === pausedTitleX,
+    assert(view._panelLabelView._panLabel.translation_x === pausedTitleX,
         'resuming a title loop must not jump back to its beginning');
-    await checkTitleWrap(view._panelPanLabel, view._panelTitleCopy, panelTitlePeriod,
-        () => view._continuePanelTitlePan());
+    await checkTitleWrap(view._panelLabelView._panLabel, view._panelLabelView._titleCopy, panelTitlePeriod,
+        () => view._panelLabelView._continueTitlePan());
     await Scripting.sleep(200);
-    assert(view._panelPanLabel.translation_x < 0 &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.translation_x < 0 &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'the no-lyrics title must start another loop rather than stop after one pass');
     const panelLoopPopupWasOpen = indicator.menu.isOpen;
     indicator.menu.close();
-    view._panelHovered = true;
-    view._pausePanelPan();
-    const hoveredTitleX = view._panelPanLabel.translation_x;
+    view._panelLabelView._hovered = true;
+    view._panelLabelView.pause();
+    const hoveredTitleX = view._panelLabelView._panLabel.translation_x;
     await Scripting.sleep(80);
-    assert(view._panelPanLabel.translation_x === hoveredTitleX && view._panelPanPaused,
+    assert(view._panelLabelView._panLabel.translation_x === hoveredTitleX && view._panelLabelView._paused,
         'hover must freeze a panel title loop');
-    view._queuePanelPanRestart();
+    view._panelLabelView._queueRestart();
     await Scripting.sleep(80);
-    assert(view._panelPanLabel.translation_x === hoveredTitleX && view._panelPanPaused &&
-        !view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.translation_x === hoveredTitleX && view._panelLabelView._paused &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'a queued layout restart must preserve the hovered title loop position');
-    view._panelHovered = false;
-    view._resumePanelPan();
-    assert(view._panelPanLabel.translation_x === hoveredTitleX &&
-        view._panelPanLabel.get_transition('translation-x'),
+    view._panelLabelView._hovered = false;
+    view._panelLabelView.resume();
+    assert(view._panelLabelView._panLabel.translation_x === hoveredTitleX &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'leaving hover must resume the panel title without resetting its position');
     if (panelLoopPopupWasOpen)
         indicator.menu.open();
 
-    const panelTitleStyle = view._panelPanLabel.get_style();
-    view._panelPanLabel.set_style('font-size: 31px;');
+    const panelTitleStyle = view._panelLabelView._panLabel.get_style();
+    view._panelLabelView._panLabel.set_style('font-size: 31px;');
     await Scripting.sleep(180);
-    const resizedTitleWidth = referenceLabelWidth(view._panelPanLabel);
-    assert(referenceLabelWidth(view._panelTitleCopy) === resizedTitleWidth &&
-        view._panelTitleCopy.get_allocation_box().x1 === resizedTitleWidth + 32,
+    const resizedTitleWidth = referenceLabelWidth(view._panelLabelView._panLabel);
+    assert(referenceLabelWidth(view._panelLabelView._titleCopy) === resizedTitleWidth &&
+        view._panelLabelView._titleCopy.get_allocation_box().x1 === resizedTitleWidth + 32,
     'font changes must update both copies and their spacing before restarting');
-    view._panelPanLabel.set_style(panelTitleStyle);
+    view._panelLabelView._panLabel.set_style(panelTitleStyle);
     await Scripting.sleep(180);
 
     settings.set_int('max-panel-width', 200);
     await Scripting.sleep(150);
-    assert(view._panelPanLooping && view._panelViewportWidth <= 178 &&
-        view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._looping && view._panelLabelView._viewportWidth <= 178 &&
+        view._panelLabelView._panLabel.get_transition('translation-x'),
     'title loops must restart using the new allocated text viewport');
     St.Settings.get().inhibit_animations();
     await Scripting.sleep(80);
-    assert(view._label.visible && !view._panelPanLabel.visible &&
-        !view._panelTitleCopy.visible &&
+    assert(view._panelLabelView._label.visible && !view._panelLabelView._panLabel.visible &&
+        !view._panelLabelView._titleCopy.visible &&
         !view._titleCopy.visible && !view._titleLabel.get_transition('translation-x') &&
-        view._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
-        !view._panelPanLabel.get_transition('translation-x'),
+        view._panelLabelView._label.clutter_text.get_ellipsize() === Pango.EllipsizeMode.END &&
+        !view._panelLabelView._panLabel.get_transition('translation-x'),
     'a no-lyrics title must remain statically ellipsized when animations are disabled');
     St.Settings.get().uninhibit_animations();
     settings.set_int('max-panel-width', 500);
     await Scripting.sleep(100);
-    assert(view._panelPanLabel.get_transition('translation-x'),
+    assert(view._panelLabelView._panLabel.get_transition('translation-x'),
         'restoring animations must restart the panel title loop');
     view.clearTrack();
-    assert(!view._panelPanLooping && view._panelPanLaterId === 0 &&
-        !view._panelPanLabel.get_transition('translation-x') && !view._panelTitleCopy.visible,
+    assert(!view._panelLabelView._looping && view._panelLabelView._panLaterId === 0 &&
+        !view._panelLabelView._panLabel.get_transition('translation-x') && !view._panelLabelView._titleCopy.visible,
     'clearing a track must cancel both loop state and pending title motion');
     instance._state = {playbackStatus: 'Paused', metadata: offsetMetadata};
     view.setProgress(fakePositionUs, offsetMetadata.durationUs, {playing: false});
     instance._lyricsDocument = offsetDocument;
     view.setLyrics(offsetDocument);
     instance._updateIndicatorAndSchedule(true);
-    assert(!view._panelPanLooping && view._label.text === 'First',
+    assert(!view._panelLabelView._looping && view._panelLabelView._label.text === 'First',
         'returning to synchronized lyrics must cancel the old title loop');
 
     const plainDocument = {
@@ -2765,8 +2927,8 @@ export async function run() {
     view.setLyrics(plainDocument);
     settings.set_boolean('fallback-track-info', false);
     assert(indicator.visible && instance._currentLyricIndex === -1 &&
-        view._label.text === 'Offset Test — Paused Artist' &&
-        !view._panelPanScrollable,
+        view._panelLabelView._label.text === 'Offset Test — Paused Artist' &&
+        !view._panelLabelView._scrollable,
     'plain lyrics should keep a static popup entry without pretending to sync');
     settings.set_boolean('fallback-track-info', true);
     instance._lyricsDocument = null;
@@ -2839,7 +3001,7 @@ export async function run() {
     instance._globalOffsetMs = 5000;
     instance._trackOffsetMs = 0;
     instance._updateIndicatorAndSchedule(true);
-    assert(view._panelPanTimeline === null,
+    assert(view._panelLabelView._timeline === null,
         'unknown track duration (0) plus positive offset must not fabricate a line end timeline');
     instance._globalOffsetMs = 0;
 
@@ -2893,13 +3055,20 @@ export async function run() {
             `enable cycle ${cycle} failed after cleanup`);
         await Scripting.sleep(300);
         const cycleIndicator = Main.panel.statusArea[UUID];
+        const cycleView = Main.extensionManager.lookup(UUID)?.stateObj?._indicator;
         assert(cycleIndicator &&
             Main.panel.statusArea[UUID] === cycleIndicator,
         `enable cycle ${cycle} should create exactly one registered indicator`);
+        if (cycle === 1) {
+            cycleView.setVisible(true);
+            cycleView._panelLabelView.setHovered(true);
+            cycleIndicator.menu.open(false);
+        }
         assert(Main.extensionManager.disableExtension(UUID),
             `disable cycle ${cycle} failed`);
         await Scripting.sleep(200);
-        assert(!Main.panel.statusArea[UUID],
+        assert(!Main.panel.statusArea[UUID] && cycleView.actor === null &&
+            cycleView._panelLabelView === null,
             `disable cycle ${cycle} left a stale indicator`);
     }
 }

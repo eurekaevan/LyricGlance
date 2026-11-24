@@ -1,77 +1,67 @@
 # LyricGlance
 
+English · [简体中文](README.zh-CN.md)
+
 <img src="icon.svg" alt="LyricGlance icon" width="128" height="128">
 
-图标：[彩色 SVG](icon.svg) · [512px PNG](icon.png) · [顶栏单色 SVG](icons/lyric-glance-symbolic.svg)。
+Icons: [Color SVG](icon.svg) · [512px PNG](icon.png) · [Top-bar Symbolic SVG](icons/lyric-glance-symbolic.svg)
 
-LyricGlance 在 GNOME 顶栏显示 MPRIS 播放器的同步歌词，并可在原生 Shell 弹出菜单中查看封面、
-播放进度、逐行/逐字歌词和可选的行级翻译。
+LyricGlance displays synchronized lyrics for MPRIS-compatible media players in the GNOME top bar,
+with a native Shell popup featuring album artwork, interactive playback controls, line/word-level
+lyrics, and optional line-level translation.
 
-![LyricGlance 双语歌词弹出菜单](docs/screenshots/bilingual-lyrics.png)
+![LyricGlance bilingual lyrics popup](docs/screenshots/bilingual-lyrics.png)
 
-![LyricGlance 设置](docs/screenshots/preferences.png)
+![LyricGlance preferences](docs/screenshots/preferences.png)
 
-## 功能
+## Features
 
-- 通过 MPRIS 自动发现播放器；不依赖 `playerctl`，不轮询播放器状态。
-- 从 LRCLIB 获取逐行、逐字、纯文本或纯音乐信息，可选 LrcAPI 补充同步或纯文本歌词。
-- 顶栏歌词、原生 popup、封面、播放/暂停、上一首/下一首、可交互播放进度、播放器选择和每首歌曲时间偏移。
-- 原文、双语或仅译文显示；原歌词和 timing 始终是唯一事实来源。
-- 逐字高亮只作用于原文，不为译文伪造 karaoke timing。
-- 超宽同步歌词按播放时间滚动；超宽弹窗标题向左无缝循环，关闭系统动画时同步歌词改为分段显示。
-- 无歌词时可在顶栏向左循环曲目标题；歌词库标记为纯音乐的曲目也显示标题，弹窗保留纯音乐说明。
-- 有界的歌词、封面、翻译和歌曲偏移缓存。
-- GTK4/Libadwaita Preferences；英文、简体中文和繁体中文界面。
+- Automatic MPRIS 2 player discovery with event-driven synchronization (no `playerctl`, no position polling).
+- Line-synced, word-synced, plain-text, and instrumental lyrics from LRCLIB, with optional LrcAPI fallback.
+- Top-bar lyrics and native popup with album artwork, play/pause, previous/next, interactive seek slider, player selection, and per-track timing offset.
+- Original, bilingual, or translation-only popup display; original lyrics and timestamps always remain the single source of truth.
+- Word-level karaoke highlighting applies to original lyrics only and never fabricates timing for translations.
+- Playback-timed scrolling for overflowing panel lyrics, seamless looping for overflowing titles, and timed paged display when animations are disabled or reduced motion is enabled.
+- Optional looping track title in the top bar when no lyrics exist or a track is marked instrumental (while keeping the instrumental indicator in the popup).
+- Bounded local caches for lyrics, artwork, translations, and per-track offsets.
+- GTK4/Libadwaita Preferences with English, Simplified Chinese (`zh_CN`), and Traditional Chinese (`zh_TW`) translations.
 
-更多发布截图见 [`docs/screenshots/`](docs/screenshots/)。
+More screenshots are available in [`docs/screenshots/`](docs/screenshots/).
 
-## 兼容性
+## Compatibility
 
 - Fedora Linux
-- GNOME Shell 50／51（50 的历史验证覆盖 50.4～50.6；51 的运行验证使用 51.1）
+- GNOME Shell 50 / 51 (historical Shell 50 verification across 50.4-50.6; Shell 51 verified on 51.1)
 - Wayland
 - GJS ES Modules
 
-`metadata.json` 声明 GNOME Shell 50 和 51。GNOME 49 未验证，也未声明支持。播放器只需
-正确实现 MPRIS 2；不会为 Spotify 或浏览器使用专用 API。详细手工验证状态和未来升级
-风险见 [`docs/compatibility.md`](docs/compatibility.md)。
+`metadata.json` declares GNOME Shell 50 and 51; GNOME 49 is neither tested nor declared. Any media
+player that implements MPRIS 2 works without player-specific APIs. See
+[`docs/compatibility.md`](docs/compatibility.md) for the recorded verification matrix and upgrade notes.
 
-## 安装
+## Installation
 
-LyricGlance 使用新的 `lyric-glance@eureka` UUID、GSettings schema、gettext domain
-和 XDG 数据目录。旧版设置、翻译密钥和缓存不会自动迁移；安装新版时，GNOME 可能同时
-保留旧 UUID 的扩展，因此请按需从 Extensions 中禁用或移除旧版。
+LyricGlance uses the `lyric-glance@eureka` UUID, GSettings schema, gettext domain, and XDG
+cache/config directories. Older settings, translation keys, and caches from previous identities are
+not migrated automatically; disable or remove any older UUID from Extensions if installed.
 
-### Release 用户
+### Release Users
 
-从 GitHub Release 下载 `lyric-glance@eureka.shell-extension.zip`，然后运行：
+Download `lyric-glance@eureka.shell-extension.zip` from GitHub Releases and run:
 
 ```sh
 gnome-extensions install --force lyric-glance@eureka.shell-extension.zip
 gnome-extensions enable lyric-glance@eureka
 ```
 
-首次安装或更新 JavaScript 后请注销并重新登录。GNOME Shell 50／51 会在当前 Shell 进程中
-缓存已导入的 ESM，单纯 disable / enable 不能证明新模块已经 fresh-import。
+Log out and back in after a first install or any JavaScript update. GNOME Shell 50/51 caches
+imported ES modules for the lifetime of the Shell process, so disabling and re-enabling does not
+reload updated modules.
 
-项目提交到 extensions.gnome.org 前不会在这里放置不存在的商店链接。
+### From Source
 
-### 开发者
-
-静态检查使用 Python 3.14 和 venv；Fedora 需安装 `python3.14`、`python-pip-wheel`。
-
-```sh
-git clone https://github.com/eurekaevan/LyricGlance.git
-cd LyricGlance
-python3.14 -m venv /tmp/lyricglance-shexli
-. /tmp/lyricglance-shexli/bin/activate
-python -m pip install \
-  'shexli @ https://github.com/GNOME/extensions-web/archive/56e6799ac01e39c0b31d83d350a8b4c15326efd8.tar.gz#subdirectory=shexli' \
-  tree-sitter==0.25.2 tree-sitter-javascript==0.25.0
-make check
-make install
-gnome-extensions enable lyric-glance@eureka
-```
+See [`docs/development.md`](docs/development.md) for build dependencies, `shexli` setup, `make check`,
+and local installation steps.
 
 ## Preferences
 
@@ -79,481 +69,125 @@ gnome-extensions enable lyric-glance@eureka
 gnome-extensions prefs lyric-glance@eureka
 ```
 
-可设置顶栏位置和宽度、暂停时可见性、逐字高亮、全局歌词时间偏移、翻译显示方式、
-目标语言、翻译 API 端点和模型、播放器偏好，以及清理扩展自己的缓存。每首歌曲的单独
-偏移在 popup 中调整。
-
-设置通过 GSettings 即时生效。`preferred-player` 保存稳定的 DesktopEntry/Identity，
-不保存临时 MPRIS bus name。
-
-## 界面语言
-
-扩展弹窗和设置窗口支持英文、简体中文（`zh_CN`）、繁体中文（`zh_TW`），
-自动跟随 GNOME 会话的语言；没有对应翻译时回退到英文，无需在扩展中另选语言。
-按钮、无障碍名称、歌词来源及错误/重试提示都使用
-同一套 gettext 翻译。界面语言不会改变歌曲标题、歌手、原始歌词或歌词翻译的目标语言。
-
-## 翻译设置
-
-翻译默认关闭。设置中的“翻译”页支持保存多个自定义 OpenAI 兼容模型服务配置（支持 Responses 和
-Chat Completions），并在当前服务与已启用模型之间直接切换。每个服务可填写完整端点或以 `/v1`
-结尾的基础地址（末尾斜杠可省略），默认条目为 `OpenAI`（`https://api.openai.com/v1/responses`）。
-选择协议后，基础地址会补上 `/responses` 或 `/chat/completions`，保留代理路径。
-“根据地址自动选择”识别完整的 `/chat/completions` 端点，其余地址默认使用 Responses。
-服务详情页显示最终翻译请求地址以及 `GET .../models` 地址；完整端点原样使用，已知接口后缀与显式选择的协议冲突时会提示修改。
-
-每个模型服务支持手动添加/移除模型，也支持点击“获取模型列表”使用该服务已保存的 API 密钥请求
-`GET .../models`（同样要求 HTTPS 或本机回环 HTTP 且不跟随重定向），在弹窗中搜索并勾选要保留的模型，同时保留手动添加的自定义模型。
-
-各模型服务的 API 密钥按服务 ID 独立写入 Secret Service/libsecret，不进入 GSettings、JSON cache、
-请求日志或 Git；删除服务时会同步移除对应的密钥。为避免明文泄露密钥，远程端点必须使用 HTTPS，本机
-`localhost`/loopback 调试端点可使用 HTTP。
-
-自定义端点会接收 Bearer API 密钥、歌曲标题/艺术家和待翻译歌词，请只配置可信服务。
-模型必须支持所选协议。Chat Completions 优先请求 JSON Schema，服务明确拒绝兼容参数时，
-才改用 JSON 对象模式或旧版 `max_tokens`，最终仍校验译文行 ID 和完整性。
-缓存按最终地址及协议隔离，同一接口的基础地址和完整地址可复用译文。
-
-翻译使用缓存优先的行级文档：每行以稳定 `lineId` 对齐，并校验原歌词 hash。请求失败时
-原歌词仍可用。自动翻译也必须先显式启用翻译功能。
-
-歌曲、原文、目标语言、服务配置、模型及联网策略相同的在途请求会合并；每个调用方都会
-收到当前状态及后续更新，包括加入前已进入的“正在加载”。强制刷新不会复用正在进行的
-普通缓存读取或翻译，而是取消并取代该任务，绕过缓存重新请求；重复强制刷新及之后的
-普通调用可共享这次刷新。已取消的任务不再接受新调用方。缓存查询与允许联网的任务仍
-分开处理，强制刷新也不会绕过联网权限、同语言跳过或配置检查。
-
-混合语种歌词要求逐行、逐句翻译到目标语言：例如日文歌中的英文副歌和同一行夹杂的英文，
-也应译为中文，而不是只处理识别出的主要语言。原本已是目标语言的文字和适当的专名可以保留。
-API 返回的本批结果必须覆盖全部请求行且译文非空，否则报响应无效，不把漏译当作成功缓存。
-提示词与 JSON Schema 都要求 `{"lines":[{"id":"原行 ID","text":"译文"}]}`；
-部分兼容端点会改用顶层 `translations` 数组，仅在没有 `lines` 字段时接受此别名，
-并执行相同的 ID、重复行、完整性和非空检查，不猜测或补写漏掉的译文。
-这些检查不能判断非空译文的语言或语义质量，模型仍可能原样返回外语。
-翻译缓存的配置标识包含提示词版本；旧提示词的结果不再自动复用，下次允许联网翻译时重新生成。
-原歌词缓存保留，新提示词生成的译文仍正常复用。
-
-原歌词与目标语言相同时不请求翻译。优先采用明确的原语言标记；没有标记时使用随包
-提供的离线 franc-min 统计模型识别，不额外联网，也不需要 Node.js 或系统语种检测程序。
-只在至少 80 个字母/文字字符（纯汉字歌词放宽到至少 60 个汉字且不含假名/谚文、拉丁字符不足 24 个）、去除重复行后不超过 8192 个 UTF-16 单元，且覆盖全文的
-多个样本（短纯汉字歌词为整段样本）给出一致语言、候选分差足够大时自动跳过。模型分数不是概率；短文本、明显混合
-语种、结果分歧或其他不确定情况仍照常翻译。语言代码统一处理大小写、区域及下划线，
-同一主语言的地区/书写变体也视为相同，不额外做简繁转换。识别边界与来源见
-[`README.franc.md`](README.franc.md)。
-
-翻译传输失败会区分超时、域名解析、TLS、代理、连接中断及无法连接；无法分类时保留
-“翻译网络错误”。journal 中的 `translation transport failure` 只记录错误类别、批次序号、
-行数、请求字节数、该次请求耗时、尝试次数、请求阶段和原生错误码，不记录密钥、歌词、
-歌名或完整端点，也不输出可能包含 URL 的原始异常文本。正式请求的超时配置为 120 秒，
-设置中的连通性检查仍为 15 秒。
-仅临时限流的 429 自动重试一次；识别出的额度或消费限额错误不自动重试。
-
-响应无效时，journal 中的 `invalid translation response reason=...` 使用以下固定分类：
-
-| `reason` | 含义 |
-| --- | --- |
-| `response_too_large` | 响应正文超过大小上限，默认 4 MiB |
-| `response_json` | 外层响应不是合法 JSON |
-| `response_not_completed` | 响应声明未正常结束，且不属于下述输出上限 |
-| `output_limit` | Responses 因 `max_output_tokens` 未完成，或 Chat Completions 返回 `finish_reason: "length"` |
-| `missing_output` | Responses 缺少有效的 `output` 数组，或 Chat Completions 缺少首条 `choices` 结果 |
-| `missing_output_text` | 找不到协议对应的译文正文 |
-| `translation_json` | 译文正文不是合法 JSON |
-| `line_schema` | 译文行结构或 ID 校验失败 |
-| `missing_lines` | 结果未覆盖本批全部请求行 |
-| `blank_translation` | 结果包含空白译文 |
-
-不会记录响应正文或行 ID。HTTP 200 不保证结构符合要求；
-[`incomplete` 状态](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)
-同样不能当作完整译文，不自动追加收费请求来修补格式。
-
-为降低支持该设置的模型的推理开销，Responses 默认尝试 `reasoning.effort: "none"`，
-Chat Completions 使用 `reasoning_effort: "none"`。
-仅当有界错误响应明确指出 reasoning 不受支持时，才去掉后重试一次，并在当前客户端实例中记住；
-并发在途请求各自保留一次回退机会，其他 400 不会禁用该参数。歌词按最多 20 行、3000 字符
-尽量均分，保留顺序和邻接上下文；单条超长行保持完整。最多 3 批并发，
-任一批失败会取消其余批次。
-支持的推理强度及默认值因模型而异，省略参数不保证关闭推理。错误响应最多读取 16 KiB，
-401 或明确的无效密钥提示归为认证错误；未知 403 显示为访问被拒绝；安全白名单中明确的
-额度或消费限额错误单独显示，不凭 403 猜测余额状态，也不显示原始错误文本。
-
-模型服务的名称、地址、协议和模型列表在详情页点击“保存”时持久化（已有服务返回或关闭窗口时也会自动保存合法改动，非法草稿会丢弃并保留已保存配置；新建服务取消或未保存关闭时会清理临时写入的密钥）。
-API 密钥仍需在凭据对话框中点击“保存”，不会以明文回显；
-再次打开时留空并保存会保留原密钥，只有“移除”才删除已保存密钥。
-存储区分别显示歌词缓存结果数（包含未找到结果）和成功翻译的缓存数；翻译鉴权失败、
-连接检查成功但尚未翻译歌曲时，翻译缓存为零是正常情况，并不代表歌词缓存没有保存。
-
-设置中可点击“检查连通性”，使用当前输入的地址、协议、模型和已保存密钥验证实际的
-结构化响应。检查不会自动应用输入，也不需要开启歌词翻译。
-它只发送固定测试文本 `Hello`，不发送当前歌曲或写入翻译缓存，输出上限为 2048 tokens，
-可能产生少量 API 费用。界面区分密钥、限流、网络及响应格式问题；修改输入或关闭窗口会
-取消检查。它证明这次请求可用，不保证后续长歌词请求的额度或服务稳定性。
-
-## 工作方式
-
-```text
-MPRIS signals
-  → normalized playback state
-  → LRCLIB lookup and LyricsDocument
-  → monotonic playback synchronization
-  → panel and popup updates
-```
-
-播放器发现使用 `NameOwnerChanged`，状态更新使用 `PropertiesChanged`，跳转使用 `Seeked`。
-初始 `ListNames` 仅作名称快照：确认已无 owner 的占位记录会移除，新 owner 通知会替换旧占位，
-延迟到达的旧查询不能删除或覆盖新实例，播放器重启后可在同一会话内重新发现。
-歌词只为下一行、下一字或分段显示边界安排一次性 timer；popup 打开且正在播放时，每 500 ms
-从现有 monotonic clock 刷新纯 UI 进度。暂停或关闭后立即移除，暂停跳转由播放器信号即时更新，
-不额外读取 D-Bus Position。
-
-歌词、译文和偏移的纯读取只在上次访问时间超过 12 小时时刷新访问元数据，磁盘淘汰时间也采用
-这一粗粒度记录；歌词有效期不变，新的歌词/译文和用户修改的偏移仍立即保存。
-翻译服务另保留最近 20 项有效结果的内存 LRU，按曲目、歌词内容、目标语言和完整提供方配置隔离。
-手动刷新绕过内存和磁盘缓存，清空缓存或销毁服务会释放内存结果。
-
-popup 中的媒体按钮控制当前选中的播放器，按 MPRIS 能力禁用不支持的操作。
-进度滑块支持点击、拖动和键盘左右键；拖动时预览时间，释放后提交一次 `SetPosition`。
-等待定位回读期间保留预览，避免被旧时钟拉回；完成或失败后显示最新播放器进度。
-换歌、换播放器或关闭 popup 会取消未提交的拖动；跳转携带当前曲目 ID，进度不包含歌词时间偏移。
-控制失败在媒体区显示简短提示，状态和歌词同步以播放器反馈为准。没有有效时长或曲目 ID
-时禁用定位；没有时长时隐藏进度条。命令完成后若尚未收到变化信号，只执行一次状态或位置校准。
-popup 使用 Shell 原生滑块和主题。
-
-是否需要校准按本次操作对应的位置或播放状态通知判断，音量、控制能力或封面通知不能代替
-操作反馈；属性被声明失效后，旧反馈也不再有效。位置读取与完整状态回读分别排序，
-新的进度通知不会丢弃仍有效的播放状态；完整回读按属性保留较新的状态、速率、封面和控制能力。
-切歌时清除旧曲目进度，即使同一通知还包含播放状态或速率。控制请求等待所需回读；若它被
-已开始的新读取接替，则在有限等待窗口内等待后者，不额外发起轮询。请求失败时保留本地时钟。
-
-没有歌词且关闭歌曲信息回退时，顶栏仍保留媒体图标入口（即使关闭了常规图标显示）。
-“暂停时隐藏”仍按已有设置生效；开启后需要从播放器恢复播放，或关闭该设置以通过 popup 恢复。
-
-运行时资源由创建它们的 owner 释放：disable/destroy 会取消 `Gio.Cancellable`、移除 GLib
-和 Meta later source、断开 signal、停止 transition、销毁 actor 并释放引用。异步结果再
-通过 request generation 或当前 owner identity 防止旧请求覆盖新歌曲。
-`MprisManager.destroy()` 也允许在 `start()` 之前或重复调用。
-
-### 歌词与标题滚动
-
-弹窗文字跟随当前主题颜色，当前行保持最高亮度，远处行降低亮度但保留可读性。
-双语原文与译文组成一组，组间距大于组内间距；偏移值按实际文字排版居中，支持不同单位长度
-及 RTL 方向，不使用语言专用的位置补偿。不可用的媒体或重置按钮仍保留原生禁用样式。
-歌词区有上下渐隐，并保留按字体计算的最低阅读空间。小屏或大字体无法同时容纳全部内容时，
-整个菜单可滚动，键盘聚焦底部控件时会自动滚入可见区域；标题与辅助信息按字体自然高度排版。
-
-仅超出实际文字视口的同步歌词需要滚动。视口宽度来自布局分配，音乐图标及其间距不计入
-可用文字宽度；窗口缩放、字体或布局变化后会重新测量。纯文本歌词仍在弹窗中查看，
-不为其生成虚假的播放时间轴。
-
-设置项 `max-panel-width` 同时作为顶栏文本区的上限与首选宽度（默认 500 px，范围 150–1000 px）。
-其他顶栏控件占用空间时，实际宽度可以更小。滚动距离、逐字焦点、分页和渐隐均按实际
-文字视口计算；修改宽度或图标设置后，即使受挤压而实际宽度未变，也会重新调度滚动。
-
-完整文字宽度由当前字体的无宽度限制 Pango 排版测量，合并逻辑边界和实际字形边界，
-再换算为逻辑像素并加上内边距及边框。它不使用标签的首选宽度，避免主题的固定宽度、
-最小宽度或斜体外伸影响滚动距离。绘制区域同时容纳完整字形；隐藏标签及标题副本先显示，
-等到真实分配有效且能容纳完整文字后再启动动画。完全取消时清除布局宽度与副本偏移，
-避免同宽副歌或动画开关切换复用失效的布局。跨不同缩放显示器时重新测量，逐字位置也
-包含文字在绘制区域内的实际起点。
-
-确认没有歌词后，若开启“歌词不可用时显示歌曲标题”，顶栏显示曲目标题并在溢出时向左循环；
-关闭该开关仍只显示图标入口。歌词库明确标记为纯音乐时，顶栏原来的 `Instrumental` 改为
-曲目标题并使用相同循环，弹窗继续显示“纯音乐”。标题循环不依赖歌词时间轴，也不增加轮询。
-顶栏和弹窗都用两份相同标题首尾衔接，中间留 32 px 空隙；初次停留约 1 秒后，以
-35 px/s 持续向左移动，不在末尾反向或停顿。副本不改变视口的布局宽度，也不重复供
-屏幕阅读器朗读。顶栏暂停播放或悬停时冻结，弹窗标题悬停时冻结，恢复后从原位置继续；
-循环标题在句首静止或暂停时不弱化首字符，向左移出后才启用左侧渐隐；右侧保持渐隐。
-短标题静止，关闭系统动画时静态省略。
-加载中的回退信息和只有纯文本歌词的入口保持原有行为。
-
-逐行歌词先短暂停留行首，再线性移动，最后停留在句尾。正常移动阶段尽量在四秒内完成，
-避免间奏或尾奏把滚动拉得过慢；特别长的文字会参考 240 px/s 延长移动阶段，但仍受
-本行时长约束，因此这不是硬性速度上限。句尾至少预留 200 ms 阅读时间，极短行改为行长
-的 25%；这些时间会按播放速率换算。正常滚动按溢出情况使用边缘渐隐；溢出超过 8 px
-时增加 8 px 句尾留白，小幅溢出只移动实际溢出的距离。
-
-暂停会冻结滚动，恢复和跳转按当前播放位置重新定位。同行重新同步会保留正在显示的文字，
-不先切回行首。鼠标悬停顶栏时暂停滚动；同一显示内容收到后台时间轴刷新时仍保持阅读位置，
-包括句尾停留、逐字跟随和减少动效分页。字体或实际视口尺寸变化时，只将原位置限制在新的
-有效范围内；换句、换歌或显示文字变化时按新内容定位。离开后用约 200 ms 追赶最新进度
-再继续，减少动效模式则直接切换到当前页。弹窗打开期间顶栏继续跟随播放。
-悬停中的标题循环重排后也保留位置。隐藏期间收到歌词时，重新显示后也会启动滚动。
-时间轴的 `playbackRate` 直接取自 MPRIS 状态，暂停时也保留该速率，不再用两次时钟采样的
-剩余时间比值反推。缺失、非有限或非正的播放器 Rate 仍在输入边界按既有规则归一为 1x。
-下一行／下一字的定时器继续按当前播放时钟计算到目标位置的等待时间。
-
-开启逐字同步且原文词时间、文字和布局都适合跟随时，使用实际字形位置，让当前词经过
-视口约 60% 的阅读位置。双向文字、拆分字形、重叠词时间或不匹配的文本退回逐行滚动。
-译文始终使用原行时间轴，不复用原文的逐字位置。高分屏的字形测量会换算为逻辑像素。
-
-关闭 GNOME Shell 动画，或在 51 中选择“减少动态效果”后，超宽同步歌词按时间切换有重叠的文字片段，不做连续滑动；
-暂停、跳转和悬停仍然生效，重新打开动画会恢复连续滚动。超宽弹窗标题在此模式下保留
-静态省略显示；正常动画模式下向左无缝循环，关闭弹窗即停止循环并隐藏副本。
-短标题和放得下的歌词保持静止。
-
-### 时间轴与结束时间
-
-`extension.js` 为顶栏生成 `startMs`、`endMs`、`positionMs` 和 `playbackRate`。
-`positionMs` 来自播放器时钟加全局及单曲偏移，与歌词时间戳使用同一坐标；媒体进度条和
-`SetPosition` 使用不带歌词偏移的播放器时间。跳转、偏移及播放状态变化后重新同步。
-
-行结束时间优先取明确的 `endMs`，否则采用末词已知结束时间，并保留更晚结束的重叠词；
-末词没有结束时间时，不借用前词的结束时间。已知结束时间以次行开始时间为上限。
-没有明确结束时间时用次行开始时间，最后一行再回退到带歌词偏移的曲目结尾。
-普通 LRC 解析后的 `endMs` 为 `null`；不按字数猜测演唱时长，以免误判慢歌和长音。
-
-滚动完成不会自行清空这一行；歌词选择仍由下一行时间戳决定，歌词中的空白行可表示间奏。
-因此，四秒阅读窗口只影响文字如何移动，不提前切换歌词，也不改写源时间戳。
-逐行和分段位置计算在 `ui-utils.js`，显示、字形测量、重排和计时器清理在 `indicator.js`，
-当前行与字边界选择在 `lyrics-synchronizer.js`。
-
-### 主要模块
-
-- `extension.js`：扩展生命周期和 MPRIS → lyrics → UI 协调。
-- `mpris.js`：D-Bus discovery、signal-driven playback clock 和 player policy。
-- `lyrics.js`：LRCLIB/LrcAPI 查询、重试和缓存协调。
-- `lyrics-parser.js`、`lyricsfile-parser.js`：解析；`lyrics-normalizer.js`、`lyrics-matcher.js`：归一化与候选匹配。
-- `lyrics-document.js`、`lyrics-synchronizer.js`：统一歌词文档和行/字时间定位；定位不再由解析器负责。
-- `translation-*`、`credentials.js`：独立翻译文档、provider、cache 和 Secret Service。
-- `indicator.js`、`artwork-*`、`ui-utils.js`：Shell UI、封面和纯 UI 计算。
-- `storage.js`：有界缓存和歌曲偏移持久化。
-- `network-utils.js`：统一版本/User-Agent、有界流读取及关闭；不同 HTTP 错误策略留在各调用方。
-- `shell-ui-utils.js`：仅供 Shell 进程使用的动画偏好和顶栏／封面占位单色图标。
-- `prefs.js`、`schemas/`：Preferences 和 GSettings。
-
-## LrcAPI 备用歌词源
-
-在设置的“歌词”中打开“使用 LrcAPI 作为备用歌词源”。默认关闭。启用后，选择顺序为
-**可信的时间轴歌词 > 纯文本歌词 > 无歌词**：LRCLIB 已有逐字或逐行歌词时直接使用；
-只有纯文本或没有歌词时继续查询 LrcAPI。备用源有匹配可信的同步歌词就升级显示；只有
-纯文本、没有结果或查询失败时保留主源原文。主源没有原文时也可采用匹配可信的备用纯文本。
-同等质量优先 LRCLIB，候选必须先通过歌名、歌手和可用时长等匹配检查。纯音乐标记仍作为
-确定结果保留。主源服务错误不会触发备用查询，但已有缓存原文会保留。
-本次接入 LrcAPI 的逐行及纯文本内容，不接入逐字或翻译数据。
-
-默认地址为 `https://api.lrc.cx/jsonapi`。也可填写自建 LrcAPI 的完整 JSON 搜索接口地址，
-例如 `http://127.0.0.1:28883/jsonapi` 或支持该路由的 `/api/v1/lyrics/advance`。
-修改后点击输入框的应用按钮，当前歌曲会重新查询。地址必须使用 HTTPS；仅本机回环地址
-允许 HTTP。不支持 URL 中携带账号、密码、查询参数或 fragment，也不跟随备用服务的重定向。
-本次未提供需要鉴权的自建实例的密钥配置。
-
-适配候选数组中的 `title`、`artist`、可选 `album`/`duration` 和 `lyrics` 或 `lrc` 字段，
-使用歌名、歌手、专辑和可用时长筛选候选，而不是直接采用第一条。缺少时长时无法保证
-不同录音版本完全对应，仍可能需要手动调整偏移。接口文档见
-[LrcAPI 歌词 API](https://docs.lrc.cx/docs/APIv1/lyrics/)。2026-10-13 公共服务实测中，
-文档里的 `/api/v1/lyrics/advance` 返回 404，`/jsonapi` 返回使用 `lrc` 字段的候选数组。
-
-备用结果按是否启用及服务地址隔离缓存，避免启用或切换服务后复用旧的未找到结果。
-成功的备用歌词会缓存并保留来源。弹窗歌词区域下方显示实际歌词来源，缓存命中时保持一致。
-备用空结果、404、低可信候选和服务故障均不缓存为“没有歌词”，以后可重试。
-只取得纯文本时保留原文缓存，但后续查询仍尝试获取同步歌词，避免原文缓存长期阻止升级。
-只有空白的文本或只有空白行的时间轴不算可用歌词，正常歌词中的空白行仍保留。
-LrcAPI 的 `lyrics`、`lrc` 分别判断内容，不因某个字段能解析出空时间轴就忽略另一个字段。
-有正文的同步内容优先；只有完全没有可解析时间轴的非空文本才作为备用纯文本。
-旧缓存中的 LrcAPI 空时间轴也会在读取时被拒绝并重新查询，无需手动清空其他有效缓存。
-启用备用源时也会重试旧版本留下的负缓存，避免历史空结果继续阻挡同步歌词查询。
-新优先规则使用独立的缓存配置签名，旧备用缓存不会跳过本次选择流程。
-成功的备用结果可替代不能显示的主源原始数据。
-
-### 快速切歌、限流与重试
-
-缓存命中直接使用；需要联网时，等待曲目稳定 600ms 后才查询，快速跳过的歌曲不会
-排队请求。网络请求仍至少间隔 300ms。
-
-LRCLIB 和 LrcAPI 的 HTTP 429、503 都会触发有限重试，每个查询阶段最多额外重试
-4 次。有有效的 `Retry-After` 时按秒数或 HTTP 日期等待，至少等待 1 秒、至多 5 分钟；缺失或无效时
-依次等待 1、2、4、8 秒。正常范围内的等待时间不会被截短为 1 秒，异常超大值也不会永久锁死会话。
-冷却按服务保留，LRCLIB 的 get/search 共用冷却，LrcAPI 单独计算；切歌和清理歌词缓存
-不会清除冷却。更改备用源设置重建客户端、关闭扩展或退出登录时冷却清除，不跨登录保存。
-
-等待重试时弹窗显示“正在重试歌词…”，已有主源纯文本则继续显示，成功取得同步歌词后
-替换。没有歌词可显示时，顶栏按现有设置显示歌曲信息或循环标题。歌词晚于歌曲开始返回，
-仍按当前播放器时间及歌词偏移对齐，不从开头播放。
-
-重试耗尽或遇到其他请求错误时，没有可用歌词才显示“歌词服务暂不可用”；已有纯文本
-会保留。临时错误不会写入“没有歌词”的缓存，只有正常查询完成的空结果才显示
-“未找到歌词”。这里只自动重试 429/503，其他 HTTP、连接或解析错误会结束本轮查询。
-次数耗尽后不再后台轮询；再次选择该歌曲或重新查询时可再尝试，并继续遵守已有冷却。
-切歌、播放器更换及扩展关闭会取消旧请求和重试，旧结果不能覆盖新歌。
-
-## 开发与测试
-
-### 维护界面翻译
-
-界面源码使用 `_('…')`，带数量的消息使用 `ngettext()`；保留 `%s`、`%d` 等占位符。
-待提取的源码统一列在 `po/POTFILES.in`，新增包含界面文本的文件时也需登记。
-
-```sh
-make translations-update
-```
-
-此命令重新提取 POT 模板，并更新所有 `po/*.po`，保留已有翻译，不自动接受近似匹配。
-补齐新词条后运行 `make check`：它会检查模板是否遗漏当前源码中的词条、每种语言是否
-有缺失/未翻译/模糊词条，以及格式占位符是否有效。打包检查还会核对每个 PO 都有对应的
-编译后 MO 文件，避免新增语言只留在源码中。
-
-新增包含界面文案的源文件时，将它加入 `po/POTFILES.in`；清单只保留实际需要提取文案的文件。
-
-添加语言时，先更新模板，再用 `msginit --input=po/lyric-glance@eureka.pot
---locale=语言代码 --output-file=po/语言代码.po` 创建翻译文件，填写翻译并将语言代码加入
-`po/LINGUAS`。`make pack` 会编译并打包翻译，无需改动运行时的语言列表。
-
-### 验证
-
-确定性发布检查：
-
-```sh
-make clean
-make check
-make integration
-make shell-check
-make shell-presentation-check
-make prefs-check
-```
-
-`make check` 验证 schema、gettext、纯逻辑测试、打包、zip 内容和所有相对 runtime imports，
-并对 ZIP 运行 `make shexli-check` 所用的官方静态分析命令。
-首次运行前按上面的开发者步骤安装固定提交的 shexli；CI 和发布流程使用同一组合。
-官方上游提交 `56e6799` 已修复 PyPI 0.2.1 错误拒绝 Shell 51 的版本规则；
-源码包仍标记为 0.2.1，因此仅安装同名 PyPI 版本不能替代该提交。
-tree-sitter 0.26.0 在完整分析时会崩溃，因此固定解析库为 0.25.2。
-shexli 自身即使报告 error 也会返回 0，因此 `make shexli-check` 会打印完整报告并在检测到任意 `EGO-*` 诊断时以非零退出；当前 ZIP 的报告为零诊断，
-修复与验证说明见 [EGO 审查记录](docs/EGO-AUDIT.md#static-analysis-and-reviewer-notes--2026-11-06)。
-
-`make integration` 使用隔离 D-Bus 和本地 HTTP server 验证 MPRIS 事件、切歌防抖、429/503
-冷却及有限重试、网络错误、响应大小限制、取消、缓存和存储，不访问 Spotify、LRCLIB
-或真实翻译 API。
-
-`make shell-check` 会重新打包并运行隔离 Shell 回归，覆盖实际布局和生命周期；
-`make shell-presentation-check` 运行深浅主题与字体布局回归，`make prefs-check` 在隔离 Shell
-提供的显示会话中启动 GTK 设置窗口测试。三者均使用各自的临时目录及包副本，结束后自动清理。
-CI 在 Fedora 44／45 上分别执行三项回归以验证 Shell 50／51，发布流程使用 Fedora 45。
-两个流程通过 `tests/system-bus.conf` 启动并检查隔离系统总线，将地址传给后续测试；
-它不加载系统服务自动启动目录，避免在没有 systemd 的容器里尝试启动 logind。
-`dbus-run-session` 另行创建每次测试的会话总线，两者相互独立。
-以下为手动运行同一 Shell 回归的命令，便于调整环境或替换测试入口：
-
-```sh
-make pack
-shell_runtime=$(mktemp -d /tmp/lyricglance-media-runtime-XXXXXX)
-trap 'rm -rf -- "$shell_runtime"' EXIT
-cp lyric-glance@eureka.shell-extension.zip "$shell_runtime/lyric-glance@eureka.shell-extension.zip"
-dbus-run-session -- env XDG_RUNTIME_DIR="$shell_runtime" \
-  GIO_USE_VFS=local GSETTINGS_BACKEND=memory \
-  gnome-shell-test-tool --headless \
-  --extension "$shell_runtime/lyric-glance@eureka.shell-extension.zip" tests/shell-extension.js
-```
-
-需要本机已安装 GNOME Shell 测试工具及相关运行库。每次重建后必须重新复制包到本次临时目录，
-否则可能测试到旧代码。该测试覆盖结束时间选择、同行重同步、字体和视口变化、隐藏后显示、
-标题循环，以及原生动画开关和 51 减少动态效果设置下的分页、暂停、悬停和跳转；它不证明当前桌面已加载新版，
-也不替代真实播放器、物理鼠标操作、高分屏视觉检查和长时间日志观察。
-
-`make shell-presentation-check` 运行 `tests/shell-presentation.js`，验证深浅主题、100%/150% 字体、
-双语分组、偏移值居中、阿拉伯文/希伯来文及 RTL 方向、边缘渐隐、小屏滚动、键盘焦点与关闭清理。
-此入口使用固定测试数据，不查询歌词或翻译 API。
-
-打包：
-
-```sh
-make pack
-unzip -l lyric-glance@eureka.shell-extension.zip
-```
-
-自动发布使用日期标签 `YYYY-MM-DD`，例如 `2026-10-09`。将包含发布工作流的改动提交到
-要发布的 commit 后，创建并推送标签：
-
-```sh
-git tag 2026-10-09
-git push origin 2026-10-09
-```
-
-请将示例日期替换为实际发布日期。Release 工作流会校验日期、执行 `make check`、
-`make integration` 以及上述三项 UI 回归，通过后自动创建该日期的 GitHub Release，并上传 ZIP 和 SHA-256
-校验文件。普通分支推送只上传 Actions artifact；版本号标签不再触发 Release 工作流。
-同一天需要重试时，在 Actions 中重新运行该日期标签的工作流，会更新已有 Release
-的附件；重跑仍使用该标签对应的 commit，不会自动包含后来提交的改动。
-
-可选的 Secret Service 测试会写入一个独立测试 secret，并在结束前删除：
-
-```sh
-make integration-secret
-```
-
-需要桌面或外部服务的测试不包含在 `make integration` 中，入口如下：
-
-| 测试入口 | 环境及作用 |
-|---|---|
-| `tests/shell-extension.js` | 上述隔离 Shell 回归；使用受控播放数据 |
-| `tests/prefs-window.js` | GTK/Libadwaita 设置窗口；需要图形会话及 Shell 扩展 Preferences 运行库 |
-| `tests/integration-current-player.js` | 读取当前真实播放器并查询歌词；可能写入扩展缓存 |
-| `tests/integration-playback-sync.js` | 对真实播放器执行暂停、播放和跳转，结束时尝试恢复原状态 |
-| `tests/integration-track-cache.js` | 真实播放器 A → B → A 切歌与缓存验证，结束时尝试恢复原状态 |
-| `tests/integration-live-player-policy.js` | 真实 Firefox 与测试播放器共同验证选择和消失回退 |
-| `tests/integration-live-lyricsfile.js` | 访问公共 LRCLIB，验证已知记录的逐字、纯文本和纯音乐结果 |
-| `make integration-secret` | 真实 Secret Service 中写入、读取并删除独立测试密钥 |
-
-运行真实播放器测试前阅读对应文件；这些入口不会自动随发布检查运行，也不应放入隔离 D-Bus
-后声称已验证当前桌面的播放器。发布验证详情和剩余手工检查见
-[`docs/EGO-CHECKLIST.md`](docs/EGO-CHECKLIST.md)，兼容边界见
-[`docs/compatibility.md`](docs/compatibility.md)。历史审查记录保存在
-[`docs/EGO-AUDIT.md`](docs/EGO-AUDIT.md)，不代表新版本自动通过了当时的检查。
-
-## 已知限制
-
-- 顶栏五种位置需要 GNOME Shell 50／51 的 `Main.panel._leftBox/_centerBox/_rightBox`；这两个版本
-  没有提供等价的公开运行时移动 API。访问已集中在一个兼容函数中。
-- Firefox Spotify Web 可能复用 TrackId，因此歌曲 identity 同时包含 bus、TrackId、
-  title、artist 和 duration。
-- LRCLIB 或翻译服务不可用时会优雅 fallback，但无法提供未缓存的新内容。
-- 新 JavaScript 在当前 GNOME Shell 50／51 会话中需要注销/登录后才能得到 fresh ESM 证明。
-
-## 隐私与网络访问
-
-扩展读取当前 MPRIS 播放器公开的：
-
-- title、artist、album；
-- playback status、position、duration；
-- `mpris:artUrl`。
-
-可能产生的外部访问：
-
-- **LRCLIB**：发送当前歌曲的 title、artist、album 和 duration，以查找歌词。
-- **LrcAPI（仅启用备用源时）**：主源没有同步歌词后，将 title、artist、album 发送到配置的服务；公共服务可能继续查询其上游来源。
-- **已配置的翻译 provider**：仅在翻译已启用并实际请求时发送 title、artist、歌词文本和
-  target language。手动“检查连通性”即使在翻译关闭时也会发送固定的 `Hello` 测试文本，
-  不发送当前歌曲或歌词。
-- **Artwork**：读取播放器提供的本地 `file://`（仅本机路径），或访问 HTTPS（及仅限本机回环的 HTTP）封面地址；限制最多 3 次安全重定向（禁止 HTTPS 降级及跳向内网/回环）并强制校验常见光栅图片 MIME 类型。
-
-扩展不读取 Spotify account token，不使用 Spotify OAuth，不读取浏览器 cookie，不扫描
-浏览器或 Spotify 文件系统，不上传播放历史。AI 翻译默认关闭。网络响应有大小上限，
-请求可取消。歌词查询的 429/503 每阶段最多额外重试 4 次，详见“快速切歌、限流与重试”；
-翻译请求遇到 429 最多额外重试 1 次。两者均尊重 `Retry-After`。
-翻译限流的单次等待最多为 30 秒与当前请求超时中的较小值；请求未设置超时时仍以
-30 秒为限。超过上限直接返回限流状态，不缩短服务端要求的等待时间后提前重试。
-Authorization header 和 API key 不会写入 journal。
-歌词上游 HTTP、网络和格式失败仍向界面报告不可用，详细消息保留为 debug 诊断，避免每首歌
-重复产生 warning；配置错误、响应超限和缓存写入失败继续记录 warning。调试时可通过
-`G_MESSAGES_DEBUG=Gjs-Console` 启用这些诊断。
-
-持久数据只写入扩展自己的 namespace：
-
-- `$XDG_CACHE_HOME/lyric-glance/`：歌词、封面和翻译 cache；
-- `$XDG_CONFIG_HOME/lyric-glance/offsets.json`：每首歌曲的歌词偏移；
-- GNOME Secret Service：翻译 credential。
-
-清理按钮只删除对应的扩展 cache，不删除父目录或其他应用数据；disable 不删除持久状态。
-清除歌词缓存会取消旧查询，在清理结束后重新加载当时选中的歌曲（已加载的歌词也会刷新，
-相应翻译状态随歌词重新建立）。重查仍遵守防抖、请求间隔和服务冷却；清理期间切歌则加载
-新的当前歌曲。重复清理仅接续最新一次；清理失败会记录错误并恢复查询，避免界面停留在加载或重试中。
+Configure top-bar position and maximum width (`max-panel-width`, 150-1000 px, default 500 px),
+hide-when-paused, track-title fallback, word highlighting, global lyrics offset, LrcAPI fallback,
+translation display mode, target language, translation providers/models, preferred player
+(stored by stable DesktopEntry/Identity rather than temporary D-Bus names), and cache clearing.
+Per-track timing offsets are adjusted directly in the popup.
+
+## Interface Languages
+
+The Shell popup and Preferences support English, Simplified Chinese (`zh_CN`), and Traditional
+Chinese (`zh_TW`), following your GNOME session locale automatically and falling back to English
+when no catalog matches. Changing the interface language does not alter track metadata, original
+lyrics, or your chosen lyrics translation target language.
+
+## Lyrics Translation
+
+Translation is disabled by default. The **Translation** page in Preferences lets you configure
+multiple custom OpenAI-compatible model providers (supporting both **Responses** and **Chat
+Completions**) and switch between active providers and enabled models:
+
+- **Endpoint & protocol**: Enter either a full endpoint or a `/v1` base URL (trailing slash
+  optional). The default entry is `OpenAI` (`https://api.openai.com/v1/responses`). Base URLs append
+  `/responses` or `/chat/completions` according to the selected protocol while preserving proxy
+  paths; **Auto-detect from address** detects `/chat/completions` and defaults to Responses.
+- **Models**: Add/remove models manually or click **Fetch models** to query `GET .../models` with
+  the provider's saved API key (HTTPS or loopback HTTP only, no redirects) and pick models in a
+  searchable dialog while retaining custom entries.
+- **Credentials**: Each provider's API key is stored separately in GNOME Secret Service (`libsecret`)
+  and never written to GSettings, JSON caches, logs, or Git. Deleting a provider removes its saved
+  key; leaving the key field blank when reopening the credential dialog keeps the existing key.
+  Remote endpoints require HTTPS; plain HTTP is restricted to `localhost`/loopback debugging.
+- **Same-language skip**: Lyrics whose language already matches the target language are skipped
+  automatically using explicit language tags or the bundled offline `franc-min` detector (no
+  network requests). When skipped, the popup offers a manual **Translate anyway** button.
+- **Connection check**: Click **Check connection** in Preferences to verify the entered endpoint,
+  protocol, model, and saved key with a small synthetic `Hello` request (without enabling
+  translation, sending track data, or writing to the translation cache; may incur minimal API cost).
+
+Custom endpoints receive your Bearer API key, track title/artist, and lyric text — configure only
+trusted providers. See [`docs/development.md`](docs/development.md#translation-internals-and-configuration)
+for coalescing, mixed-language validation, batching, configuration schema details, and the
+[diagnostic reason table](docs/development.md#translation-diagnostics).
+
+## LrcAPI Fallback Lyrics Source
+
+Enable **Use LrcAPI as fallback lyrics source** under **Lyrics** in Preferences (disabled by
+default). Selection priority is **credible synchronized lyrics > plain lyrics > no lyrics**:
+LRCLIB synchronized or instrumental results are used directly; LrcAPI is queried only when LRCLIB
+returns plain text or no lyrics.
+
+The default endpoint is `https://api.lrc.cx/jsonapi`, or you can enter a self-hosted JSON search
+endpoint (HTTPS required; HTTP allowed only for loopback addresses, with no userinfo, query,
+fragment, or redirects). See [`docs/development.md`](docs/development.md#lrcapi-fallback-rate-limiting-and-retries)
+for candidate matching, caching, and rate-limit retry behavior.
+
+## Known Limitations
+
+- Supporting all five top-bar positions requires reading GNOME Shell 50/51's internal
+  `Main.panel._leftBox`, `_centerBox`, and `_rightBox` (centralized in `extension.js`), as no
+  equivalent public move API exists in Shell 50/51.
+- Firefox Spotify Web can reuse MPRIS `TrackId` values, so track identity combines bus name,
+  `TrackId`, title, artist, and duration.
+- When LRCLIB or a translation provider is unavailable, LyricGlance degrades gracefully but cannot
+  fetch uncached content.
+- Updated JavaScript modules require logging out and back in for a fresh ESM import on GNOME Shell
+  50/51.
+
+## Privacy & Network Access
+
+LyricGlance reads only the metadata exposed by the active MPRIS player:
+
+- Track title, artist, and album
+- Playback status, position, and duration
+- `mpris:artUrl`
+
+External network requests occur only as follows:
+
+- **LRCLIB**: Sends track title, artist, album, and duration to fetch lyrics.
+- **LrcAPI (only when enabled)**: Sends title, artist, and album when LRCLIB has no synchronized
+  lyrics; public LrcAPI instances may query upstream services.
+- **Configured translation provider**: Sends title, artist, lyric text, and target language only
+  when translation is enabled and requested. Manual **Check connection** sends only the fixed
+  `Hello` test string (never track metadata or lyrics).
+- **Artwork**: Reads local `file://` paths or fetches HTTPS (and loopback-only HTTP) URLs with at
+  most 3 safe redirects (no HTTPS downgrade or private/loopback redirects) and raster image MIME
+  validation.
+
+LyricGlance does not read Spotify tokens, use Spotify OAuth, read browser cookies, scan browser or
+player filesystems, or upload listening history. AI translation is disabled by default. Network
+responses are size-bounded and cancellable, retries respect `Retry-After`, and Authorization
+headers / API keys are never logged. Expected upstream failures emit debug diagnostics
+(`G_MESSAGES_DEBUG=Gjs-Console`) rather than recurring warnings.
+
+Persistent data stays inside the extension's own namespaces:
+
+- `$XDG_CACHE_HOME/lyric-glance/`: Lyrics, artwork, and translation caches
+- `$XDG_CONFIG_HOME/lyric-glance/offsets.json`: Per-track lyrics timing offsets
+- GNOME Secret Service: Per-provider translation API keys
+
+Cache-clear actions remove only the corresponding extension cache (never parent or unrelated
+directories), and disabling the extension does not delete saved state. Clearing the lyrics cache
+cancels pending lookups and reloads the current track once cleared.
+
+## Development
+
+Architecture, translation internals, diagnostics, localization maintenance, ESLint setup, automated
+and live test suites, and release instructions live in [`docs/development.md`](docs/development.md).
+
+- Compatibility matrix & GNOME Shell 51 notes: [`docs/compatibility.md`](docs/compatibility.md)
+- Release & EGO checklist: [`docs/EGO-CHECKLIST.md`](docs/EGO-CHECKLIST.md)
+- Historical EGO audit records: [`docs/EGO-AUDIT.md`](docs/EGO-AUDIT.md)
 
 ## License
 
-LyricGlance 采用 [GPL-2.0-or-later](LICENSE)。随包提供的 readable ESM
-`js-yaml` 4.1.1 采用 MIT License；来源、固定 SHA-256、是否修改和复现方式见
-[`README.js-yaml.md`](README.js-yaml.md) 与 [`LICENSE.js-yaml`](LICENSE.js-yaml)。
-离线语种识别使用 MIT License 的 franc-min 6.2.0 及其依赖，完整许可和固定版本复现信息
-见 [`LICENSE.franc`](LICENSE.franc)、[`README.franc.md`](README.franc.md)。
+LyricGlance is licensed under [GPL-2.0-or-later](LICENSE).
 
-发布 ZIP 包保留运行时代码与完整 LICENSE 文件；两份依赖 README 和构建复现脚本
-仅保留在源码仓库，供审核和复现使用。
+- Bundled readable ESM `js-yaml` 4.1.1 (MIT): see [`LICENSE.js-yaml`](LICENSE.js-yaml) and
+  [`README.js-yaml.md`](README.js-yaml.md).
+- Bundled readable ESM `franc-min` 6.2.0 and dependencies (MIT): see [`LICENSE.franc`](LICENSE.franc)
+  and [`README.franc.md`](README.franc.md).
+
+Release ZIP packages include runtime code and complete license files; dependency provenance READMEs
+and reproduction scripts stay in the source repository for review and verification.

@@ -3,6 +3,7 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {LyricsProvider, normalizeLrcApiEndpoint, retryAfterDelayMs} from '../lyrics.js';
+import {USER_AGENT, VERSION} from '../network-utils.js';
 import {removeTree} from '../storage.js';
 
 function assert(condition, message) {
@@ -10,13 +11,138 @@ function assert(condition, message) {
         throw new Error(message);
 }
 
-function sleep(milliseconds) {
+class FakeClock {
+    constructor(startMs = Date.UTC(2026, 9, 15, 0, 0, 0)) {
+        this._nowMs = startMs;
+        this._monotonicUs = 10_000_000;
+        this._nextId = 1;
+        this._timers = new Map();
+        this._pumpId = 0;
+    }
+
+    now() {
+        return this._nowMs;
+    }
+
+    monotonicTimeUs() {
+        return this._monotonicUs;
+    }
+
+    scheduleDelay(delayMs, callback) {
+        const ms = Math.max(0, Math.ceil(delayMs));
+        const id = this._nextId++;
+        this._timers.set(id, {
+            dueUs: this._monotonicUs + ms * 1000,
+            callback,
+        });
+        this._ensurePump();
+        return id;
+    }
+
+    cancelDelay(id) {
+        this._timers.delete(id);
+    }
+
+    sleep(milliseconds) {
+        return new Promise(resolve => {
+            this.scheduleDelay(milliseconds, resolve);
+        });
+    }
+
+    providerOptions() {
+        return {
+            now: () => this.now(),
+            monotonicTimeUs: () => this.monotonicTimeUs(),
+            scheduleDelay: (delayMs, callback) => this.scheduleDelay(delayMs, callback),
+            cancelDelay: id => this.cancelDelay(id),
+        };
+    }
+
+    _ensurePump() {
+        if (this._pumpId || this._timers.size === 0)
+            return;
+        this._pumpId = GLib.idle_add(GLib.PRIORITY_LOW, () => {
+            this._pumpId = 0;
+            this._fireNext();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _fireNext() {
+        if (this._timers.size === 0)
+            return;
+        let nextId = null;
+        let nextEntry = null;
+        for (const [id, entry] of this._timers) {
+            if (!nextEntry || entry.dueUs < nextEntry.dueUs) {
+                nextId = id;
+                nextEntry = entry;
+            }
+        }
+        this._timers.delete(nextId);
+        const advanceUs = Math.max(0, nextEntry.dueUs - this._monotonicUs);
+        this._monotonicUs += advanceUs;
+        this._nowMs += Math.floor(advanceUs / 1000);
+        nextEntry.callback();
+        this._ensurePump();
+    }
+
+    destroy() {
+        if (this._pumpId) {
+            GLib.source_remove(this._pumpId);
+            this._pumpId = 0;
+        }
+        this._timers.clear();
+    }
+}
+
+const clock = new FakeClock();
+const clockOptions = clock.providerOptions();
+
+function realSleep(milliseconds) {
     return new Promise(resolve => {
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, milliseconds, () => {
             resolve();
             return GLib.SOURCE_REMOVE;
         });
     });
+}
+
+function sleep(milliseconds) {
+    return clock.sleep(milliseconds);
+}
+
+let pendingPauseWaiter = null;
+const pausedReleases = [];
+
+function pauseResponse(currentServer, message, body, manualRelease) {
+    currentServer.pause_message(message);
+    const release = () => {
+        response(message, Soup.Status.OK, body);
+        currentServer.unpause_message(message);
+    };
+    if (manualRelease) {
+        pausedReleases.push(release);
+        if (pendingPauseWaiter) {
+            const resolve = pendingPauseWaiter;
+            pendingPauseWaiter = null;
+            resolve();
+        }
+    } else {
+        clock.scheduleDelay(500, release);
+    }
+}
+
+function waitForPausedRequest() {
+    if (pausedReleases.length > 0)
+        return Promise.resolve();
+    return new Promise(resolve => (pendingPauseWaiter = resolve));
+}
+
+function flushPausedRequests() {
+    while (pausedReleases.length > 0)
+        pausedReleases.shift()();
+    return realSleep(20);
 }
 
 function response(message, status, body = '') {
@@ -45,7 +171,7 @@ server.add_handler(null, (currentServer, message) => {
         path,
         query,
         userAgent: message.get_request_headers().get_one('User-Agent'),
-        timeUs: GLib.get_monotonic_time(),
+        timeUs: clock.monotonicTimeUs(),
     });
 
     const scenario = ['Recovery Sequence', 'Busy Forever', 'Cooldown Seed',
@@ -61,7 +187,7 @@ server.add_handler(null, (currentServer, message) => {
             if (scenario !== 'Backoff Missing') {
                 message.get_response_headers().append('Retry-After',
                     scenario === 'Recovery Sequence' && attempt === 1
-                        ? new Date(Date.now() + 2000).toUTCString() : '1');
+                        ? new Date(clock.now() + 2000).toUTCString() : '1');
             }
             response(message, attempt % 2 === 0 ? 429 : 503);
         } else if (path.startsWith('/lrcapi')) {
@@ -139,12 +265,7 @@ server.add_handler(null, (currentServer, message) => {
                             query.includes('Fallback Large') ? 'x'.repeat(512) : 'fallback line'}`},
             ]);
             if (query.includes('Fallback Slow')) {
-                currentServer.pause_message(message);
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                    response(message, 200, body);
-                    currentServer.unpause_message(message);
-                    return GLib.SOURCE_REMOVE;
-                });
+                pauseResponse(currentServer, message, body, !query.includes('Shared'));
             } else {
                 response(message, 200, body);
             }
@@ -250,13 +371,8 @@ server.add_handler(null, (currentServer, message) => {
             syncedLyrics: `[00:01.00]${'x'.repeat(256)}`,
         }));
     } else if (query.includes('Slow Request')) {
-        currentServer.pause_message(message);
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-            response(message, Soup.Status.OK,
-                '{"syncedLyrics":"[00:01.00] stale"}');
-            currentServer.unpause_message(message);
-            return GLib.SOURCE_REMOVE;
-        });
+        pauseResponse(currentServer, message,
+            '{"syncedLyrics":"[00:01.00] stale"}', !query.includes('Coalesced'));
     } else {
         response(message, Soup.Status.OK,
             '{"syncedLyrics":"[00:01.00] current"}');
@@ -266,6 +382,7 @@ server.listen_local(0, Soup.ServerListenOptions.IPV4_ONLY);
 
 const baseUri = server.get_uris()[0].to_string().replace(/\/$/, '');
 let provider = new LyricsProvider({
+    ...clockOptions,
     apiUrl: `${baseUri}/api/get`,
     requestSpacingMs: 0,
     timeoutSeconds: 2,
@@ -296,7 +413,7 @@ async function run() {
         retryAfterDelayMs('Thu, 01 Jan 2099 00:00:00 GMT', now) === 300_000 &&
         [null, '', '-1', 'invalid'].every(value => retryAfterDelayMs(value, now, 2000) === 2000),
     'Retry-After must support bounded seconds/dates, protect against immediate loops and use backoff for invalid headers');
-    const initialStartUs = GLib.get_monotonic_time();
+    const initialStartUs = clock.monotonicTimeUs();
     const valid = await fetch('Valid Lyrics');
     assert(valid?.syncLevel === 'line' && valid.lines[0].text === 'current',
         'a valid syncedLyrics response should normalize to a document');
@@ -309,7 +426,9 @@ async function run() {
         validQuery.includes('album_name=HTTP Integration') &&
         validQuery.includes('duration=120'),
         'the LRCLIB request must include title, artist, album and duration');
-    assert(validRequest.userAgent === 'LyricGlance/0.9.0 (lyric-glance@eureka)',
+    assert(VERSION.length > 0 &&
+        validRequest.userAgent === USER_AGENT &&
+        validRequest.userAgent === `LyricGlance/${VERSION} (lyric-glance@eureka)`,
         'requests should identify this extension, not impersonate a browser');
     const afterFirstValid = receivedRequests.length;
     const cachedValid = await fetch('Valid Lyrics');
@@ -341,6 +460,7 @@ async function run() {
         'malformed LRC should safely return no lyrics');
 
     const limitedProvider = new LyricsProvider({
+        ...clockOptions,
         apiUrl: `${baseUri}/api/get`,
         requestSpacingMs: 0,
         maxResponseBytes: 64,
@@ -363,6 +483,7 @@ async function run() {
         'A -> B -> A should reuse A without another HTTP request');
 
     const evictionProvider = new LyricsProvider({
+        ...clockOptions,
         apiUrl: `${baseUri}/api/get`,
         requestSpacingMs: 0,
         timeoutSeconds: 2,
@@ -404,10 +525,10 @@ async function run() {
     assert(instrumentalBest?.instrumental && instrumentalBest.sourceId === 303,
         'a higher-scoring exact instrumental match must not be beaten by a lower-scoring synced candidate');
 
-    const rateLimitStartUs = GLib.get_monotonic_time();
+    const rateLimitStartUs = clock.monotonicTimeUs();
     const rateLimited = await fetch('Rate Limited');
     const rateLimitDelayMs =
-        (GLib.get_monotonic_time() - rateLimitStartUs) / 1000;
+        (clock.monotonicTimeUs() - rateLimitStartUs) / 1000;
     assert(rateLimited?.lines?.[0]?.text === 'current' &&
         rateLimitAttempts === 2 && rateLimitDelayMs >= 900,
     '429 handling should honor Retry-After before retrying');
@@ -446,10 +567,10 @@ async function run() {
         {...baseTrack, title: 'Cooldown Seed'}, () => staleRetryCallbacks++, resolve));
     const seedRequest = receivedRequests.at(-1);
     const beforeCooldownCache = receivedRequests.length;
-    const cachedStartUs = GLib.get_monotonic_time();
+    const cachedStartUs = clock.monotonicTimeUs();
     assert((await fetch('Valid Lyrics'))?.lines?.length &&
         receivedRequests.length === beforeCooldownCache &&
-        GLib.get_monotonic_time() - cachedStartUs < 300_000,
+        clock.monotonicTimeUs() - cachedStartUs < 300_000,
     'cached lyrics must remain immediately available during a service cooldown');
     await provider.clearCaches();
     provider.fetch({...baseTrack, title: 'Cooldown Skipped'}, () => staleRetryCallbacks++);
@@ -475,6 +596,7 @@ async function run() {
         'temporary failures must not create a negative session cache entry');
 
     const pendingCooldownProvider = new LyricsProvider({
+        ...clockOptions,
         apiUrl: `${baseUri}/api/get`, persistentCache: false,
     });
     let destroyedRetryCallbacks = 0;
@@ -500,11 +622,11 @@ async function run() {
     provider.fetch(
         {...baseTrack, title: 'Slow Request'},
         () => staleCallbacks++);
-    await sleep(700);
+    await waitForPausedRequest();
     const current = await fetch('Current Request');
     assert(current?.lines?.[0]?.text === 'current',
         'the replacement request should return current lyrics');
-    await sleep(650);
+    await flushPausedRequests();
     assert(staleCallbacks === 0,
         'a delayed stale response must not invoke its callback');
 
@@ -517,8 +639,15 @@ async function run() {
         assert(normalizeLrcApiEndpoint(url) === null, 'unsafe endpoint was accepted');
 
     const fallbackRoot = GLib.dir_make_tmp('lyricglance-lrcapi-XXXXXX');
-    const options = {apiUrl: `${baseUri}/api/get`, requestSpacingMs: 0,
-        lrcApiEnabled: true, lrcApiUrl: `${baseUri}/lrcapi`, cacheRoot: fallbackRoot};
+    const options = {
+        ...clockOptions,
+        apiUrl: `${baseUri}/api/get`,
+        requestSpacingMs: 0,
+        lrcApiEnabled: true,
+        lrcApiUrl: `${baseUri}/lrcapi`,
+        cacheRoot: fallbackRoot,
+        diskCacheOptions: {now: () => clock.now()},
+    };
     let fallback = new LyricsProvider(options);
     const fallbackFetch = title => new Promise(resolve =>
         fallback.fetch({...baseTrack, title}, resolve));
@@ -716,9 +845,9 @@ async function run() {
     assert(await fallbackFetch('HTTP Error') === null &&
         receivedRequests.length === beforePrimaryError + 1,
     'a primary transport/service failure must not masquerade as a missing lyric');
-    const rateStart = GLib.get_monotonic_time();
+    const rateStart = clock.monotonicTimeUs();
     assert((await fallbackFetch('Fallback Rate'))?.source === 'lrcapi-synced' &&
-        fallbackRateAttempts === 2 && GLib.get_monotonic_time() - rateStart >= 900_000,
+        fallbackRateAttempts === 2 && clock.monotonicTimeUs() - rateStart >= 900_000,
     'fallback rate limiting must honor Retry-After before retrying');
     const beforeCoalescedFallback = receivedRequests.length;
     const sharedTrack = {...baseTrack, title: 'Fallback Slow Shared'};
@@ -731,15 +860,15 @@ async function run() {
     'coalesced fallback lookups must share one HTTP chain');
     let staleFallbackCallbacks = 0;
     fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Cancel'}, () => staleFallbackCallbacks++);
-    await sleep(700);
+    await waitForPausedRequest();
     assert((await fallbackFetch('Fallback Current'))?.source === 'lrcapi-synced',
         'replacement fallback lookup failed');
-    await sleep(550);
+    await flushPausedRequests();
     assert(staleFallbackCallbacks === 0, 'switching tracks must suppress old fallback callbacks');
     fallback.fetch({...baseTrack, title: 'Plain Priority Fallback Slow Destroy'}, () => staleFallbackCallbacks++);
-    await sleep(700);
+    await waitForPausedRequest();
     fallback.destroy();
-    await sleep(550);
+    await flushPausedRequests();
     assert(staleFallbackCallbacks === 0, 'destroy must suppress in-flight fallback callbacks');
     const smallFallback = new LyricsProvider({...options, persistentCache: false, maxResponseBytes: 64});
     assert(await new Promise(resolve => smallFallback.fetch(
@@ -752,12 +881,79 @@ async function run() {
     provider.fetch(
         {...baseTrack, title: 'Slow Request'},
         () => destroyedCallbacks++);
-    await sleep(700);
+    await waitForPausedRequest();
     provider.destroy();
     provider = null;
-    await sleep(650);
+    await flushPausedRequests();
     assert(destroyedCallbacks === 0,
         'destroy() must suppress an in-flight Soup response');
+    assert(pausedReleases.length === 0,
+        'all paused test server messages should have been released');
+
+    // Timer-injection edge cases: handle 0, synchronous scheduleDelay,
+    // custom scheduleDelay without cancelDelay, and stale callback guard.
+    const zeroCancelled = [];
+    const zeroHandleProvider = new LyricsProvider({
+        apiUrl: `${baseUri}/api/get`,
+        requestSpacingMs: 0,
+        persistentCache: false,
+        scheduleDelay: () => 0,
+        cancelDelay: handle => zeroCancelled.push(handle),
+    });
+    zeroHandleProvider.fetch({...baseTrack, title: 'Zero Handle'}, () => {});
+    zeroHandleProvider.cancelPending();
+    assert(zeroCancelled.length === 1 && zeroCancelled[0] === 0,
+        'cancelDelay must still run when scheduleDelay returns handle 0');
+    zeroHandleProvider.destroy();
+
+    const syncProvider = new LyricsProvider({
+        apiUrl: `${baseUri}/api/get`,
+        requestSpacingMs: 0,
+        persistentCache: false,
+        scheduleDelay: (_delayMs, callback) => {
+            callback();
+            return 42;
+        },
+        cancelDelay: () => {
+            throw new Error('synchronous scheduleDelay handle must not be retained or cancelled');
+        },
+    });
+    const syncResult = await new Promise(resolve =>
+        syncProvider.fetch({...baseTrack, title: 'Sync Timer'}, resolve));
+    assert(syncResult?.lines?.[0]?.text === 'current',
+        'synchronous scheduleDelay callbacks must complete without leaking or cancelling their handle');
+    syncProvider.destroy();
+
+    const noCancelProvider = new LyricsProvider({
+        apiUrl: `${baseUri}/api/get`,
+        requestSpacingMs: 0,
+        persistentCache: false,
+        scheduleDelay: () => 999_999,
+    });
+    noCancelProvider.fetch({...baseTrack, title: 'No Cancel Hook'}, () => {});
+    noCancelProvider.cancelPending();
+    noCancelProvider.destroy();
+
+    const staleCallbacksList = [];
+    const staleCancelled = [];
+    let staleNextHandle = 100;
+    const staleTimerProvider = new LyricsProvider({
+        apiUrl: `${baseUri}/api/get`,
+        requestSpacingMs: 0,
+        persistentCache: false,
+        scheduleDelay: (_delayMs, callback) => {
+            const handle = staleNextHandle++;
+            staleCallbacksList.push(callback);
+            return handle;
+        },
+        cancelDelay: handle => staleCancelled.push(handle),
+    });
+    staleTimerProvider.fetch({...baseTrack, title: 'Stale Timer A'}, () => {});
+    staleTimerProvider.fetch({...baseTrack, title: 'Stale Timer B'}, () => {});
+    staleCallbacksList[0]();
+    staleTimerProvider.destroy();
+    assert(staleCancelled.join(',') === '100,101',
+        'a stale delay callback must not clear the replacement request timer handle');
 }
 
 run()
@@ -766,6 +962,7 @@ run()
 loop.run();
 
 provider?.destroy();
+clock.destroy();
 server.disconnect();
 
 if (scenarioError)

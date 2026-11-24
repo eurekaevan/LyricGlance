@@ -3,12 +3,14 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import {createLyricsDocument} from '../lyrics-document.js';
+import {USER_AGENT, VERSION} from '../network-utils.js';
 import {removeTree} from '../storage.js';
 import {TranslationDiskCache} from '../translation-cache.js';
 import {createTranslationDocument, sourceLyricsHash} from '../translation-document.js';
 import {TranslationService, TranslationStatus} from '../translation-service.js';
 import {
     createTranslationProviderId,
+    loadActiveTranslationProvider,
     loadTranslationProviders,
     normalizeTranslationEndpoint,
     normalizeTranslationProvider,
@@ -430,18 +432,84 @@ async function run() {
         memoryStore.get('translation-api-endpoint') === 'https://api.deepseek.com/v1' &&
         memoryStore.get('translation-model') === 'deepseek-chat' &&
         saved.providers[1].models.join(',') === 'deepseek-chat,deepseek-reasoner',
-    'saving multiple providers should filter invalid entries, dedupe models and sync active runtime keys');
-    memoryStore.set('translation-model', 'external-model');
+    'saving multiple providers should filter invalid entries, dedupe models and mirror fallback keys');
+    memoryStore.set('translation-model', 'stale-legacy-model');
+    memoryStore.set('translation-api-endpoint', 'https://stale.example/v1');
     loaded = loadTranslationProviders(fakeSettings);
+    let activeRuntime = loadActiveTranslationProvider(fakeSettings);
     assert(loaded.activeId === customId &&
-        loaded.providers[1].model === 'external-model' &&
-        loaded.providers[1].models.includes('external-model'),
-    'external changes to the active model key must stay synchronized with the active provider');
+        loaded.providers[1].model === 'deepseek-chat' &&
+        loaded.providers[1].endpoint === 'https://api.deepseek.com/v1' &&
+        activeRuntime.id === customId &&
+        activeRuntime.model === 'deepseek-chat' &&
+        activeRuntime.endpoint === 'https://api.deepseek.com/v1' &&
+        activeRuntime.protocol === 'chat-completions',
+    'legacy scalar keys must not overwrite a populated translation-providers catalog');
+    memoryStore.set('translation-provider', 'openai');
+    loaded = loadTranslationProviders(fakeSettings);
+    activeRuntime = loadActiveTranslationProvider(fakeSettings);
+    assert(loaded.activeId === 'openai' &&
+        loaded.providers[0].endpoint === 'https://proxy.example/v1' &&
+        loaded.providers[0].model === 'legacy-model' &&
+        activeRuntime.id === 'openai' &&
+        activeRuntime.endpoint === 'https://proxy.example/v1' &&
+        activeRuntime.model === 'legacy-model',
+    'switching translation-provider must resolve that provider from translation-providers without leaking stale scalar keys');
+    memoryStore.set('translation-provider', 'deleted-provider');
+    loaded = loadTranslationProviders(fakeSettings);
+    activeRuntime = loadActiveTranslationProvider(fakeSettings);
+    assert(loaded.activeId === 'openai' && activeRuntime.id === 'openai' &&
+        activeRuntime.endpoint === 'https://proxy.example/v1',
+    'unknown active provider IDs must fall back consistently to the first stored provider');
+    memoryStore.set('translation-provider', customId);
     memoryStore.set('translation-providers', '{corrupt json');
     loaded = loadTranslationProviders(fakeSettings);
+    activeRuntime = loadActiveTranslationProvider(fakeSettings);
     assert(loaded.providers.length === 1 && loaded.providers[0].id === customId &&
-        loaded.providers[0].model === 'external-model',
-    'corrupted provider list JSON must safely fall back to the active keys');
+        loaded.providers[0].model === 'stale-legacy-model' &&
+        activeRuntime.id === customId &&
+        activeRuntime.model === 'stale-legacy-model',
+    'corrupted provider list JSON must safely fall back to the legacy keys');
+    memoryStore.set('translation-api-endpoint', 'http://unsafe.example/v1');
+    for (const emptyCatalog of ['{corrupt json', '[]', '[{"id":"bad"}]']) {
+        memoryStore.set('translation-providers', emptyCatalog);
+        activeRuntime = loadActiveTranslationProvider(fakeSettings);
+        const failClosedProvider = new OpenAITranslationProvider(activeRuntime);
+        assert(activeRuntime.endpoint === 'http://unsafe.example/v1' &&
+            failClosedProvider._endpoint === null,
+        `runtime legacy fallback (${emptyCatalog}) must fail closed on invalid endpoints rather than redirecting to OpenAI`);
+        failClosedProvider.destroy();
+    }
+    memoryStore.set('translation-providers', '');
+    memoryStore.set('translation-provider', '../invalid-id');
+    memoryStore.set('translation-api-endpoint', 'https://api.openai.com/v1/responses');
+    memoryStore.set('translation-api-protocol', 'auto');
+    memoryStore.set('translation-model', '  legacy-trimmed-model  ');
+    loaded = loadTranslationProviders(fakeSettings);
+    activeRuntime = loadActiveTranslationProvider(fakeSettings);
+    const invalidIdService = new TranslationService({
+        providerOptions: activeRuntime,
+        credentialStore: {lookup: async () => 'sk-test'},
+        cache: {
+            get: async () => ({hit: false}),
+            put: async () => {},
+            clear: async () => {},
+            destroy() {},
+        },
+    });
+    const invalidIdStatus = await invalidIdService.translate(lyrics, {
+        trackKey: 'invalid-id-track',
+        targetLanguage: 'zh-CN',
+        providerId: activeRuntime.id,
+        allowNetwork: false,
+    });
+    assert(loaded.activeId === 'openai' &&
+        activeRuntime.id === 'openai' &&
+        activeRuntime.model === 'legacy-trimmed-model' &&
+        invalidIdService._providers.has('openai') &&
+        invalidIdStatus.status === TranslationStatus.IDLE,
+    'invalid legacy translation-provider IDs must normalize to openai consistently across Preferences and runtime');
+    invalidIdService.destroy();
     assert(normalizeTranslationProvider({
         id: 'ok-1',
         name: 'Valid',
@@ -451,7 +519,7 @@ async function run() {
         model: '',
     }) === null, 'conflicting protocol and endpoint must be rejected during provider normalization');
 
-    let modelsProvider = new OpenAITranslationProvider({
+    const modelsProvider = new OpenAITranslationProvider({
         id: customId,
         endpoint: `${endpoint}/proxy/v1/chat/completions`,
         protocol: 'chat-completions',
@@ -463,7 +531,8 @@ async function run() {
         observed.method === 'GET' &&
         observed.path === '/proxy/v1/models' &&
         observed.authorization === 'Bearer models-test-token' &&
-        observed.userAgent.startsWith('LyricGlance/0.9.0'),
+        observed.userAgent === USER_AGENT &&
+        observed.userAgent.startsWith(`LyricGlance/${VERSION}`),
     'fetchModels should query GET .../models with Bearer auth and return deduped sorted IDs');
     for (const [modelsMode, expectedModels] of [
         ['models-array', 'model-a,model-b'],
@@ -508,7 +577,8 @@ async function run() {
     let result = await translate(provider);
     assert(result.length === 2 && result[0].text === '[zh-CN] Hello' &&
         observed.authorization === 'Bearer unit-test-token' &&
-        observed.userAgent.startsWith('LyricGlance/0.9.0') &&
+        observed.userAgent === USER_AGENT &&
+        observed.userAgent.startsWith(`LyricGlance/${VERSION}`) &&
         observed.body.model === 'custom-translation-model' &&
         observed.body.store === false &&
         observed.body.reasoning?.effort === 'none' &&

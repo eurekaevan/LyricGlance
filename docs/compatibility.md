@@ -53,7 +53,7 @@ Full cancellation clears the layout's pan width and repeat offset; display-prese
 
 Panel title loops use the actual text displacement for their left fade: the first glyph is fully opaque at zero offset, including the initial hold and a pause at the start. The repeating copy keeps the right fade active. Wraps back to zero restore the clear left edge.
 
-Word focus following requires matching original text, monotonic glyph geometry and non-overlapping word timing. Unsupported geometry or timing falls back to line scrolling. Translations use the original line timeline rather than original word coordinates. Timing and fallback rules have one reference in the [README](../README.md#时间轴与结束时间).
+Word focus following requires matching original text, monotonic glyph geometry and non-overlapping word timing. Unsupported geometry or timing falls back to line scrolling. Translations use the original line timeline rather than original word coordinates. Timing and fallback rules have one reference in the [development guide](development.md#timeline-and-end-times).
 
 `St.Settings.enable_animations` and, on 51, `St.Settings.reduced_motion` control continuous motion. When animations are disabled or reduced motion is requested, synchronized panel lyrics use overlapping pages driven by the same playback clock; popup titles retain static ellipsizing. The packaged test inhibits and restores native Shell animations, and separately changes the native reduced-motion setting while animations stay enabled. It checks page advancement, pause, hover, backward/forward seeks and return to continuous motion.
 

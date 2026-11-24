@@ -2,9 +2,34 @@ name: CI
 
 on:
   push:
+    branches:
+      - '**'
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install ESLint
+        run: |
+          npm install --global --prefix /tmp/lyricglance-eslint --ignore-scripts --no-audit --no-fund eslint@10.15.0
+          /tmp/lyricglance-eslint/bin/eslint --version
+          echo /tmp/lyricglance-eslint/bin >> "$GITHUB_PATH"
+
+      - name: Run ESLint
+        run: make lint
+
   check:
     runs-on: ubuntu-latest
     strategy:
@@ -58,9 +83,10 @@ jobs:
         run: make prefs-check
 
       - name: Upload tested extension package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lyric-glance-gnome-${{ matrix.shell }}
           path: lyric-glance@eureka.shell-extension.zip
           if-no-files-found: error
+          overwrite: true
 

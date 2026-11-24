@@ -4,7 +4,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: LyricGlance 0.9.0\n"
+"Project-Id-Version: LyricGlance 2026-11-22\n"
 "Report-Msgid-Bugs-To: https://github.com/eurekaevan/LyricGlance/issues\n"
 "POT-Creation-Date: 2026-11-22 12:54+0800\n"
 "PO-Revision-Date: 2026-10-15 15:53+0800\n"

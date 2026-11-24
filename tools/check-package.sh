@@ -38,7 +38,7 @@ for catalog in "$(dirname "${BASH_SOURCE[0]}")/../po/"*.po; do
 done
 
 if unzip -Z1 "${ARCHIVE}" | grep -E \
-    '(^|/)(\.git|tests|tools|docs|node_modules|build|dist)(/|$)|(^|/)(\.env|gschemas\.compiled$|README\.[^/]+\.md$)' > /dev/null; then
+    '(^|/)(\.git|tests|tools|docs|node_modules|build|dist)(/|$)|(^|/)(\.env|gschemas\.compiled$|README\.[^/]+\.md$|eslint\.config\.[^/]+$)' > /dev/null; then
     printf 'Package contains a development-only or forbidden file\n' >&2
     exit 1
 fi

@@ -5,7 +5,7 @@ PACKAGE := $(UUID).shell-extension.zip
 SCHEMA := schemas/org.gnome.shell.extensions.lyric-glance.gschema.xml
 POT_FILE := po/$(GETTEXT_DOMAIN).pot
 PO_FILES := $(wildcard po/*.po)
-RUNTIME_SOURCES := icons network-utils.js shell-ui-utils.js io-promisify.js indicator.js artwork-loader.js artwork-view.js ui-utils.js \
+RUNTIME_SOURCES := icons network-utils.js shell-ui-utils.js io-promisify.js indicator.js panel-label-view.js artwork-loader.js artwork-view.js ui-utils.js \
 	lyrics.js lyrics-document.js lyrics-matcher.js lyrics-normalizer.js \
 	lyrics-parser.js lyrics-synchronizer.js lyricsfile-parser.js mpris.js \
 	storage.js credentials.js translation-batching.js translation-cache.js \
@@ -14,10 +14,25 @@ RUNTIME_SOURCES := icons network-utils.js shell-ui-utils.js io-promisify.js indi
 	franc.mjs LICENSE.franc LICENSE
 PACK_SOURCE_ARGS := $(foreach source,$(RUNTIME_SOURCES),--extra-source=$(source))
 
-.PHONY: check shell-check shell-presentation-check prefs-check unit-check schema-check translations-check package-check shexli-check \
+.PHONY: check lint shell-check shell-presentation-check prefs-check unit-check schema-check translations-check package-check shexli-check \
 	integration integration-secret install enable disable reload pack pot translations-update clean
 
 check: schema-check translations-check unit-check pack package-check shexli-check
+
+lint:
+	@set -eu; \
+	eslint_bin=$${ESLINT:-}; \
+	if [ -z "$$eslint_bin" ]; then \
+		if command -v eslint >/dev/null 2>&1; then \
+			eslint_bin=eslint; \
+		elif [ -x ./node_modules/.bin/eslint ]; then \
+			eslint_bin=./node_modules/.bin/eslint; \
+		else \
+			printf 'eslint not found on PATH or ./node_modules/.bin; install ESLint 9+ to run make lint\n' >&2; \
+			exit 1; \
+		fi; \
+	fi; \
+	"$$eslint_bin" .
 
 shell-check: SHELL_TEST_SCRIPT := tests/shell-extension.js
 shell-presentation-check: SHELL_TEST_SCRIPT := tests/shell-presentation.js
@@ -73,7 +88,7 @@ shexli-check: pack
 integration:
 	dbus-run-session -- gjs -m tests/integration-mpris-events.js
 	gjs -m tests/integration-artwork-loader.js
-	gjs -m tests/test-lyrics-errors.js
+	gjs -m tests/integration-lyrics-errors.js
 	gjs -m tests/integration-lyrics-http.js
 	gjs -m tests/integration-storage.js
 	gjs -m tests/integration-translation-http.js
