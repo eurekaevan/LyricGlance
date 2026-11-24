@@ -603,70 +603,111 @@ export async function run() {
     }
     const hoverPopupWasOpen = indicator.menu.isOpen;
     const hoverLabelStyle = view._panelLabelView._panLabel.get_style();
+    // Use double panningText so a relative 0.85em shrink stays well in overflow
+    // across narrow/small fonts and themes, while 1px still fits the viewport.
+    const hoverText = `${panningText} ${panningText}`;
+    const waitHoverSettle = async (predicate = () => true) => {
+        const deadlineUs = GLib.get_monotonic_time() + 1_000_000;
+        do {
+            await Scripting.sleep(20);
+        } while ((view._panelLabelView._panLaterId ||
+            view._panelLabelView._geometryLaterId ||
+            !predicate()) &&
+            GLib.get_monotonic_time() < deadlineUs);
+    };
     indicator.menu.close();
     try {
         view.setProgress(0, 220_000_000, {playing: false});
-        view.setText(panningText, {scrollable: true,
+        view.setText(hoverText, {scrollable: true,
             timeline: panelTimeline(8000, 2000), contentKey: 'hover-refresh'});
-        await Scripting.sleep(120);
+        await waitHoverSettle(() => view._panelLabelView._panLabel.visible);
         view.setProgress(0, 220_000_000, {playing: true});
-        await Scripting.sleep(80);
+        await waitHoverSettle(() =>
+            view._panelLabelView._panLabel.get_transition('translation-x') !== null);
         view._panelLabelView._hovered = true;
         view._panelLabelView.pause();
         const heldX = view._panelLabelView._panLabel.translation_x;
         for (const positionMs of [4000, 7900]) {
-            view.setText(panningText, {scrollable: true,
+            view.setText(hoverText, {scrollable: true,
                 timeline: panelTimeline(8000, positionMs), contentKey: 'hover-refresh'});
-            await Scripting.sleep(100);
-            assert(Math.abs(view._panelLabelView._panLabel.translation_x - heldX) < 0.5 &&
+            await waitHoverSettle();
+            assert(view._panelLabelView._panLaterId === 0 &&
+                view._panelLabelView._geometryLaterId === 0 &&
+                Math.abs(view._panelLabelView._panLabel.translation_x - heldX) < 0.5 &&
                 view._panelLabelView._paused && view._panelLabelView._wordTimeoutId === 0 &&
                 !view._panelLabelView._panLabel.get_transition('translation-x'),
             'same-content background refreshes must preserve hover position, including the ending hold');
         }
-        view.setText(panningText, {scrollable: true,
+        view.setText(hoverText, {scrollable: true,
             timeline: panelTimeline(8000, 7800), contentKey: 'hover-refresh'});
         view._panelLabelView._hovered = false;
         view._panelLabelView.resume();
         assert(Math.abs(view._panelLabelView._panLabel.translation_x - heldX) < 0.5,
             'leaving hover during a queued refresh must not jump immediately');
-        await Scripting.sleep(320);
-        assert(view._panelLabelView._panLabel.translation_x < heldX && !view._panelLabelView._paused,
-            'leaving hover must catch up to the newest ending even without a next boundary');
+        await waitHoverSettle(() =>
+            !view._panelLabelView._panLabel.get_transition('translation-x') &&
+            view._panelLabelView._panLabel.translation_x < heldX);
+        assert(view._panelLabelView._panLaterId === 0 &&
+            view._panelLabelView._geometryLaterId === 0 &&
+            !view._panelLabelView._panLabel.get_transition('translation-x') &&
+            view._panelLabelView._panLabel.translation_x < heldX &&
+            !view._panelLabelView._paused,
+        'leaving hover must catch up to the newest ending even without a next boundary');
 
         view._panelLabelView._hovered = true;
         view._panelLabelView.pause();
         const heldEndX = view._panelLabelView._panLabel.translation_x;
-        view.setText(panningText, {scrollable: true,
+        view.setText(hoverText, {scrollable: true,
             timeline: panelTimeline(8000, 1000), contentKey: 'hover-refresh'});
-        view._panelLabelView._panLabel.set_style('font-size: 10px;');
-        await Scripting.sleep(180);
-        const resizedMinimumX = -(Math.ceil(view._panelLabelView._naturalWidth - view._panelLabelView._viewportWidth) + 8);
+        view._panelLabelView._panLabel.set_style('font-size: 0.85em;');
+        await waitHoverSettle();
+        const resizedOverflow = Math.ceil(
+            view._panelLabelView._naturalWidth - view._panelLabelView._viewportWidth);
+        const resizedMinimumX = -(resizedOverflow <= 8 ? resizedOverflow : resizedOverflow + 8);
         const clampedX = Math.max(resizedMinimumX, heldEndX);
-        assert(resizedMinimumX < 0 &&
+        assert(view._panelLabelView._panLaterId === 0 &&
+            view._panelLabelView._geometryLaterId === 0 &&
+            resizedOverflow > 0 && resizedMinimumX > heldEndX &&
             Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5 &&
             view._panelLabelView._paused,
-        'hovered font changes must clamp the old offset to the new range rather than seek to lyric time');
+        'hovered font changes must clamp the old offset to the new range rather than seek to lyric time ' +
+            `(natural=${view._panelLabelView._naturalWidth}, viewport=${view._panelLabelView._viewportWidth}, ` +
+            `heldEndX=${heldEndX}, resizedMinimumX=${resizedMinimumX}, ` +
+            `actualX=${view._panelLabelView._panLabel.translation_x}, paused=${view._panelLabelView._paused}, ` +
+            `panLater=${view._panelLabelView._panLaterId}, geometryLater=${view._panelLabelView._geometryLaterId})`);
+        const hoverViewportWidth = view._panelLabelView._viewportWidth;
         settings.set_int('max-panel-width', 200);
         assert(view._panelLabelView._panLabel.visible &&
             Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5,
         'a hovered width change must retain the visible reading position before layout');
-        await Scripting.sleep(180);
-        assert(Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5 &&
+        await waitHoverSettle(() =>
+            view._panelLabelView._viewportWidth < hoverViewportWidth);
+        assert(view._panelLabelView._panLaterId === 0 &&
+            view._panelLabelView._geometryLaterId === 0 &&
+            view._panelLabelView._viewportWidth < hoverViewportWidth &&
+            Math.abs(view._panelLabelView._panLabel.translation_x - clampedX) < 0.5 &&
             view._panelLabelView._paused && !view._panelLabelView._panLabel.get_transition('translation-x'),
         'hovered viewport reallocation must not restart motion');
         settings.set_int('max-panel-width', 500);
-        await Scripting.sleep(180);
-        view.setText(panningText, {scrollable: true,
+        await waitHoverSettle(() =>
+            view._panelLabelView._viewportWidth === hoverViewportWidth);
+        view.setText(hoverText, {scrollable: true,
             timeline: panelTimeline(8000, 0), contentKey: 'hover-next-line'});
-        await Scripting.sleep(120);
-        assert(Math.abs(view._panelLabelView._panLabel.translation_x -
-            view._panelLabelView._panState(view._panelLabelView._positionAt()).initialX) < 0.5 &&
+        await waitHoverSettle(() => view._panelLabelView._panLabel.visible);
+        assert(view._panelLabelView._panLaterId === 0 &&
+            view._panelLabelView._geometryLaterId === 0 &&
+            view._panelLabelView._panLabel.visible &&
+            Math.abs(view._panelLabelView._panLabel.translation_x -
+                view._panelLabelView._panState(view._panelLabelView._positionAt()).initialX) < 0.5 &&
             view._panelLabelView._paused,
         'a new content key must initialize its own position while remaining hover-paused');
         view._panelLabelView._panLabel.set_style('font-size: 1px;');
-        await Scripting.sleep(120);
-        assert(view._panelLabelView._label.visible && !view._panelLabelView._panLabel.visible && !view._panelLabelView._paused,
-            'removing overflow must release the paused pan and show the fitted label');
+        await waitHoverSettle(() => !view._panelLabelView._panLabel.visible);
+        assert(view._panelLabelView._panLaterId === 0 &&
+            view._panelLabelView._geometryLaterId === 0 &&
+            view._panelLabelView._label.visible && !view._panelLabelView._panLabel.visible &&
+            !view._panelLabelView._paused,
+        'removing overflow must release the paused pan and show the fitted label');
     } finally {
         view._panelLabelView._hovered = false;
         view._panelLabelView._panLabel.set_style(hoverLabelStyle);
